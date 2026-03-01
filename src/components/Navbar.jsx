@@ -1,0 +1,116 @@
+import React, { useState } from 'react';
+
+function Navbar({ theme, onToggleTheme, currentUser, onLogout, onNavigate }) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  const handleLogout = async () => {
+    const token = localStorage.getItem('auth_token');
+    try {
+      await fetch('http://localhost:3001/auth/logout', {
+        method: 'POST',
+        headers: { 'x-auth-token': token }
+      });
+    } catch { /* no-op */ }
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_user');
+    setDropdownOpen(false);
+    onLogout();
+  };
+
+  const roleBadge = currentUser?.role === 'admin'
+    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+    : 'bg-blue-500/20 text-blue-400 border border-blue-500/30';
+
+  return (
+    <nav className="h-[60px] border-b flex items-center justify-between px-6 relative z-50" style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+      {/* App Name */}
+      <div className="flex items-center">
+        <h1 className="text-xl font-semibold" style={{ color: 'rgb(var(--text-primary))' }}>Test Cloud Studio</h1>
+      </div>
+
+      {/* Right Section */}
+      <div className="flex items-center gap-3">
+        {/* Theme Toggle */}
+        <button
+          onClick={onToggleTheme}
+          className="p-2 rounded-lg transition-all duration-200 button-scale hover:ring-2 hover:ring-indigo-500"
+          style={{ backgroundColor: 'rgb(var(--bg-secondary))' }}
+          aria-label="Toggle theme"
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+        >
+          {theme === 'dark' ? (
+            <svg className="w-5 h-5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+          )}
+        </button>
+
+        {/* User Menu */}
+        {currentUser && (
+          <div className="relative">
+            <button
+              onClick={() => setDropdownOpen(v => !v)}
+              className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl transition-all hover:ring-2 hover:ring-indigo-500"
+              style={{ backgroundColor: 'rgb(var(--bg-secondary))' }}
+            >
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                {currentUser.username.charAt(0).toUpperCase()}
+              </div>
+              <div className="text-left hidden sm:block">
+                <p className="text-sm font-medium leading-none" style={{ color: 'rgb(var(--text-primary))' }}>{currentUser.username}</p>
+                <p className={`text-xs mt-0.5 px-1.5 py-0.5 rounded-full capitalize inline-block ${roleBadge}`}>{currentUser.role}</p>
+              </div>
+              <svg className={`w-4 h-4 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'rgb(var(--text-tertiary))' }}>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {dropdownOpen && (
+              <>
+                {/* Backdrop */}
+                <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
+                {/* Dropdown */}
+                <div
+                  className="absolute right-0 mt-2 w-52 rounded-xl border shadow-xl z-50 py-1 overflow-hidden"
+                  style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}
+                >
+                  <div className="px-4 py-3 border-b" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+                    <p className="text-sm font-semibold" style={{ color: 'rgb(var(--text-primary))' }}>{currentUser.username}</p>
+                    <p className={`text-xs mt-1 px-2 py-0.5 rounded-full capitalize inline-block ${roleBadge}`}>{currentUser.role}</p>
+                  </div>
+                  {currentUser.role === 'admin' && (
+                    <button
+                      onClick={() => { setDropdownOpen(false); onNavigate('userManagement'); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left hover:bg-indigo-500/10"
+                      style={{ color: 'rgb(var(--text-secondary))' }}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      User Management
+                    </button>
+                  )}
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors text-left"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                    Sign Out
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </nav>
+  );
+}
+
+export default Navbar;

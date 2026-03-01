@@ -1,0 +1,619 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme CSS Variables */
+:root {
+  /* Light Theme Colors */
+  --bg-primary: 248 250 252; /* slate-50 */
+  --bg-secondary: 241 245 249; /* slate-100 */
+  --bg-tertiary: 255 255 255; /* white */
+  --bg-elevated: 255 255 255; /* white */
+  
+  --border-primary: 226 232 240; /* slate-200 */
+  --border-secondary: 203 213 225; /* slate-300 */
+  
+  --text-primary: 15 23 42; /* slate-900 */
+  --text-secondary: 51 65 85; /* slate-700 */
+  --text-tertiary: 100 116 139; /* slate-500 */
+  --text-inverse: 255 255 255; /* white */
+  
+  --success: 34 197 94; /* green-500 */
+  --success-bg: 220 252 231; /* green-100 */
+  --success-border: 134 239 172; /* green-300 */
+  
+  --error: 239 68 68; /* red-500 */
+  --error-bg: 254 226 226; /* red-100 */
+  --error-border: 252 165 165; /* red-300 */
+  
+  --primary: 99 102 241; /* indigo-600 */
+  --primary-hover: 79 70 229; /* indigo-700 */
+  --primary-bg: 224 231 255; /* indigo-100 */
+  
+  --chart-bg: 248 250 252; /* slate-50 */
+  --input-bg: 255 255 255; /* white */
+  --skeleton: 226 232 240; /* slate-200 */
+}
+
+[data-theme="dark"] {
+  /* Dark Theme Colors */
+  --bg-primary: 2 6 23; /* slate-950 */
+  --bg-secondary: 15 23 42; /* slate-900 */
+  --bg-tertiary: 30 41 59; /* slate-800 */
+  --bg-elevated: 15 23 42; /* slate-900 */
+  
+  --border-primary: 51 65 85; /* slate-700 */
+  --border-secondary: 71 85 105; /* slate-600 */
+  
+  --text-primary: 248 250 252; /* slate-50 */
+  --text-secondary: 226 232 240; /* slate-200 */
+  --text-tertiary: 148 163 184; /* slate-400 */
+  --text-inverse: 15 23 42; /* slate-900 */
+  
+  --success: 34 197 94; /* green-500 */
+  --success-bg: 20 83 45; /* green-900/50 */
+  --success-border: 21 128 61; /* green-700 */
+  
+  --error: 239 68 68; /* red-500 */
+  --error-bg: 127 29 29; /* red-900/50 */
+  --error-border: 185 28 28; /* red-700 */
+  
+  --primary: 99 102 241; /* indigo-500 */
+  --primary-hover: 79 70 229; /* indigo-600 */
+  --primary-bg: 30 27 75; /* indigo-950 */
+  
+  --chart-bg: 15 23 42; /* slate-900 */
+  --input-bg: 30 41 59; /* slate-800 */
+  --skeleton: 51 65 85; /* slate-700 */
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: rgb(var(--bg-primary));
+  color: rgb(var(--text-primary));
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Theme-aware utility classes */
+@layer components {
+  .bg-theme-primary {
+    background-color: rgb(var(--bg-primary));
+  }
+  
+  .bg-theme-secondary {
+    background-color: rgb(var(--bg-secondary));
+  }
+  
+  .bg-theme-tertiary {
+    background-color: rgb(var(--bg-tertiary));
+  }
+  
+  .bg-theme-elevated {
+    background-color: rgb(var(--bg-elevated));
+  }
+  
+  .border-theme-primary {
+    border-color: rgb(var(--border-primary));
+  }
+  
+  .border-theme-secondary {
+    border-color: rgb(var(--border-secondary));
+  }
+  
+  .text-theme-primary {
+    color: rgb(var(--text-primary));
+  }
+  
+  .text-theme-secondary {
+    color: rgb(var(--text-secondary));
+  }
+  
+  .text-theme-tertiary {
+    color: rgb(var(--text-tertiary));
+  }
+  
+  .text-theme-inverse {
+    color: rgb(var(--text-inverse));
+  }
+  
+  .bg-success {
+    background-color: rgb(var(--success-bg));
+  }
+  
+  .border-success {
+    border-color: rgb(var(--success-border));
+  }
+  
+  .text-success {
+    color: rgb(var(--success));
+  }
+  
+  .bg-error {
+    background-color: rgb(var(--error-bg));
+  }
+  
+  .border-error {
+    border-color: rgb(var(--error-border));
+  }
+  
+  .text-error {
+    color: rgb(var(--error));
+  }
+  
+  .bg-primary {
+    background-color: rgb(var(--primary));
+  }
+  
+  .bg-primary-hover:hover {
+    background-color: rgb(var(--primary-hover));
+  }
+  
+  .bg-chart {
+    background-color: rgb(var(--chart-bg));
+  }
+  
+  .bg-input {
+    background-color: rgb(var(--input-bg));
+  }
+  
+  .bg-skeleton {
+    background-color: rgb(var(--skeleton));
+  }
+}
+
+/* Override Tailwind colors for better theme support */
+@layer utilities {
+  /* Adaptive text colors */
+  .text-adaptive-primary {
+    color: rgb(var(--text-primary)) !important;
+  }
+  
+  .text-adaptive-secondary {
+    color: rgb(var(--text-secondary)) !important;
+  }
+  
+  .text-adaptive-tertiary {
+    color: rgb(var(--text-tertiary)) !important;
+  }
+  
+  /* Adaptive backgrounds */
+  .bg-adaptive-primary {
+    background-color: rgb(var(--bg-primary)) !important;
+  }
+  
+  .bg-adaptive-secondary {
+    background-color: rgb(var(--bg-secondary)) !important;
+  }
+  
+  .bg-adaptive-tertiary {
+    background-color: rgb(var(--bg-tertiary)) !important;
+  }
+  
+  .bg-adaptive-elevated {
+    background-color: rgb(var(--bg-elevated)) !important;
+  }
+  
+  /* Adaptive borders */
+  .border-adaptive-primary {
+    border-color: rgb(var(--border-primary)) !important;
+  }
+  
+  .border-adaptive-secondary {
+    border-color: rgb(var(--border-secondary)) !important;
+  }
+}
+
+/* Fade-in animation for expandable content */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Page fade-in animation */
+@keyframes pageTransition {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-page-transition {
+  animation: pageTransition 0.4s ease-out;
+}
+
+/* Smooth expand/collapse */
+.transition-height {
+  transition: height 0.3s ease-in-out, opacity 0.3s ease-in-out;
+}
+
+.transition-transform-opacity {
+  transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+}
+
+/* Card hover lift effect */
+.card-hover {
+  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+}
+
+/* Button subtle scale */
+.button-scale {
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+
+.button-scale:hover:not(:disabled) {
+  transform: scale(1.02);
+}
+
+.button-scale:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Slide-in animation for panels */
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+/* Custom Scrollbar Styling */
+/* WebKit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgb(15 23 42); /* slate-900 */
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(51 65 85); /* slate-700 */
+  border-radius: 6px;
+  border: 2px solid rgb(15 23 42); /* slate-900 */
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(71 85 105); /* slate-600 */
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgb(99 102 241); /* indigo-500 */
+}
+
+::-webkit-scrollbar-corner {
+  background: rgb(15 23 42); /* slate-900 */
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(51 65 85) rgb(15 23 42); /* thumb: slate-700, track: slate-900 */
+}
+
+/* ============================================================
+   LIGHT THEME OVERRIDES
+   Remaps hardcoded dark slate classes to light-appropriate
+   colors when data-theme="light" is set on <html>.
+   ============================================================ */
+
+/* --- Background overrides --- */
+[data-theme="light"] .bg-slate-950 {
+  background-color: rgb(248 250 252) !important; /* slate-50 */
+}
+[data-theme="light"] .bg-slate-900 {
+  background-color: rgb(255 255 255) !important; /* white */
+}
+[data-theme="light"] .bg-slate-800 {
+  background-color: rgb(241 245 249) !important; /* slate-100 */
+}
+[data-theme="light"] .bg-slate-700 {
+  background-color: rgb(226 232 240) !important; /* slate-200 */
+}
+[data-theme="light"] .bg-slate-600 {
+  background-color: rgb(203 213 225) !important; /* slate-300 */
+}
+
+/* --- Border overrides --- */
+[data-theme="light"] .border-slate-900 {
+  border-color: rgb(226 232 240) !important; /* slate-200 */
+}
+[data-theme="light"] .border-slate-800 {
+  border-color: rgb(226 232 240) !important; /* slate-200 */
+}
+[data-theme="light"] .border-slate-700 {
+  border-color: rgb(203 213 225) !important; /* slate-300 */
+}
+[data-theme="light"] .border-slate-600 {
+  border-color: rgb(148 163 184) !important; /* slate-400 */
+}
+
+/* --- Divide overrides --- */
+[data-theme="light"] .divide-slate-700 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(203 213 225) !important; /* slate-300 */
+}
+[data-theme="light"] .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(226 232 240) !important; /* slate-200 */
+}
+
+/* --- Text overrides --- */
+[data-theme="light"] .text-white {
+  color: rgb(15 23 42) !important; /* slate-900 */
+}
+[data-theme="light"] .text-slate-100 {
+  color: rgb(15 23 42) !important; /* slate-900 */
+}
+[data-theme="light"] .text-slate-200 {
+  color: rgb(30 41 59) !important; /* slate-800 */
+}
+[data-theme="light"] .text-slate-300 {
+  color: rgb(51 65 85) !important; /* slate-700 */
+}
+[data-theme="light"] .text-slate-400 {
+  color: rgb(71 85 105) !important; /* slate-600 */
+}
+
+/* Keep white text on colored/gradient button & badge backgrounds */
+[data-theme="light"] .bg-indigo-600 .text-white,
+[data-theme="light"] .bg-indigo-700 .text-white,
+[data-theme="light"] .bg-green-600 .text-white,
+[data-theme="light"] .bg-green-700 .text-white,
+[data-theme="light"] .bg-red-600 .text-white,
+[data-theme="light"] .bg-red-700 .text-white,
+[data-theme="light"] .bg-blue-600 .text-white,
+[data-theme="light"] .bg-blue-700 .text-white,
+[data-theme="light"] .bg-purple-600 .text-white,
+[data-theme="light"] .bg-cyan-600 .text-white,
+[data-theme="light"] .bg-cyan-700 .text-white,
+[data-theme="light"] .bg-emerald-600 .text-white,
+[data-theme="light"] .bg-orange-600 .text-white,
+[data-theme="light"] .bg-yellow-600 .text-white {
+  color: rgb(255 255 255) !important;
+}
+
+/* Self-colored buttons (text-white on the same element as bg-*) */
+[data-theme="light"] .bg-indigo-600.text-white,
+[data-theme="light"] .bg-indigo-700.text-white,
+[data-theme="light"] .bg-green-600.text-white,
+[data-theme="light"] .bg-green-700.text-white,
+[data-theme="light"] .bg-red-600.text-white,
+[data-theme="light"] .bg-red-700.text-white,
+[data-theme="light"] .bg-blue-600.text-white,
+[data-theme="light"] .bg-blue-700.text-white,
+[data-theme="light"] .bg-purple-600.text-white,
+[data-theme="light"] .bg-cyan-600.text-white,
+[data-theme="light"] .bg-cyan-700.text-white,
+[data-theme="light"] .bg-emerald-600.text-white,
+[data-theme="light"] .bg-orange-600.text-white,
+[data-theme="light"] .bg-yellow-600.text-white {
+  color: rgb(255 255 255) !important;
+}
+
+/* Gradient backgrounds keep white text (avatars, etc.) */
+[data-theme="light"] [class*="from-indigo"][class*="to-purple"] {
+  color: rgb(255 255 255) !important;
+}
+[data-theme="light"] [class*="from-indigo"][class*="to-purple"] .text-white {
+  color: rgb(255 255 255) !important;
+}
+
+/* --- Hover overrides --- */
+[data-theme="light"] .hover\:bg-slate-900:hover {
+  background-color: rgb(241 245 249) !important; /* slate-100 */
+}
+[data-theme="light"] .hover\:bg-slate-800:hover {
+  background-color: rgb(226 232 240) !important; /* slate-200 */
+}
+[data-theme="light"] .hover\:bg-slate-700:hover {
+  background-color: rgb(203 213 225) !important; /* slate-300 */
+}
+[data-theme="light"] .hover\:text-white:hover {
+  color: rgb(15 23 42) !important; /* slate-900 */
+}
+[data-theme="light"] .hover\:text-slate-200:hover {
+  color: rgb(30 41 59) !important; /* slate-800 */
+}
+[data-theme="light"] .hover\:text-slate-300:hover {
+  color: rgb(51 65 85) !important; /* slate-700 */
+}
+
+/* Keep hover-white on colored icon buttons */
+[data-theme="light"] .hover\:bg-indigo-600:hover,
+[data-theme="light"] .hover\:bg-indigo-700:hover,
+[data-theme="light"] .hover\:bg-red-600:hover,
+[data-theme="light"] .hover\:bg-red-700:hover,
+[data-theme="light"] .hover\:bg-green-600:hover,
+[data-theme="light"] .hover\:bg-green-700:hover {
+  /* Keep the colored bg; don't force light override */
+}
+
+/* --- Input / textarea / select fields --- */
+[data-theme="light"] input.bg-slate-800,
+[data-theme="light"] textarea.bg-slate-800,
+[data-theme="light"] select.bg-slate-800 {
+  background-color: rgb(255 255 255) !important;
+  color: rgb(15 23 42) !important;
+  border-color: rgb(203 213 225) !important;
+}
+
+/* --- Placeholder text --- */
+[data-theme="light"] ::placeholder {
+  color: rgb(148 163 184) !important; /* slate-400 */
+}
+
+/* --- Scrollbar overrides --- */
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: rgb(241 245 249) !important; /* slate-100 */
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgb(148 163 184) !important; /* slate-400 */
+  border-color: rgb(241 245 249) !important;
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgb(100 116 139) !important; /* slate-500 */
+}
+[data-theme="light"] ::-webkit-scrollbar-corner {
+  background: rgb(241 245 249) !important;
+}
+[data-theme="light"] {
+  scrollbar-color: rgb(148 163 184) rgb(241 245 249);
+}
+
+/* --- gray-* class overrides (Defects page uses gray instead of slate) --- */
+[data-theme="light"] .bg-gray-950 {
+  background-color: rgb(248 250 252) !important;
+}
+[data-theme="light"] .bg-gray-900 {
+  background-color: rgb(255 255 255) !important;
+}
+[data-theme="light"] .bg-gray-800 {
+  background-color: rgb(241 245 249) !important;
+}
+[data-theme="light"] .bg-gray-700 {
+  background-color: rgb(255 255 255) !important;
+}
+[data-theme="light"] .bg-gray-600 {
+  background-color: rgb(226 232 240) !important;
+}
+
+[data-theme="light"] .border-gray-900 {
+  border-color: rgb(226 232 240) !important;
+}
+[data-theme="light"] .border-gray-800 {
+  border-color: rgb(226 232 240) !important;
+}
+[data-theme="light"] .border-gray-700 {
+  border-color: rgb(203 213 225) !important;
+}
+[data-theme="light"] .border-gray-600 {
+  border-color: rgb(148 163 184) !important;
+}
+
+[data-theme="light"] .divide-gray-700 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(203 213 225) !important;
+}
+[data-theme="light"] .divide-gray-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(226 232 240) !important;
+}
+
+[data-theme="light"] .text-gray-100 {
+  color: rgb(15 23 42) !important;
+}
+[data-theme="light"] .text-gray-200 {
+  color: rgb(30 41 59) !important;
+}
+[data-theme="light"] .text-gray-300 {
+  color: rgb(51 65 85) !important;
+}
+[data-theme="light"] .text-gray-400 {
+  color: rgb(71 85 105) !important;
+}
+
+[data-theme="light"] .hover\:bg-gray-900:hover {
+  background-color: rgb(241 245 249) !important;
+}
+[data-theme="light"] .hover\:bg-gray-800:hover {
+  background-color: rgb(226 232 240) !important;
+}
+[data-theme="light"] .hover\:bg-gray-700:hover {
+  background-color: rgb(241 245 249) !important;
+}
+[data-theme="light"] .hover\:bg-gray-700\/50:hover {
+  background-color: rgb(241 245 249 / 0.8) !important;
+}
+[data-theme="light"] .hover\:bg-gray-600:hover {
+  background-color: rgb(226 232 240) !important;
+}
+
+[data-theme="light"] input.bg-gray-700,
+[data-theme="light"] textarea.bg-gray-700,
+[data-theme="light"] select.bg-gray-700 {
+  background-color: rgb(255 255 255) !important;
+  color: rgb(15 23 42) !important;
+  border-color: rgb(203 213 225) !important;
+}
+
+/* --- Gradient overrides (e.g. modal headers using from-slate-800 to-slate-900) --- */
+[data-theme="light"] .from-slate-800 {
+  --tw-gradient-from: rgb(241 245 249) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+[data-theme="light"] .to-slate-900 {
+  --tw-gradient-to: rgb(255 255 255) !important;
+}
+[data-theme="light"] .from-gray-800 {
+  --tw-gradient-from: rgb(241 245 249) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+[data-theme="light"] .to-gray-900 {
+  --tw-gradient-to: rgb(255 255 255) !important;
+}
+
+
+/* ─── Wiki / Markdown content styles ─────────────────────────── */
+.wiki-content { color: rgb(203 213 225); line-height: 1.75; font-size: 0.9375rem; max-width: 72ch; }
+.wiki-h1 { font-size: 2rem; font-weight: 700; color: white; margin: 1.5rem 0 0.75rem; border-bottom: 1px solid rgb(51 65 85); padding-bottom: 0.5rem; }
+.wiki-h2 { font-size: 1.5rem; font-weight: 700; color: white; margin: 1.5rem 0 0.5rem; border-bottom: 1px solid rgb(51 65 85 / 0.5); padding-bottom: 0.35rem; }
+.wiki-h3 { font-size: 1.2rem; font-weight: 600; color: rgb(226 232 240); margin: 1.25rem 0 0.4rem; }
+.wiki-h4 { font-size: 1rem; font-weight: 600; color: rgb(203 213 225); margin: 1rem 0 0.3rem; }
+.wiki-h5, .wiki-h6 { font-size: 0.925rem; font-weight: 600; color: rgb(148 163 184); margin: 1rem 0 0.25rem; }
+.wiki-p { margin: 0.6rem 0; }
+.wiki-hr { border: none; border-top: 1px solid rgb(51 65 85); margin: 1.5rem 0; }
+.wiki-blockquote { border-left: 3px solid rgb(99 102 241); padding: 0.5rem 1rem; background: rgb(99 102 241 / 0.06); border-radius: 0 6px 6px 0; margin: 0.75rem 0; color: rgb(148 163 184); }
+.wiki-ul { list-style: disc; padding-left: 1.5rem; margin: 0.5rem 0; }
+.wiki-ol { list-style: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
+.wiki-li { margin: 0.2rem 0; }
+.wiki-code { font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace; font-size: 0.82em; background: rgb(30 41 59); border: 1px solid rgb(51 65 85); color: rgb(249 115 22); padding: 0.1em 0.45em; border-radius: 4px; }
+.wiki-code-block { background: rgb(15 23 42); border: 1px solid rgb(30 41 59); border-radius: 8px; padding: 1rem 1.25rem; margin: 0.75rem 0; overflow-x: auto; position: relative; }
+.wiki-code-block::before { content: attr(data-lang); position: absolute; top: 0.5rem; right: 0.75rem; font-size: 0.675rem; color: rgb(71 85 105); font-family: monospace; text-transform: uppercase; }
+.wiki-code-block code { font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace; font-size: 0.84rem; color: rgb(148 163 184); display: block; }
+.wiki-link { color: rgb(99 102 241); text-decoration: underline; text-underline-offset: 2px; transition: color 0.15s; }
+.wiki-link:hover { color: rgb(129 140 248); }
+.wiki-img { max-width: 100%; border-radius: 8px; border: 1px solid rgb(51 65 85); margin: 0.5rem 0; }
+.wiki-mark { background: rgb(234 179 8 / 0.3); color: rgb(253 224 71); padding: 0 3px; border-radius: 3px; }
+.wiki-table-wrap { overflow-x: auto; margin: 0.75rem 0; }
+.wiki-table { border-collapse: collapse; width: 100%; font-size: 0.875rem; }
+.wiki-th { background: rgb(30 41 59); color: rgb(226 232 240); font-weight: 600; text-align: left; padding: 0.5rem 0.75rem; border: 1px solid rgb(51 65 85); }
+.wiki-td { padding: 0.45rem 0.75rem; border: 1px solid rgb(30 41 59); color: rgb(203 213 225); }
+.wiki-table tr:nth-child(even) .wiki-td { background: rgb(15 23 42 / 0.4); }
+
+[data-theme="light"] .wiki-content { color: rgb(30 41 59); }
+[data-theme="light"] .wiki-h1, [data-theme="light"] .wiki-h2 { color: rgb(15 23 42); border-color: rgb(203 213 225); }
+[data-theme="light"] .wiki-h3, [data-theme="light"] .wiki-h4 { color: rgb(30 41 59); }
+[data-theme="light"] .wiki-h5, [data-theme="light"] .wiki-h6 { color: rgb(71 85 105); }
+[data-theme="light"] .wiki-hr { border-color: rgb(203 213 225); }
+[data-theme="light"] .wiki-blockquote { background: rgb(99 102 241 / 0.05); color: rgb(71 85 105); }
+[data-theme="light"] .wiki-code { background: rgb(241 245 249); border-color: rgb(203 213 225); color: rgb(220 38 38); }
+[data-theme="light"] .wiki-code-block { background: rgb(248 250 252); border-color: rgb(203 213 225); }
+[data-theme="light"] .wiki-code-block code { color: rgb(51 65 85); }
+[data-theme="light"] .wiki-td { color: rgb(51 65 85); border-color: rgb(203 213 225); }
+[data-theme="light"] .wiki-th { background: rgb(241 245 249); color: rgb(30 41 59); border-color: rgb(203 213 225); }
