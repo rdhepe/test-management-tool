@@ -2209,7 +2209,7 @@ app.post('/auth/users', requireAdmin, (req, res) => {
     const limitVal = settingsOperations.get('user_limit');
     const limit = parseInt(limitVal || '0');
     if (limit > 0) {
-      const currentCount = userOperations.getAll().length;
+      const currentCount = userOperations.getAll().filter(u => u.role !== 'super_admin').length;
       if (currentCount >= limit) {
         return res.status(403).json({ error: `User limit of ${limit} reached. Increase the seat limit to add more users.` });
       }

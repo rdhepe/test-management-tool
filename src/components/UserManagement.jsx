@@ -56,8 +56,10 @@ function UserManagement({ currentUser }) {
   const [limitInput, setLimitInput] = useState('');
   const [limitSaving, setLimitSaving] = useState(false);
 
-  const atLimit = userLimit > 0 && users.length >= userLimit;
-  const nearLimit = userLimit > 0 && !atLimit && users.length >= Math.ceil(userLimit * 0.8);
+  // super_admin accounts are excluded from the seat limit count
+  const billableUsers = users.filter(u => u.role !== 'super_admin');
+  const atLimit = userLimit > 0 && billableUsers.length >= userLimit;
+  const nearLimit = userLimit > 0 && !atLimit && billableUsers.length >= Math.ceil(userLimit * 0.8);
   // Admins cannot edit or delete super_admin accounts
   const canManageUser = (user) => isSuperAdmin || user.role !== 'super_admin';
 
@@ -263,13 +265,13 @@ function UserManagement({ currentUser }) {
           {atLimit && (
             <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
               <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-              User seat limit reached ({users.length}/{userLimit}). {isSuperAdmin ? 'Increase the limit below to add more users.' : 'Contact your super admin to increase the limit.'}
+              User seat limit reached ({billableUsers.length}/{userLimit}). {isSuperAdmin ? 'Increase the limit below to add more users.' : 'Contact your super admin to increase the limit.'}
             </div>
           )}
           {nearLimit && (
             <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm">
               <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-              Approaching seat limit — {users.length} of {userLimit} seats used.
+              Approaching seat limit — {billableUsers.length} of {userLimit} seats used.
             </div>
           )}
           {/* Stats */}
@@ -300,9 +302,9 @@ function UserManagement({ currentUser }) {
               ) : (
                 <>
                   <p className={`text-3xl font-bold mt-1 ${atLimit ? 'text-red-400' : nearLimit ? 'text-amber-400' : 'text-slate-400'}`}>
-                    {users.length}<span className="text-base font-normal opacity-60">/{userLimit === 0 ? '∞' : userLimit}</span>
+                    {billableUsers.length}<span className="text-base font-normal opacity-60">/{userLimit === 0 ? '∞' : userLimit}</span>
                   </p>
-                  <p className="text-xs mt-0.5" style={{ color: 'rgb(var(--text-tertiary))' }}>{userLimit === 0 ? 'Unlimited seats' : `${userLimit - users.length} remaining`}</p>
+                  <p className="text-xs mt-0.5" style={{ color: 'rgb(var(--text-tertiary))' }}>{userLimit === 0 ? 'Unlimited seats' : `${userLimit - billableUsers.length} remaining`}</p>
                 </>
               )}
             </div>
