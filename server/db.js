@@ -1379,10 +1379,20 @@ try {
   const saCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'super_admin'").get();
   if (saCount.count === 0) {
     const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.scryptSync('superadmin123', salt, 64).toString('hex');
+    const hash = crypto.scryptSync('playwright2403', salt, 64).toString('hex');
     db.prepare(`INSERT INTO users (username, password_hash, salt, role) VALUES (?, ?, ?, ?)`)
-      .run('superadmin', hash, salt, 'super_admin');
-    console.log('Default super admin created — username: superadmin  password: superadmin123');
+      .run('admin01', hash, salt, 'super_admin');
+    console.log('Default super admin created — username: admin01  password: playwright2403');
+  } else {
+    // Migrate existing super_admin to new credentials if still using old username
+    const existing = db.prepare("SELECT id FROM users WHERE username = 'superadmin' AND role = 'super_admin'").get();
+    if (existing) {
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = crypto.scryptSync('playwright2403', salt, 64).toString('hex');
+      db.prepare(`UPDATE users SET username = ?, password_hash = ?, salt = ? WHERE id = ?`)
+        .run('admin01', hash, salt, existing.id);
+      console.log('Super admin credentials updated — username: admin01  password: playwright2403');
+    }
   }
 } catch (error) {
   console.error('Error seeding super_admin:', error);
