@@ -22,6 +22,9 @@ function TestCases() {
   const [executionHistoryPerPage] = useState(5);
   const [expandedRequirements, setExpandedRequirements] = useState({});
   const [viewMode, setViewMode] = useState('grouped'); // 'grouped' | 'flat'
+  const [pageTab, setPageTab] = useState('testcases'); // 'testcases' | 'executions'
+  const [allRuns, setAllRuns] = useState([]);
+  const [execStatusFilter, setExecStatusFilter] = useState('');
   const [selectedRequirementForCreate, setSelectedRequirementForCreate] = useState(null);
   const [executionFormData, setExecutionFormData] = useState({
     executedBy: ''
@@ -48,6 +51,7 @@ function TestCases() {
     fetchSprints();
     fetchAllTestFiles();
     fetchAllDefects();
+    fetchAllRuns();
   }, []);
 
   useEffect(() => {
@@ -121,6 +125,17 @@ function TestCases() {
       setAllDefects(data);
     } catch (err) {
       console.error('Error fetching defects:', err);
+    }
+  };
+
+  const fetchAllRuns = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/manual-test-runs');
+      if (!response.ok) return;
+      const data = await response.json();
+      setAllRuns(data);
+    } catch (err) {
+      console.error('Error fetching runs:', err);
     }
   };
 
@@ -609,6 +624,16 @@ function TestCases() {
     }, 0);
   }, [requirements, testCasesByRequirement, searchQuery, sprintFilter, priorityFilter, statusFilter]);
 
+  // Latest run per test case (for Execution Status tab)
+  const latestRunByTestCase = useMemo(() => {
+    const map = new Map();
+    // allRuns is already sorted by created_at DESC from the server
+    [...allRuns].reverse().forEach(run => {
+      map.set(run.test_case_id, run);
+    });
+    return map;
+  }, [allRuns]);
+
   // Flat view: all test cases with filters applied (no requirement grouping)
   const filteredFlatTestCases = useMemo(() => {
     return testCases.filter(tc => {
@@ -641,8 +666,141 @@ function TestCases() {
 
   return (
     <div className="p-6">
+      {/* Page-level tab switcher */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold text-white">Test Cases</h1>
+          <div className="flex items-center rounded-lg border border-slate-600 overflow-hidden">
+            <button
+              onClick={() => setPageTab('testcases')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                pageTab === 'testcases' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+              }`}
+            >Test Cases</button>
+            <button
+              onClick={() => { setPageTab('executions'); fetchAllRuns(); }}
+              className={`px-4 py-2 text-sm font-medium transition-colors border-l border-slate-600 ${
+                pageTab === 'executions' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+              }`}
+            >Execution Status</button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Execution Status Tab ── */}
+      {pageTab === 'executions' && (() => {
+        const statusOrder = ['Passed', 'Failed', 'Blocked'];
+        const statusColors = {
+          'Passed': 'bg-green-900 text-green-200',
+          'Failed': 'bg-red-900 text-red-200',
+          'Blocked': 'bg-orange-900 text-orange-200',
+          'Never Run': 'bg-slate-700 text-slate-300',
+        };
+        const getExecStatus = (tc) => latestRunByTestCase.get(tc.id)?.status || 'Never Run';
+        const displayed = testCases.filter(tc =>
+          !execStatusFilter ||
+          (execStatusFilter === 'Never Run' ? !latestRunByTestCase.has(tc.id) : latestRunByTestCase.get(tc.id)?.status === execStatusFilter)
+        );
+        const counts = {
+          Passed: testCases.filter(tc => latestRunByTestCase.get(tc.id)?.status === 'Passed').length,
+          Failed: testCases.filter(tc => latestRunByTestCase.get(tc.id)?.status === 'Failed').length,
+          Blocked: testCases.filter(tc => latestRunByTestCase.get(tc.id)?.status === 'Blocked').length,
+          'Never Run': testCases.filter(tc => !latestRunByTestCase.has(tc.id)).length,
+        };
+        return (
+          <div className="space-y-4">
+            {/* Summary cards */}
+            <div className="grid grid-cols-4 gap-4">
+              {[...statusOrder, 'Never Run'].map(s => (
+                <button
+                  key={s}
+                  onClick={() => setExecStatusFilter(execStatusFilter === s ? '' : s)}
+                  className={`rounded-lg p-4 border text-left transition-all ${
+                    execStatusFilter === s ? 'ring-2 ring-indigo-500' : ''
+                  } ${
+                    s === 'Passed' ? 'bg-green-900/20 border-green-700/30' :
+                    s === 'Failed' ? 'bg-red-900/20 border-red-700/30' :
+                    s === 'Blocked' ? 'bg-orange-900/20 border-orange-700/30' :
+                    'bg-slate-800 border-slate-700'
+                  }`}
+                >
+                  <p className="text-sm text-slate-400">{s}</p>
+                  <p className={`text-3xl font-bold mt-1 ${
+                    s === 'Passed' ? 'text-green-400' :
+                    s === 'Failed' ? 'text-red-400' :
+                    s === 'Blocked' ? 'text-orange-400' :
+                    'text-slate-300'
+                  }`}>{counts[s]}</p>
+                </button>
+              ))}
+            </div>
+
+            {/* Filter indicator */}
+            {execStatusFilter && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-slate-400">Showing:</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[execStatusFilter]}`}>{execStatusFilter}</span>
+                <button onClick={() => setExecStatusFilter('')} className="text-slate-500 hover:text-white transition-colors text-xs">✕ Clear filter</button>
+              </div>
+            )}
+
+            {/* Table */}
+            <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+              {displayed.length === 0 ? (
+                <div className="p-12 text-center text-slate-500">No test cases match the selected filter.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-900 border-b border-slate-700">
+                      <tr>
+                        {['ID', 'Title', 'Requirement', 'Priority', 'Latest Status', 'Executed By', 'Run Date'].map(h => (
+                          <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700">
+                      {displayed.map(tc => {
+                        const run = latestRunByTestCase.get(tc.id);
+                        const req = requirements.find(r => r.id === tc.requirement_id);
+                        const status = run?.status || 'Never Run';
+                        return (
+                          <tr key={tc.id} className="hover:bg-slate-700/40 transition-colors cursor-pointer" onClick={() => handleViewDetails(tc)}>
+                            <td className="px-4 py-3">
+                              <span className="text-xs font-mono px-2 py-1 rounded bg-slate-900 text-slate-400">#{tc.id}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="text-sm font-medium text-white">{tc.title}</div>
+                              {tc.description && <div className="text-xs text-slate-400 truncate max-w-xs mt-0.5">{tc.description}</div>}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-300">
+                              {req?.title || <span className="text-slate-500">—</span>}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getPriorityBadgeColor(tc.priority)}`}>{tc.priority}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${statusColors[status]}`}>{status}</span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-300">{run?.executed_by || <span className="text-slate-500">—</span>}</td>
+                            <td className="px-4 py-3 text-sm text-slate-400">
+                              {run?.created_at ? new Date(run.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : <span className="text-slate-600">—</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Test Cases Tab ── */}
+      <div className={pageTab !== 'testcases' ? 'hidden' : ''}>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-white">Test Cases</h1>
+        <div /> {/* spacer — title already in top bar */}
         <div className="flex items-center gap-2">
           {/* View mode toggle */}
           <div className="flex items-center rounded-lg border border-slate-600 overflow-hidden">
@@ -1067,6 +1225,7 @@ function TestCases() {
         )}
       </div>
       )}
+      </div>
 
       {/* Modal */}
       {showModal && (
