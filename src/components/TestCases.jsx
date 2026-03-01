@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 
 function TestCases() {
   const [testCases, setTestCases] = useState([]);
@@ -715,6 +716,33 @@ function TestCases() {
           Blocked: sprintFiltered.filter(tc => latestRunByTestCase.get(tc.id)?.status === 'Blocked').length,
           'Never Run': sprintFiltered.filter(tc => !latestRunByTestCase.has(tc.id)).length,
         };
+        const exportToExcel = () => {
+          const sprintLabel = execSprintFilter
+            ? sprints.find(s => s.id === parseInt(execSprintFilter))?.name || 'Sprint'
+            : 'All Sprints';
+          const rows = displayed.map(tc => {
+            const run = latestRunByTestCase.get(tc.id);
+            const req = requirements.find(r => r.id === tc.requirement_id);
+            const sprint = req ? sprints.find(s => s.id === req.sprint_id) : null;
+            return {
+              'ID': tc.id,
+              'Title': tc.title,
+              'Description': tc.description || '',
+              'Requirement': req?.title || '',
+              'Sprint': sprint?.name || '',
+              'Priority': tc.priority || '',
+              'Latest Status': run?.status || 'Never Run',
+              'Executed By': run?.executed_by || '',
+              'Run Date': run?.created_at ? new Date(run.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '',
+            };
+          });
+          const ws = XLSX.utils.json_to_sheet(rows);
+          ws['!cols'] = [8, 40, 50, 30, 20, 12, 16, 20, 16].map(w => ({ wch: w }));
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Execution Status');
+          const filename = `execution-status_${sprintLabel.replace(/\s+/g, '-')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+          XLSX.writeFile(wb, filename);
+        };
         return (
           <div className="space-y-4">
             {/* Sprint + status filter bar */}
@@ -738,6 +766,18 @@ function TestCases() {
                   className="text-xs text-slate-500 hover:text-white transition-colors"
                 >✕ Clear all filters</button>
               )}
+              <div className="ml-auto">
+                <button
+                  onClick={exportToExcel}
+                  disabled={displayed.length === 0}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Export to Excel
+                </button>
+              </div>
             </div>
             {/* Summary cards */}
             <div className="grid grid-cols-4 gap-4">
