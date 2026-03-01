@@ -25,6 +25,7 @@ function TestCases() {
   const [pageTab, setPageTab] = useState('testcases'); // 'testcases' | 'executions'
   const [allRuns, setAllRuns] = useState([]);
   const [execStatusFilter, setExecStatusFilter] = useState('');
+  const [execSprintFilter, setExecSprintFilter] = useState('');
   const [selectedRequirementForCreate, setSelectedRequirementForCreate] = useState(null);
   const [executionFormData, setExecutionFormData] = useState({
     executedBy: ''
@@ -697,18 +698,47 @@ function TestCases() {
           'Never Run': 'bg-slate-700 text-slate-300',
         };
         const getExecStatus = (tc) => latestRunByTestCase.get(tc.id)?.status || 'Never Run';
+        const matchesSprint = (tc) => {
+          if (!execSprintFilter) return true;
+          const req = requirements.find(r => r.id === tc.requirement_id);
+          return req?.sprint_id === parseInt(execSprintFilter);
+        };
         const displayed = testCases.filter(tc =>
-          !execStatusFilter ||
-          (execStatusFilter === 'Never Run' ? !latestRunByTestCase.has(tc.id) : latestRunByTestCase.get(tc.id)?.status === execStatusFilter)
+          matchesSprint(tc) &&
+          (!execStatusFilter ||
+          (execStatusFilter === 'Never Run' ? !latestRunByTestCase.has(tc.id) : latestRunByTestCase.get(tc.id)?.status === execStatusFilter))
         );
+        const sprintFiltered = testCases.filter(matchesSprint);
         const counts = {
-          Passed: testCases.filter(tc => latestRunByTestCase.get(tc.id)?.status === 'Passed').length,
-          Failed: testCases.filter(tc => latestRunByTestCase.get(tc.id)?.status === 'Failed').length,
-          Blocked: testCases.filter(tc => latestRunByTestCase.get(tc.id)?.status === 'Blocked').length,
-          'Never Run': testCases.filter(tc => !latestRunByTestCase.has(tc.id)).length,
+          Passed: sprintFiltered.filter(tc => latestRunByTestCase.get(tc.id)?.status === 'Passed').length,
+          Failed: sprintFiltered.filter(tc => latestRunByTestCase.get(tc.id)?.status === 'Failed').length,
+          Blocked: sprintFiltered.filter(tc => latestRunByTestCase.get(tc.id)?.status === 'Blocked').length,
+          'Never Run': sprintFiltered.filter(tc => !latestRunByTestCase.has(tc.id)).length,
         };
         return (
           <div className="space-y-4">
+            {/* Sprint + status filter bar */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-slate-400 whitespace-nowrap">Sprint:</label>
+                <select
+                  value={execSprintFilter}
+                  onChange={e => setExecSprintFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">All Sprints</option>
+                  {sprints.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              {(execSprintFilter || execStatusFilter) && (
+                <button
+                  onClick={() => { setExecSprintFilter(''); setExecStatusFilter(''); }}
+                  className="text-xs text-slate-500 hover:text-white transition-colors"
+                >✕ Clear all filters</button>
+              )}
+            </div>
             {/* Summary cards */}
             <div className="grid grid-cols-4 gap-4">
               {[...statusOrder, 'Never Run'].map(s => (
@@ -736,11 +766,22 @@ function TestCases() {
             </div>
 
             {/* Filter indicator */}
-            {execStatusFilter && (
-              <div className="flex items-center gap-2 text-sm">
+            {(execStatusFilter || execSprintFilter) && (
+              <div className="flex items-center gap-2 text-sm flex-wrap">
                 <span className="text-slate-400">Showing:</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[execStatusFilter]}`}>{execStatusFilter}</span>
-                <button onClick={() => setExecStatusFilter('')} className="text-slate-500 hover:text-white transition-colors text-xs">✕ Clear filter</button>
+                {execSprintFilter && (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-900/40 border border-indigo-700/40 text-indigo-300">
+                    {sprints.find(s => s.id === parseInt(execSprintFilter))?.name || 'Sprint'}
+                    <button onClick={() => setExecSprintFilter('')} className="ml-1 text-indigo-400 hover:text-white"> ✕</button>
+                  </span>
+                )}
+                {execStatusFilter && (
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[execStatusFilter]}`}>
+                    {execStatusFilter}
+                    <button onClick={() => setExecStatusFilter('')} className="ml-1 opacity-70 hover:opacity-100"> ✕</button>
+                  </span>
+                )}
+                <span className="text-slate-500 text-xs">({displayed.length} test case{displayed.length !== 1 ? 's' : ''})</span>
               </div>
             )}
 
