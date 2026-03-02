@@ -1700,6 +1700,50 @@ const taskOperations = {
   delete: (id) => db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
 };
 
+// ===== Global Variables Table =====
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS global_variables (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL UNIQUE,
+      value TEXT NOT NULL DEFAULT '',
+      description TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+} catch (error) {
+  console.error('Migration error for global_variables table:', error);
+}
+
+const globalVariableOperations = {
+  getAll: () => db.prepare('SELECT * FROM global_variables ORDER BY key ASC').all(),
+
+  getById: (id) => db.prepare('SELECT * FROM global_variables WHERE id = ?').get(id),
+
+  // Returns a plain object { KEY: value, ... } ready to spread into process.env
+  getAllAsEnv: () => {
+    const rows = db.prepare('SELECT key, value FROM global_variables').all();
+    return Object.fromEntries(rows.map(r => [r.key, r.value]));
+  },
+
+  create: ({ key, value, description }) => {
+    const result = db.prepare(
+      'INSERT INTO global_variables (key, value, description) VALUES (?, ?, ?)'
+    ).run(key, value ?? '', description ?? '');
+    return db.prepare('SELECT * FROM global_variables WHERE id = ?').get(result.lastInsertRowid);
+  },
+
+  update: (id, { key, value, description }) => {
+    db.prepare(
+      'UPDATE global_variables SET key = ?, value = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).run(key, value ?? '', description ?? '', id);
+    return db.prepare('SELECT * FROM global_variables WHERE id = ?').get(id);
+  },
+
+  delete: (id) => db.prepare('DELETE FROM global_variables WHERE id = ?').run(id)
+};
+
 module.exports = {
   db,
   moduleOperations,
@@ -1720,5 +1764,6 @@ module.exports = {
   userOperations,
   customRoleOperations,
   wikiOperations,
-  settingsOperations
+  settingsOperations,
+  globalVariableOperations
 };

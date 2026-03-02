@@ -5,7 +5,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { db, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations } = require('./db');
+const { db, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
 
 const execAsync = promisify(exec);
 const app = express();
@@ -311,6 +311,9 @@ app.get('/modules/:id/executions', (req, res) => {
 app.post('/run-test', async (req, res) => {
   const { code, moduleId, testFileId, browser = 'chromium', debug = false, workers = 1, fullyParallel = false, screenshotMode = 'only-on-failure' } = req.body;
 
+  // Load global variables and make them available to tests via process.env
+  const globalVarsEnv = globalVariableOperations.getAllAsEnv();
+
   if (!code || typeof code !== 'string') {
     return res.status(400).json({
       success: false,
@@ -451,7 +454,7 @@ export default defineConfig({
         cwd: tempDir,
         shell: true,
         stdio: 'ignore',
-        env: { ...process.env, PWDEBUG: '1' },
+        env: { ...process.env, ...globalVarsEnv, PWDEBUG: '1' },
       });
       debugProc.on('close', () => { activeDebugProcess = null; });
       debugProc.on('error', () => { activeDebugProcess = null; });
@@ -476,6 +479,7 @@ export default defineConfig({
     const { stdout, stderr } = await execAsync('npx playwright test', {
       cwd: tempDir,
       timeout: 60000, // 60 second timeout for headed mode
+      env: { ...process.env, ...globalVarsEnv },
     });
 
     // Success - exit code 0
@@ -960,6 +964,78 @@ app.get('/suite-executions/:id/results', (req, res) => {
   }
 });
 
+// ── Global Variables CRUD ────────────────────────────────────────────────────
+
+app.get('/global-variables', (req, res) => {
+  try {
+    res.json(globalVariableOperations.getAll());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/global-variables', (req, res) => {
+  try {
+    const { key, value, description } = req.body;
+    if (!key || !key.trim()) return res.status(400).json({ error: 'key is required' });
+    const created = globalVariableOperations.create({ key: key.trim(), value: value ?? '', description: description ?? '' });
+    res.status(201).json(created);
+  } catch (err) {
+    if (err.message && err.message.includes('UNIQUE')) {
+      return res.status(409).json({ error: `Variable key "${req.body.key}" already exists` });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/global-variables/:id', (req, res) => {
+  try {
+    const { key, value, description } = req.body;
+    if (!key || !key.trim()) return res.status(400).json({ error: 'key is required' });
+    const updated = globalVariableOperations.update(parseInt(req.params.id), { key: key.trim(), value: value ?? '', description: description ?? '' });
+    if (!updated) return res.status(404).json({ error: 'Variable not found' });
+    res.json(updated);
+  } catch (err) {
+    if (err.message && err.message.includes('UNIQUE')) {
+      return res.status(409).json({ error: `Variable key "${req.body.key}" already exists` });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/global-variables/:id', (req, res) => {
+  try {
+    globalVariableOperations.delete(parseInt(req.params.id));
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /global-variables/by-key/:key — upsert a variable by key name.
+// Tests can call this at runtime to write back values (e.g. auth tokens,
+// generated IDs) so later tests can read them as process.env.KEY.
+app.patch('/global-variables/by-key/:key', (req, res) => {
+  try {
+    const key = req.params.key;
+    const { value, description } = req.body;
+    if (value === undefined) return res.status(400).json({ error: 'value is required' });
+    const existing = globalVariableOperations.getAll().find(v => v.key === key);
+    if (existing) {
+      const updated = globalVariableOperations.update(existing.id, {
+        key,
+        value: String(value),
+        description: description !== undefined ? description : existing.description,
+      });
+      return res.json(updated);
+    }
+    const created = globalVariableOperations.create({ key, value: String(value), description: description ?? '' });
+    res.status(201).json(created);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /analytics/test-health — per-test health: consistently failing, flaky, slowest
 app.get('/analytics/test-health', (req, res) => {
   try {
@@ -1181,6 +1257,9 @@ ${userCode}
     const suiteFullyParallel = req.body && req.body.fullyParallel === true;
     const suiteScreenshotMode = (req.body && req.body.screenshotMode) || 'only-on-failure';
 
+    // Load global variables and inject them into each test process via env
+    const suiteGlobalVarsEnv = globalVariableOperations.getAllAsEnv();
+
     // Create playwright.config.ts — headless for Docker, headed for local
     const configContent = useDocker
       ? `import { defineConfig } from '@playwright/test';
@@ -1240,7 +1319,7 @@ export default defineConfig({
       const proc = spawn(`"${playwrightBin}" test`, [], {
         cwd: tempDir,
         shell: true,
-        env: { ...process.env }
+        env: { ...process.env, ...suiteGlobalVarsEnv }
       });
       proc.stdout.on('data', (chunk) => {
         const text = chunk.toString();

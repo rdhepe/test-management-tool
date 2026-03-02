@@ -15,6 +15,7 @@ import SuiteExecutionDetail from './components/SuiteExecutionDetail';
 import Dashboard from './components/Dashboard';
 import Summary from './components/Summary';
 import PlaywrightConfig from './components/PlaywrightConfig';
+import GlobalVariables from './components/GlobalVariables';
 import TestDependencies from './components/TestDependencies';
 import Features from './components/Features';
 import Requirements from './components/Requirements';
@@ -726,6 +727,10 @@ function App() {
       setCurrentView('playwrightConfig');
       setSelectedModule(null);
       setSelectedTestFile(null);
+    } else if (view === 'globalVariables') {
+      setCurrentView('globalVariables');
+      setSelectedModule(null);
+      setSelectedTestFile(null);
     } else if (view === 'userManagement') {
       setCurrentView('userManagement');
       setSelectedModule(null);
@@ -835,6 +840,10 @@ function App() {
 
             {currentView === 'playwrightConfig' && (
               <PlaywrightConfig />
+            )}
+
+            {currentView === 'globalVariables' && (
+              <GlobalVariables />
             )}
 
             {currentView === 'modules' && (
