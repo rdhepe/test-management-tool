@@ -918,7 +918,7 @@ function App() {
             )}
 
             {currentView === 'testcases' && (
-              <TestCases />
+              <TestCases currentUser={currentUser} />
             )}
 
             {currentView === 'defects' && (

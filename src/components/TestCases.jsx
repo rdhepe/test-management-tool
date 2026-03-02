@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 
-function TestCases() {
+function TestCases({ currentUser }) {
   const [testCases, setTestCases] = useState([]);
   const [requirements, setRequirements] = useState([]);
   const [sprints, setSprints] = useState([]);
@@ -387,7 +387,7 @@ function TestCases() {
     }
     
     setExecutionFormData({
-      executedBy: ''
+      executedBy: currentUser?.display_name || currentUser?.username || ''
     });
     setLinkedDefectIds([]);
     setShowNewDefectForm(false);
@@ -1786,8 +1786,8 @@ function TestCases() {
                   <input
                     type="text"
                     value={executionFormData.executedBy}
-                    onChange={(e) => setExecutionFormData({ ...executionFormData, executedBy: e.target.value })}
-                    className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded text-white text-sm focus:outline-none focus:border-indigo-500"
+                    readOnly
+                    className="w-full px-3 py-1.5 bg-slate-900/50 border border-slate-700 rounded text-slate-300 text-sm cursor-not-allowed select-none"
                     placeholder="Your name"
                   />
                 </div>
