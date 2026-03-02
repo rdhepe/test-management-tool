@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "postinstall": "npm install --prefix server"
+    "postinstall": "npm install --prefix server --omit=dev"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
