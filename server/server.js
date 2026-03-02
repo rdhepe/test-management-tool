@@ -9,7 +9,7 @@ const { db, organizationOperations, moduleOperations, testFileOperations, execut
 
 const execAsync = promisify(exec);
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // Track the currently active debug process so we can kill it before starting a new one
 let activeDebugProcess = null;
@@ -59,6 +59,16 @@ app.use(express.json({ limit: '50mb' }));
 
 // Serve reports directory statically
 app.use('/reports', express.static(reportsDir));
+
+// Serve Vite build output (production)
+const distPath = path.join(__dirname, '..', 'dist');
+if (require('fs').existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/auth') || req.path.startsWith('/orgs') || req.path.startsWith('/reports') || req.path.startsWith('/health') || req.path.startsWith('/modules') || req.path.startsWith('/executions') || req.path.startsWith('/suites') || req.path.startsWith('/requirements') || req.path.startsWith('/features') || req.path.startsWith('/test-cases') || req.path.startsWith('/manual-test-runs') || req.path.startsWith('/defects') || req.path.startsWith('/sprints') || req.path.startsWith('/tasks') || req.path.startsWith('/wiki') || req.path.startsWith('/settings') || req.path.startsWith('/global-variables') || req.path.startsWith('/roles')) return next();
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
 
 // Helper function to copy directory recursively
 async function copyDirectory(src, dest) {
