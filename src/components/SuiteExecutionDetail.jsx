@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 
 const API_URL = 'http://localhost:3001';
 
@@ -25,9 +25,74 @@ function SuiteExecutionDetail({ executionId, onBack }) {
   const [sortColumn, setSortColumn] = useState('testName');
   const [sortDirection, setSortDirection] = useState('asc')
 
+  // Real-time CI log streaming
+  const [liveLog, setLiveLog] = useState([]);
+  const liveLogEndRef = useRef(null);
+  const eventSourceRef = useRef(null);
+  const pollRef = useRef(null);
+
   useEffect(() => {
     loadExecutionDetails();
   }, [executionId]);
+
+  // SSE live log connection + status polling while execution is running
+  useEffect(() => {
+    if (!execution) return;
+    if (execution.status !== 'running') return;
+
+    // Auto-switch to Logs tab so the live output is visible immediately
+    setActiveTab('logs');
+    setLiveLog([]);
+
+    // Open SSE stream
+    const es = new EventSource(`${API_URL}/suite-executions/${executionId}/logs/stream`);
+    eventSourceRef.current = es;
+
+    es.onmessage = (e) => {
+      try {
+        const line = JSON.parse(e.data);
+        setLiveLog(prev => [...prev, line]);
+      } catch {}
+    };
+
+    es.addEventListener('done', () => {
+      es.close();
+      eventSourceRef.current = null;
+      clearInterval(pollRef.current);
+      loadExecutionDetails();
+    });
+
+    es.onerror = () => {
+      es.close();
+      eventSourceRef.current = null;
+    };
+
+    // Poll every 4 s as a safety net (catches the 'done' state if SSE drops)
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(`${API_URL}/suite-executions/${executionId}`);
+        const data = await r.json();
+        if (data.status !== 'running') {
+          clearInterval(pollRef.current);
+          if (eventSourceRef.current) { eventSourceRef.current.close(); eventSourceRef.current = null; }
+          loadExecutionDetails();
+        }
+      } catch {}
+    }, 4000);
+
+    return () => {
+      if (eventSourceRef.current) { eventSourceRef.current.close(); eventSourceRef.current = null; }
+      clearInterval(pollRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [execution?.status, executionId]);
+
+  // Auto-scroll live log terminal to the bottom whenever new lines arrive
+  useEffect(() => {
+    if (liveLogEndRef.current) {
+      liveLogEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [liveLog]);
 
   const loadExecutionDetails = async () => {
     try {
@@ -501,23 +566,27 @@ function SuiteExecutionDetail({ executionId, onBack }) {
                               </div>
                             )}
 
-                            {/* Logs */}
-                            {result.logs && (
-                              <div>
-                                <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Execution Logs</h4>
-                                <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 max-h-64 overflow-y-auto">
-                                  <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono">{result.logs}</pre>
-                                </div>
-                              </div>
-                            )}
+                            {/* Logs hint */}
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <svg className="w-3.5 h-3.5 flex-shrink-0 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" />
+                              </svg>
+                              For full execution output, see the{' '}
+                              <button
+                                onClick={() => setActiveTab('logs')}
+                                className="text-indigo-400 hover:text-indigo-300 font-medium underline underline-offset-2 transition-colors"
+                              >
+                                Logs tab
+                              </button>
+                            </div>
 
                             {/* Screenshot */}
-                            {result.screenshot && (
+                            {result.screenshot_base64 && (
                               <div>
                                 <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Screenshot</h4>
                                 <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
-                                  <img 
-                                    src={`data:image/png;base64,${result.screenshot}`} 
+                                  <img
+                                    src={`data:image/png;base64,${result.screenshot_base64}`}
                                     alt="Test screenshot"
                                     className="max-w-full h-auto rounded-lg"
                                   />
@@ -620,50 +689,97 @@ function SuiteExecutionDetail({ executionId, onBack }) {
               </div>
 
               {/* Terminal-style Logs */}
-              <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
-                <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex items-center gap-2">
-                  <div className="flex gap-2">
-                    <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                    <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-                    <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                  </div>
-                  <span className="text-xs text-slate-500 font-mono ml-2">test-execution-logs</span>
-                </div>
-                <div className="p-6 font-mono text-sm max-h-[600px] overflow-y-auto">
-                  {testResults.length === 0 ? (
-                    <div className="text-slate-500">No logs available</div>
-                  ) : (
-                    testResults.map((result, idx) => (
-                      <div key={result.id} className="mb-6 last:mb-0">
-                        <div className="flex items-center gap-3 mb-2">
-                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                            result.status === 'PASS' ? 'bg-green-500/20 text-green-400' :
-                            result.status === 'FAIL' ? 'bg-red-500/20 text-red-400' :
-                            'bg-amber-500/20 text-amber-400'
-                          }`}>
-                            {result.status}
+              {liveLog.length > 0 ? (
+                /* ── Live / completed terminal (always shown when logs were streamed) ── */
+                <div className={`bg-slate-950 border rounded-xl overflow-hidden ${
+                  execution?.status === 'running' ? 'border-indigo-500/40' : 'border-slate-700'
+                }`}>
+                  <div className={`bg-slate-900 border-b px-4 py-2 flex items-center gap-3 ${
+                    execution?.status === 'running' ? 'border-indigo-500/30' : 'border-slate-800'
+                  }`}>
+                    <div className="flex gap-2">
+                      <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                      <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+                      <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                    </div>
+                    <span className="text-xs text-slate-500 font-mono ml-1">ci-output</span>
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      {execution?.status === 'running' ? (
+                        <>
+                          <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></div>
+                          <span className="text-xs text-indigo-400 font-mono tracking-wide">RUNNING</span>
+                        </>
+                      ) : (
+                        <>
+                          <div className={`w-2 h-2 rounded-full ${execution?.status === 'PASS' ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                          <span className={`text-xs font-mono tracking-wide ${execution?.status === 'PASS' ? 'text-green-400' : 'text-red-400'}`}>
+                            {execution?.status === 'PASS' ? 'PASSED' : 'FAILED'}
                           </span>
-                          <span className="text-slate-300">{result.test_file_name || 'Unknown Test'}</span>
-                          <span className="text-slate-500 text-xs">({formatDuration(result.duration_ms)})</span>
-                        </div>
-                        {result.error_message && (
-                          <div className="text-red-400 mb-2 pl-4 border-l-2 border-red-500/50">
-                            {result.error_message}
-                          </div>
-                        )}
-                        {result.logs && (
-                          <div className="text-slate-400 pl-4 whitespace-pre-wrap text-xs">
-                            {result.logs}
-                          </div>
-                        )}
-                        {idx < testResults.length - 1 && (
-                          <div className="border-t border-slate-800 mt-4"></div>
-                        )}
-                      </div>
-                    ))
-                  )}
+                        </>
+                      )}
+                      <span className="text-xs text-slate-600 font-mono ml-2">{liveLog.length} lines</span>
+                    </div>
+                  </div>
+                  <div className="p-5 font-mono text-xs leading-relaxed max-h-[600px] overflow-y-auto">
+                    {liveLog.map((line, i) => (
+                      <div key={i} className={`whitespace-pre-wrap ${
+                        line.startsWith('✗') || /\bfailed\b/i.test(line) ? 'text-red-400' :
+                        line.startsWith('✓') || /\bpassed\b/i.test(line) ? 'text-green-400' :
+                        line.startsWith('▶') || line.startsWith('⚙') ? 'text-indigo-400' :
+                        line.startsWith('🏁') || line.startsWith('📊') ? 'text-amber-400' :
+                        'text-slate-400'
+                      }`}>{line}</div>
+                    ))}
+                    <div ref={liveLogEndRef} />
+                  </div>
                 </div>
-              </div>
+              ) : (
+                /* ── Static logs — old run viewed from history, no live stream available ── */
+                <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+                  <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex items-center gap-2">
+                    <div className="flex gap-2">
+                      <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                      <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+                      <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                    </div>
+                    <span className="text-xs text-slate-500 font-mono ml-2">test-execution-logs</span>
+                  </div>
+                  <div className="p-6 font-mono text-sm max-h-[600px] overflow-y-auto">
+                    {testResults.length === 0 ? (
+                      <div className="text-slate-500">No logs available</div>
+                    ) : (
+                      testResults.map((result, idx) => (
+                        <div key={result.id} className="mb-6 last:mb-0">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                              result.status === 'PASS' ? 'bg-green-500/20 text-green-400' :
+                              result.status === 'FAIL' ? 'bg-red-500/20 text-red-400' :
+                              'bg-amber-500/20 text-amber-400'
+                            }`}>
+                              {result.status}
+                            </span>
+                            <span className="text-slate-300">{result.test_file_name || 'Unknown Test'}</span>
+                            <span className="text-slate-500 text-xs">({formatDuration(result.duration_ms)})</span>
+                          </div>
+                          {result.error_message && (
+                            <div className="text-red-400 mb-2 pl-4 border-l-2 border-red-500/50">
+                              {result.error_message}
+                            </div>
+                          )}
+                          {result.logs && (
+                            <div className="text-slate-400 pl-4 whitespace-pre-wrap text-xs">
+                              {result.logs}
+                            </div>
+                          )}
+                          {idx < testResults.length - 1 && (
+                            <div className="border-t border-slate-800 mt-4"></div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

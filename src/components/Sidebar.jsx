@@ -5,6 +5,7 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
 
   const canAccess = (view) => {
     if (!currentUser) return false;
+    if (view === 'tutorial') return true;
     if (['super_admin', 'admin', 'contributor'].includes(currentUser.role)) return true;
     if (currentUser.role === 'custom') {
       return Array.isArray(currentUser.permissions) && currentUser.permissions.includes(view);
@@ -57,6 +58,15 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
             </svg>
           ),
           view: 'testcases'
+        },
+        { 
+          name: 'Taskboard', 
+          icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+            </svg>
+          ),
+          view: 'taskboard'
         },
         { 
           name: 'Sprints', 
@@ -176,7 +186,22 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
           view: 'userManagement'
         },
       ]
-    }] : [])
+    }] : []),
+    {
+      title: 'Learn',
+      items: [
+        {
+          name: 'Guide',
+          icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l9-5-9-5-9 5 9 5z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+            </svg>
+          ),
+          view: 'tutorial'
+        },
+      ]
+    }
   ];
 
   const filteredSections = menuSections.map(section => ({

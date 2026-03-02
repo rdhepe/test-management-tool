@@ -19,9 +19,11 @@ import TestDependencies from './components/TestDependencies';
 import Features from './components/Features';
 import Requirements from './components/Requirements';
 import TestCases from './components/TestCases';
+import Taskboard from './components/Taskboard';
 import Defects from './components/Defects';
 import Sprints from './components/Sprints';
 import Reports from './components/Reports';
+import Tutorial from './components/Tutorial';
 
 const API_URL = 'http://localhost:3001';
 
@@ -512,11 +514,24 @@ function App() {
     setExecutionResult(null);
 
     try {
-      // Read browser from saved playwright config
+      // Read browser + execution settings from saved playwright config
       let playwrightBrowser = 'chromium';
+      let pwWorkers = 1;
+      let pwFullyParallel = false;
       try {
         const pwCfg = localStorage.getItem('playwright_config');
-        if (pwCfg) playwrightBrowser = JSON.parse(pwCfg).browser || 'chromium';
+        if (pwCfg) {
+          const parsed = JSON.parse(pwCfg);
+          playwrightBrowser = parsed.browser || 'chromium';
+          pwFullyParallel = parsed.executionMode === 'parallel';
+          pwWorkers = pwFullyParallel ? (parsed.workers || 2) : 1;
+        }
+      } catch {}
+
+      let pwScreenshotMode = 'only-on-failure';
+      try {
+        const pwCfg = JSON.parse(localStorage.getItem('playwright_config') || '{}');
+        pwScreenshotMode = pwCfg.screenshotMode || 'only-on-failure';
       } catch {}
 
       // Send POST request to backend
@@ -530,6 +545,9 @@ function App() {
           moduleId: selectedModule.id,
           testFileId: selectedTestFile.id,
           browser: playwrightBrowser,
+          workers: pwWorkers,
+          fullyParallel: pwFullyParallel,
+          screenshotMode: pwScreenshotMode,
         }),
       });
 
@@ -577,9 +595,22 @@ function App() {
 
     try {
       let playwrightBrowser = 'chromium';
+      let pwWorkers = 1;
+      let pwFullyParallel = false;
       try {
         const pwCfg = localStorage.getItem('playwright_config');
-        if (pwCfg) playwrightBrowser = JSON.parse(pwCfg).browser || 'chromium';
+        if (pwCfg) {
+          const parsed = JSON.parse(pwCfg);
+          playwrightBrowser = parsed.browser || 'chromium';
+          pwFullyParallel = parsed.executionMode === 'parallel';
+          pwWorkers = pwFullyParallel ? (parsed.workers || 2) : 1;
+        }
+      } catch {}
+
+      let pwScreenshotModeDebug = 'only-on-failure';
+      try {
+        const pwCfg = JSON.parse(localStorage.getItem('playwright_config') || '{}');
+        pwScreenshotModeDebug = pwCfg.screenshotMode || 'only-on-failure';
       } catch {}
 
       const response = await fetch('http://localhost:3001/run-test', {
@@ -590,6 +621,9 @@ function App() {
           moduleId: selectedModule.id,
           testFileId: selectedTestFile.id,
           browser: playwrightBrowser,
+          workers: pwWorkers,
+          fullyParallel: pwFullyParallel,
+          screenshotMode: pwScreenshotModeDebug,
           debug: true,
         }),
       });
@@ -668,6 +702,10 @@ function App() {
       setCurrentView('testcases');
       setSelectedModule(null);
       setSelectedTestFile(null);
+    } else if (view === 'taskboard') {
+      setCurrentView('taskboard');
+      setSelectedModule(null);
+      setSelectedTestFile(null);
     } else if (view === 'defects') {
       setCurrentView('defects');
       setSelectedModule(null);
@@ -690,6 +728,10 @@ function App() {
       setSelectedTestFile(null);
     } else if (view === 'userManagement') {
       setCurrentView('userManagement');
+      setSelectedModule(null);
+      setSelectedTestFile(null);
+    } else if (view === 'tutorial') {
+      setCurrentView('tutorial');
       setSelectedModule(null);
       setSelectedTestFile(null);
     }
@@ -921,6 +963,10 @@ function App() {
               <TestCases currentUser={currentUser} />
             )}
 
+            {currentView === 'taskboard' && (
+              <Taskboard currentUser={currentUser} />
+            )}
+
             {currentView === 'defects' && (
               <Defects />
             )}
@@ -935,6 +981,10 @@ function App() {
 
             {currentView === 'userManagement' && ['admin', 'super_admin'].includes(currentUser?.role) && (
               <UserManagement currentUser={currentUser} />
+            )}
+
+            {currentView === 'tutorial' && (
+              <Tutorial currentUser={currentUser} />
             )}
           </div>
         </main>

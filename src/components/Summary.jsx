@@ -11,6 +11,7 @@ function Summary() {
   });
   const [recentExecutions, setRecentExecutions] = useState([]);
   const [chartData, setChartData] = useState({ passed: 0, failed: 0 });
+  const [testHealth, setTestHealth] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -60,6 +61,13 @@ function Summary() {
         successRate: totalTests > 0 ? ((totalPassed / totalTests) * 100).toFixed(1) : 0
       });
       setChartData({ passed: totalPassed, failed: totalFailed });
+
+      // Fetch test health analytics
+      try {
+        const healthRes = await fetch(`${API_URL}/analytics/test-health`);
+        if (healthRes.ok) setTestHealth(await healthRes.json());
+      } catch (_) {}
+
       setLoading(false);
     } catch (err) {
       console.error('Failed to load summary data:', err);
@@ -316,6 +324,154 @@ function Summary() {
           <TrendChart executions={recentExecutions} />
         </div>
       </div>
+
+      {/* Test Health Insights */}
+      {testHealth && (
+        <div className="space-y-4">
+          <h2 className="text-xl font-semibold text-white border-b border-slate-800 pb-3">Test Health Insights</h2>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+            {/* Consistently Failing */}
+            <div className="bg-slate-900 rounded-xl border border-red-900/40 shadow-lg overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-3 border-b border-red-900/30 bg-red-950/20">
+                <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <span className="text-sm font-semibold text-red-400">Consistently Failing</span>
+                <span className="ml-auto text-xs text-slate-500">Failed in last 5 runs</span>
+                {testHealth.consistentlyFailing.length > 0 && (
+                  <span className="bg-red-500/20 text-red-400 text-xs font-bold px-2 py-0.5 rounded-full border border-red-500/30">{testHealth.consistentlyFailing.length}</span>
+                )}
+              </div>
+              {testHealth.consistentlyFailing.length === 0 ? (
+                <div className="px-5 py-8 text-center text-slate-500 text-sm">No consistently failing tests</div>
+              ) : (
+                <div className="divide-y divide-slate-800">
+                  {testHealth.consistentlyFailing.map((t, i) => (
+                    <div key={i} className="px-5 py-3 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-white truncate">{t.test_name}</div>
+                        <div className="text-xs text-slate-500">{t.suite_name} &bull; {t.fail_count} total failures</div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {t.last5_statuses.map((s, j) => (
+                          <span key={j} title={s} className={`w-3 h-3 rounded-sm ${s === 'PASS' ? 'bg-green-500' : s === 'TIMEOUT' ? 'bg-amber-500' : 'bg-red-500'}`} />
+                        ))}
+                      </div>
+                      {t.failing_streak > 0 && (
+                        <span className="text-xs text-red-400 font-mono shrink-0">{t.failing_streak} streak</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Flaky Tests */}
+            <div className="bg-slate-900 rounded-xl border border-amber-900/40 shadow-lg overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-3 border-b border-amber-900/30 bg-amber-950/20">
+                <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                <span className="text-sm font-semibold text-amber-400">Flaky Tests</span>
+                <span className="ml-auto text-xs text-slate-500">Mixed pass/fail results</span>
+                {testHealth.flaky.length > 0 && (
+                  <span className="bg-amber-500/20 text-amber-400 text-xs font-bold px-2 py-0.5 rounded-full border border-amber-500/30">{testHealth.flaky.length}</span>
+                )}
+              </div>
+              {testHealth.flaky.length === 0 ? (
+                <div className="px-5 py-8 text-center text-slate-500 text-sm">No flaky tests detected</div>
+              ) : (
+                <div className="divide-y divide-slate-800">
+                  {testHealth.flaky.map((t, i) => (
+                    <div key={i} className="px-5 py-3 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-white truncate">{t.test_name}</div>
+                        <div className="text-xs text-slate-500">{t.suite_name} &bull; {t.pass_rate}% pass rate over {t.total_runs} runs</div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {t.last5_statuses.map((s, j) => (
+                          <span key={j} title={s} className={`w-3 h-3 rounded-sm ${s === 'PASS' ? 'bg-green-500' : s === 'TIMEOUT' ? 'bg-amber-500' : 'bg-red-500'}`} />
+                        ))}
+                      </div>
+                      <div className="shrink-0 w-16">
+                        <div className="h-1.5 bg-slate-700 rounded-full">
+                          <div className="h-1.5 rounded-full bg-amber-500" style={{ width: `${t.pass_rate}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Slowest Tests */}
+            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-lg overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-800">
+                <svg className="w-4 h-4 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <span className="text-sm font-semibold text-slate-300">Slowest Tests</span>
+                <span className="ml-auto text-xs text-slate-500">By avg duration</span>
+              </div>
+              {testHealth.slowest.length === 0 ? (
+                <div className="px-5 py-8 text-center text-slate-500 text-sm">No data yet</div>
+              ) : (() => {
+                const maxMs = testHealth.slowest[0].avg_duration_ms || 1;
+                return (
+                  <div className="divide-y divide-slate-800">
+                    {testHealth.slowest.map((t, i) => (
+                      <div key={i} className="px-5 py-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium text-white truncate max-w-[60%]">{t.test_name}</span>
+                          <span className="text-xs text-slate-400 font-mono shrink-0">
+                            {t.avg_duration_ms >= 1000 ? `${(t.avg_duration_ms / 1000).toFixed(1)}s` : `${t.avg_duration_ms}ms`}
+                          </span>
+                        </div>
+                        <div className="h-1.5 bg-slate-800 rounded-full">
+                          <div className="h-1.5 rounded-full bg-blue-500/70" style={{ width: `${(t.avg_duration_ms / maxMs) * 100}%` }} />
+                        </div>
+                        <div className="text-xs text-slate-600 mt-0.5">{t.suite_name}</div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Most Failed */}
+            <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-lg overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-800">
+                <svg className="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                <span className="text-sm font-semibold text-slate-300">Most Failed</span>
+                <span className="ml-auto text-xs text-slate-500">All-time failure count</span>
+              </div>
+              {testHealth.mostFailed.length === 0 ? (
+                <div className="px-5 py-8 text-center text-slate-500 text-sm">No failures recorded</div>
+              ) : (() => {
+                const maxFails = testHealth.mostFailed[0].fail_count || 1;
+                return (
+                  <div className="divide-y divide-slate-800">
+                    {testHealth.mostFailed.map((t, i) => (
+                      <div key={i} className="px-5 py-3 flex items-center gap-3">
+                        <span className="text-xs font-bold text-slate-600 w-4 shrink-0">#{i + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-white truncate">{t.test_name}</div>
+                          <div className="flex gap-3 mt-0.5">
+                            <div className="h-1.5 flex-1 bg-slate-800 rounded-full mt-1">
+                              <div className="h-1.5 rounded-full bg-rose-500/70" style={{ width: `${(t.fail_count / maxFails) * 100}%` }} />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="text-sm font-bold text-rose-400">{t.fail_count}</div>
+                          <div className="text-xs text-slate-500">{t.pass_rate}% pass</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }

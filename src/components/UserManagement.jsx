@@ -14,6 +14,7 @@ const ALL_PERMISSIONS = [
   { view: 'features', label: 'Features' },
   { view: 'requirements', label: 'Requirements' },
   { view: 'testcases', label: 'Test Cases' },
+  { view: 'taskboard', label: 'Taskboard' },
   { view: 'sprints', label: 'Sprints' },
   { view: 'modules', label: 'Modules' },
   { view: 'testSuites', label: 'Test Suites / Suite Runs' },

@@ -11,6 +11,7 @@ function Sprints() {
   const [suiteExecutions, setSuiteExecutions] = useState([]);
   const [manualTestRuns, setManualTestRuns] = useState([]);
   const [modules, setModules] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewingSprint, setViewingSprint] = useState(null);
   const [editingSprint, setEditingSprint] = useState(null);
@@ -33,6 +34,7 @@ function Sprints() {
     fetchSuiteExecutions();
     fetchManualTestRuns();
     fetchModules();
+    fetchAllTasks();
   }, []);
 
   const fetchSprints = async () => {
@@ -42,6 +44,16 @@ function Sprints() {
       setSprints(data);
     } catch (error) {
       console.error('Error fetching sprints:', error);
+    }
+  };
+
+  const fetchAllTasks = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/tasks');
+      const data = await response.json();
+      setTasks(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
     }
   };
 
@@ -1587,6 +1599,86 @@ function Sprints() {
                     );
                   })()}
                 </div>
+
+                {/* Sprint Tasks */}
+                {(() => {
+                  const sprintTasks = tasks.filter(t => String(t.sprint_id) === String(viewingSprint.id));
+                  return (
+                    <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+                      <div className="p-4 border-b border-slate-700 flex items-center justify-between gap-3 flex-wrap">
+                        <h3 className="text-lg font-semibold text-white">Tasks in this Sprint</h3>
+                        {sprintTasks.length > 0 && (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {[{s:'New',bg:'bg-slate-700',tx:'text-slate-300'},{s:'In Progress',bg:'bg-indigo-900/50',tx:'text-indigo-300'},{s:'Completed',bg:'bg-emerald-900/50',tx:'text-emerald-300'},{s:'Done',bg:'bg-purple-900/50',tx:'text-purple-300'}].map(({s,bg,tx}) => {
+                              const c = sprintTasks.filter(t => t.status === s).length;
+                              return c > 0 ? <span key={s} className={`px-2 py-0.5 rounded-full text-xs font-medium ${bg} ${tx}`}>{c} {s}</span> : null;
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      {sprintTasks.length === 0 ? (
+                        <div className="text-center py-12 text-slate-500">
+                          <svg className="w-10 h-10 mx-auto mb-3 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                          </svg>
+                          <p>No tasks assigned to this sprint yet.</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-slate-800 border-b border-slate-700">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Title</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Status</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Priority</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Assignee</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Due Date</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Requirement</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-700">
+                              {sprintTasks.map(task => (
+                                <tr key={task.id} className="hover:bg-slate-700/50 transition-colors">
+                                  <td className="px-4 py-3">
+                                    <div className="text-white font-medium text-sm">{task.title}</div>
+                                    {task.description && <div className="text-slate-400 text-xs mt-0.5 truncate max-w-xs">{task.description}</div>}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
+                                      task.status === 'New'         ? 'bg-slate-500/10 border-slate-500/30 text-slate-400'
+                                    : task.status === 'In Progress' ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400'
+                                    : task.status === 'Completed'   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                    :                                 'bg-purple-500/10 border-purple-500/30 text-purple-400'
+                                    }`}>{task.status}</span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className={`px-2 py-1 rounded-full text-xs font-medium border ${
+                                      task.priority === 'Low'      ? 'bg-slate-500/10 border-slate-500/30 text-slate-400'
+                                    : task.priority === 'Medium'   ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                                    : task.priority === 'High'     ? 'bg-orange-500/10 border-orange-500/30 text-orange-400'
+                                    :                               'bg-red-500/10 border-red-500/30 text-red-400'
+                                    }`}>{task.priority}</span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="text-slate-300 text-sm">{task.assignee_username || <span className="text-slate-500">—</span>}</span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="text-slate-300 text-sm">{task.end_date ? new Date(task.end_date + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : <span className="text-slate-500">—</span>}</span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {task.requirement_title
+                                      ? <span className="text-indigo-300 text-xs">{task.requirement_title}</span>
+                                      : <span className="text-slate-500 text-xs">—</span>}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Defects Table */}
                 <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">

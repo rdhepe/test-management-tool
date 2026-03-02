@@ -5,7 +5,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations } = require('./db');
+const { db, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations } = require('./db');
 
 const execAsync = promisify(exec);
 const app = express();
@@ -13,6 +13,30 @@ const PORT = 3001;
 
 // Track the currently active debug process so we can kill it before starting a new one
 let activeDebugProcess = null;
+
+// ── Real-time CI log streaming ────────────────────────────────────────────────
+// runLogs: executionId → { lines: string[], clients: Set<SSEResponse>, done: boolean }
+const runLogs = new Map();
+
+function pushLog(executionId, line) {
+  const entry = runLogs.get(executionId);
+  if (!entry || entry.done) return;
+  entry.lines.push(line);
+  for (const client of entry.clients) {
+    try { client.write(`data: ${JSON.stringify(line)}\n\n`); } catch {}
+  }
+}
+
+function finishLog(executionId) {
+  const entry = runLogs.get(executionId);
+  if (!entry) return;
+  entry.done = true;
+  for (const client of entry.clients) {
+    try { client.write(`event: done\ndata: {}\n\n`); client.end(); } catch {}
+  }
+  // Keep buffer for 60 s so late-connecting clients can still replay it
+  setTimeout(() => runLogs.delete(executionId), 60_000);
+}
 
 // Kill the active debug session including its full child process tree (Windows-safe)
 function killDebugSession() {
@@ -285,7 +309,7 @@ app.get('/modules/:id/executions', (req, res) => {
 
 // POST /run-test endpoint
 app.post('/run-test', async (req, res) => {
-  const { code, moduleId, testFileId, browser = 'chromium', debug = false } = req.body;
+  const { code, moduleId, testFileId, browser = 'chromium', debug = false, workers = 1, fullyParallel = false, screenshotMode = 'only-on-failure' } = req.body;
 
   if (!code || typeof code !== 'string') {
     return res.status(400).json({
@@ -390,12 +414,17 @@ ${combinedSteps}
     const configContent = `import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
+  fullyParallel: ${fullyParallel},
+  workers: ${workers},
   use: {
     headless: false,
     slowMo: 500,
-    screenshot: 'on',
+    screenshot: '${screenshotMode}',
   },
-  reporter: [['html', { open: 'never', outputFolder: 'playwright-report' }]],
+  reporter: [
+    ['list'],
+    ['html', { open: 'never', outputFolder: 'playwright-report' }]
+  ],
   projects: [
     {
       name: '${browserName}',
@@ -931,6 +960,79 @@ app.get('/suite-executions/:id/results', (req, res) => {
   }
 });
 
+// GET /analytics/test-health — per-test health: consistently failing, flaky, slowest
+app.get('/analytics/test-health', (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT
+        str.test_file_id,
+        tf.name        AS test_name,
+        ts.name        AS suite_name,
+        str.status,
+        COALESCE(str.duration_ms, 0) AS duration_ms,
+        se.created_at
+      FROM suite_test_results str
+      JOIN test_files      tf ON str.test_file_id      = tf.id
+      JOIN suite_executions se ON str.suite_execution_id = se.id
+      JOIN test_suites      ts ON se.suite_id            = ts.id
+      ORDER BY se.created_at DESC
+    `).all();
+
+    // Group by test_file_id, runs already sorted desc (newest first)
+    const byTest = {};
+    rows.forEach(r => {
+      if (!byTest[r.test_file_id]) {
+        byTest[r.test_file_id] = { test_name: r.test_name, suite_name: r.suite_name, runs: [] };
+      }
+      byTest[r.test_file_id].runs.push({ status: r.status, duration_ms: r.duration_ms, created_at: r.created_at });
+    });
+
+    const tests = Object.values(byTest).map(t => {
+      const last5 = t.runs.slice(0, 5);
+      const totalRuns = t.runs.length;
+      const passCount = t.runs.filter(r => r.status === 'PASS').length;
+      const failCount = totalRuns - passCount;
+      const last5Fails = last5.filter(r => r.status !== 'PASS').length;
+      const last5Passes = last5.length - last5Fails;
+      const avgDuration = t.runs.reduce((s, r) => s + r.duration_ms, 0) / totalRuns;
+
+      // Consecutive failing streak from most recent
+      let streak = 0;
+      for (const r of t.runs) {
+        if (r.status !== 'PASS') streak++; else break;
+      }
+
+      return {
+        test_name:             t.test_name,
+        suite_name:            t.suite_name,
+        total_runs:            totalRuns,
+        pass_count:            passCount,
+        fail_count:            failCount,
+        pass_rate:             totalRuns > 0 ? Math.round((passCount / totalRuns) * 100) : 0,
+        avg_duration_ms:       Math.round(avgDuration),
+        last_run:              t.runs[0]?.created_at,
+        last5_statuses:        last5.map(r => r.status),
+        failing_streak:        streak,
+        is_consistently_failing: last5.length >= 2 && last5Fails === last5.length,
+        is_flaky:              last5.length >= 3 && last5Passes > 0 && last5Fails > 0,
+        is_never_passed:       totalRuns >= 1 && passCount === 0,
+      };
+    });
+
+    res.json({
+      consistentlyFailing: tests.filter(t => t.is_consistently_failing).sort((a, b) => b.failing_streak - a.failing_streak),
+      flaky:               tests.filter(t => t.is_flaky).sort((a, b) => a.pass_rate - b.pass_rate),
+      slowest:             [...tests].filter(t => t.total_runs > 0).sort((a, b) => b.avg_duration_ms - a.avg_duration_ms).slice(0, 6),
+      mostFailed:          [...tests].filter(t => t.fail_count > 0).sort((a, b) => b.fail_count - a.fail_count).slice(0, 6),
+      neverPassed:         tests.filter(t => t.is_never_passed && !t.is_consistently_failing),
+      totalTests:          tests.length,
+    });
+  } catch (err) {
+    console.error('analytics/test-health error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /test-suites/:suiteId/executions - Get execution history for a suite (last 30)
 app.get('/test-suites/:suiteId/executions', (req, res) => {
   try {
@@ -942,11 +1044,45 @@ app.get('/test-suites/:suiteId/executions', (req, res) => {
   }
 });
 
+// GET /suite-executions/:id/logs/stream — SSE real-time log stream for CI runs
+app.get('/suite-executions/:id/logs/stream', (req, res) => {
+  const executionId = parseInt(req.params.id);
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.flushHeaders();
+
+  const entry = runLogs.get(executionId);
+  if (!entry) {
+    // Run already finished and buffer was cleaned up — send done immediately
+    res.write(`event: done\ndata: {}\n\n`);
+    res.end();
+    return;
+  }
+
+  // Replay buffered lines so a client connecting mid-run gets full history
+  for (const line of entry.lines) {
+    res.write(`data: ${JSON.stringify(line)}\n\n`);
+  }
+  if (entry.done) {
+    res.write(`event: done\ndata: {}\n\n`);
+    res.end();
+    return;
+  }
+
+  entry.clients.add(res);
+  req.on('close', () => {
+    const e = runLogs.get(executionId);
+    if (e) e.clients.delete(res);
+  });
+});
+
 // POST /run-suite/:suiteId - Execute all tests in a suite
 app.post('/run-suite/:suiteId', async (req, res) => {
   const suiteId = parseInt(req.params.suiteId);
-  const startTime = Date.now();
-  let tempDir = null;
 
   try {
     // 1. Fetch suite by ID
@@ -968,9 +1104,45 @@ app.post('/run-suite/:suiteId', async (req, res) => {
       });
     }
 
-    // Create temp directory
-    tempDir = path.join(__dirname, 'temp', `suite-${Date.now()}`);
-    await fs.mkdir(tempDir, { recursive: true });
+    // 3. Create execution record immediately — gives the frontend an ID right away
+    //    so the user can navigate to the detail page before tests finish.
+    const suiteExecution = suiteExecutionOperations.create({
+      suiteId: parseInt(suiteId),
+      status: 'running',
+      totalTests: suiteTestFiles.length,
+      passed: 0,
+      failed: 0,
+      durationMs: 0,
+      reportPath: null
+    });
+    const suiteExecutionId = suiteExecution.id;
+
+    // Initialize real-time log buffer — must be done before res.json() so a
+    // client that immediately opens the SSE stream after receiving the ID finds
+    // the entry in the map.
+    runLogs.set(suiteExecutionId, { lines: [], clients: new Set(), done: false });
+
+    // Respond immediately — client is no longer blocked waiting for tests.
+    res.json({
+      suite_id: parseInt(suiteId),
+      suite_execution_id: suiteExecutionId,
+      status: 'running',
+      total_tests: suiteTestFiles.length,
+      passed: 0,
+      failed: 0,
+      duration_ms: 0,
+      tests: []
+    });
+
+    // Run tests in background so navigation doesn't interrupt the run.
+    setImmediate(async () => {
+      const startTime = Date.now();
+      let tempDir = null;
+      try {
+        // Create temp directory
+        tempDir = path.join(__dirname, 'temp', `suite-${Date.now()}`);
+        await fs.mkdir(tempDir, { recursive: true });
+        pushLog(suiteExecutionId, `⚙  Suite execution #${suiteExecutionId} started — ${suiteTestFiles.length} test file(s)`);
 
     // 3. For each test file, wrap in Playwright template and save
     const testFilePromises = suiteTestFiles.map(async (suiteTestFile, index) => {
@@ -1005,17 +1177,23 @@ ${userCode}
 
     // Determine execution mode
     const useDocker = req.body && req.body.useDocker === true;
+    const suiteWorkers = (req.body && req.body.workers) ? req.body.workers : 1;
+    const suiteFullyParallel = req.body && req.body.fullyParallel === true;
+    const suiteScreenshotMode = (req.body && req.body.screenshotMode) || 'only-on-failure';
 
     // Create playwright.config.ts — headless for Docker, headed for local
     const configContent = useDocker
       ? `import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
+  fullyParallel: ${suiteFullyParallel},
+  workers: ${suiteWorkers},
   use: {
     headless: true,
-    screenshot: 'on',
+    screenshot: '${suiteScreenshotMode}',
   },
   reporter: [
+    ['list'],
     ['json', { outputFile: 'test-results.json' }],
     ['html', { open: 'never', outputFolder: 'playwright-report' }]
   ],
@@ -1024,67 +1202,65 @@ export default defineConfig({
       : `import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
+  fullyParallel: ${suiteFullyParallel},
+  workers: ${suiteWorkers},
   use: {
     headless: false,
     slowMo: 500,
-    screenshot: 'on',
+    screenshot: '${suiteScreenshotMode}',
   },
   reporter: [
+    ['list'],
     ['json', { outputFile: 'test-results.json' }],
     ['html', { open: 'never', outputFolder: 'playwright-report' }]
   ],
 });
 `;
     await fs.writeFile(path.join(tempDir, 'playwright.config.ts'), configContent, 'utf8');
+    pushLog(suiteExecutionId, `✓  ${suiteTestFiles.length} test file(s) written to workspace`);
 
     // 4. Execute tests
     let exitCode = 0;
     let stdout = '';
     let stderr = '';
 
-    if (useDocker) {
-      // Verify Docker is running before attempting
-      try {
-        await execAsync('docker info', { timeout: 8000 });
-      } catch {
-        return res.status(500).json({
-          error: 'Docker is not available or not running. Please start Docker Desktop and try again.',
-          suite_id: parseInt(suiteId)
-        });
-      }
-
-      // Run inside the official Playwright Docker image (fully headless, no display required)
-      const dockerImage = 'mcr.microsoft.com/playwright:v1.50.0-jammy';
-      // Docker Desktop on Windows accepts Windows paths in -v but needs forward slashes
-      const dockerMountPath = tempDir.replace(/\\/g, '/');
-      console.log(`🐳 Running suite via Docker: ${dockerImage}`);
-      try {
-        const result = await execAsync(
-          `docker run --rm --ipc=host -v "${dockerMountPath}:/work" -w /work ${dockerImage} npx playwright test`,
-          { timeout: 600000 } // 10 min to allow image pull on first run
-        );
-        stdout = result.stdout;
-        stderr = result.stderr;
-      } catch (error) {
-        exitCode = error.code || 1;
-        stdout = error.stdout || '';
-        stderr = error.stderr || '';
-      }
-    } else {
-      try {
-        const result = await execAsync('npx playwright test', {
-          cwd: tempDir,
-          timeout: 300000, // 5 minutes timeout
-        });
-        stdout = result.stdout;
-        stderr = result.stderr;
-      } catch (error) {
-        // Playwright returns non-zero exit code on test failures
-        exitCode = error.code || 1;
-        stdout = error.stdout || '';
-        stderr = error.stderr || '';
-      }
-    }
+    // Use the Playwright binary bundled with this server — no Docker or external tools needed.
+    // This mirrors how Azure DevOps / GitHub Actions agents work: a pre-installed Playwright
+    // binary runs tests in a clean temp directory. "headless" mode = CI-style (no browser
+    // window), normal mode = headed with slow-mo so you can watch the run.
+    const playwrightBin = path.join(
+      __dirname, 'node_modules', '.bin',
+      process.platform === 'win32' ? 'playwright.cmd' : 'playwright'
+    );
+    const runLabel = useDocker ? 'headless (CI mode)' : 'headed';
+    console.log(`▶  Running suite [${runLabel}] via local Playwright…`);
+    pushLog(suiteExecutionId, `▶  Launching Playwright (${runLabel})...`);
+    await new Promise((resolve) => {
+      // Use shell:true so .cmd wrapper files work on Windows
+      const proc = spawn(`"${playwrightBin}" test`, [], {
+        cwd: tempDir,
+        shell: true,
+        env: { ...process.env }
+      });
+      proc.stdout.on('data', (chunk) => {
+        const text = chunk.toString();
+        stdout += text;
+        text.split('\n').forEach(line => { if (line.trim()) pushLog(suiteExecutionId, line); });
+      });
+      proc.stderr.on('data', (chunk) => {
+        const text = chunk.toString();
+        stderr += text;
+        text.split('\n').forEach(line => { if (line.trim()) pushLog(suiteExecutionId, line); });
+      });
+      proc.on('close', (code) => { exitCode = code || 0; resolve(); });
+      proc.on('error', (err) => {
+        stderr += err.message;
+        pushLog(suiteExecutionId, `✗  Process error: ${err.message}`);
+        exitCode = 1;
+        resolve();
+      });
+    });
+    pushLog(suiteExecutionId, `\n✓  Playwright run finished (exit ${exitCode})`);
 
     // 5. Read JSON results
     const resultsJsonPath = path.join(tempDir, 'test-results.json');
@@ -1201,13 +1377,11 @@ export default defineConfig({
       console.error('Failed to save HTML report:', reportError.message);
     }
 
-    // Save suite execution to database
-    let suiteExecutionId = null;
+    // Update suite execution record with final results
     try {
       const overallStatus = failed === 0 ? 'PASS' : 'FAIL';
-      
-      const suiteExecution = suiteExecutionOperations.create({
-        suiteId: parseInt(suiteId),
+
+      suiteExecutionOperations.update(suiteExecutionId, {
         status: overallStatus,
         totalTests: totalTests,
         passed: passed,
@@ -1215,15 +1389,13 @@ export default defineConfig({
         durationMs: durationMs,
         reportPath: reportPath
       });
-      
-      suiteExecutionId = suiteExecution.id;
-      console.log('✓ Suite execution saved to database with ID:', suiteExecutionId);
+      console.log('✓ Suite execution updated in database, ID:', suiteExecutionId);
 
       // Save individual test results
       testResults.forEach((testResult, index) => {
         // Find the corresponding test file ID from the original suiteTestFiles array
         const testFileId = suiteTestFiles[index]?.test_file_id || null;
-        
+
         if (testFileId) {
           suiteTestResultOperations.create({
             suiteExecutionId: suiteExecutionId,
@@ -1236,35 +1408,27 @@ export default defineConfig({
           });
         }
       });
-      
+
       console.log('✓ Saved', testResults.length, 'test results to database');
+      pushLog(suiteExecutionId, `\n🏁  Done — ${passed} passed, ${failed} failed`);
     } catch (dbError) {
-      console.error('Failed to save suite execution to database:', dbError.message);
+      console.error('Failed to update suite execution in database:', dbError.message);
     }
 
-    // Return response
-    res.json({
-      suite_id: parseInt(suiteId),
-      suite_execution_id: suiteExecutionId,
-      total_tests: totalTests,
-      passed: passed,
-      failed: failed,
-      duration_ms: durationMs,
-      tests: testResults
-    });
-
-  } catch (error) {
-    console.error('Suite execution error:', error);
-    res.status(500).json({ 
-      error: error.message,
-      suite_id: parseInt(suiteId),
-      total_tests: 0,
-      passed: 0,
-      failed: 0,
-      duration_ms: Date.now() - startTime,
-      tests: []
-    });
+  } catch (bgError) {
+    console.error('Suite background execution error:', bgError);
+    try {
+      suiteExecutionOperations.update(suiteExecutionId, {
+        status: 'FAIL',
+        totalTests: suiteTestFiles.length,
+        passed: 0,
+        failed: suiteTestFiles.length,
+        durationMs: Date.now() - startTime,
+        reportPath: null
+      });
+    } catch (_) {}
   } finally {
+    finishLog(suiteExecutionId);  // Signal all SSE clients that the run is done
     // Cleanup: Remove temp directory
     if (tempDir) {
       try {
@@ -1272,6 +1436,22 @@ export default defineConfig({
       } catch (cleanupError) {
         console.error('Cleanup error:', cleanupError);
       }
+    }
+  }
+    }); // end setImmediate background run
+
+  } catch (error) {
+    console.error('Suite execution error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: error.message,
+        suite_id: parseInt(suiteId),
+        total_tests: 0,
+        passed: 0,
+        failed: 0,
+        duration_ms: 0,
+        tests: []
+      });
     }
   }
 });
@@ -2075,6 +2255,54 @@ app.delete('/sprints/:id', (req, res) => {
 
 // ===== Auth / Session Management =====
 const sessions = new Map(); // token -> { userId, username, role, loggedInAt }
+
+// ===== Task Routes =====
+app.get('/tasks', (req, res) => {
+  try {
+    const { sprintId } = req.query;
+    const tasks = sprintId ? taskOperations.getBySprintId(parseInt(sprintId)) : taskOperations.getAll();
+    res.json(tasks);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/tasks', (req, res) => {
+  try {
+    const { title, description, sprintId, assigneeId, status, priority, createdBy, startDate, endDate, plannedHours, completedHours, requirementId } = req.body;
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+    const task = taskOperations.create({ title, description, sprintId, assigneeId, status, priority, createdBy, startDate, endDate, plannedHours, completedHours, requirementId });
+    res.status(201).json(task);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.put('/tasks/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!taskOperations.getById(id)) return res.status(404).json({ error: 'Task not found' });
+    const { title, description, sprintId, assigneeId, status, priority, startDate, endDate, plannedHours, completedHours, requirementId } = req.body;
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+    const task = taskOperations.update(id, { title, description, sprintId, assigneeId, status, priority, startDate, endDate, plannedHours, completedHours, requirementId });
+    res.json(task);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.delete('/tasks/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!taskOperations.getById(id)) return res.status(404).json({ error: 'Task not found' });
+    taskOperations.delete(id);
+    res.json({ message: 'Task deleted successfully' });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Basic user list for assignee pickers (no auth required — returns id+username only)
+app.get('/users/list', (req, res) => {
+  try {
+    const users = userOperations.getAll().map(u => ({ id: u.id, username: u.username, role: u.role }));
+    res.json(users);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+
 
 function requireAuth(req, res, next) {
   const token = req.headers['x-auth-token'];

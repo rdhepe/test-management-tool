@@ -203,9 +203,27 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
     setRunningSuiteId(suite.id);
 
     try {
+      let pwWorkersSuite = 1;
+      let pwFullyParallelSuite = false;
+      try {
+        const pwCfg = localStorage.getItem('playwright_config');
+        if (pwCfg) {
+          const parsed = JSON.parse(pwCfg);
+          pwFullyParallelSuite = parsed.executionMode === 'parallel';
+          pwWorkersSuite = pwFullyParallelSuite ? (parsed.workers || 2) : 1;
+        }
+      } catch {}
+
+      let screenshotModeSuite = 'only-on-failure';
+      try {
+        const pwCfg = JSON.parse(localStorage.getItem('playwright_config') || '{}');
+        screenshotModeSuite = pwCfg.screenshotMode || 'only-on-failure';
+      } catch {}
+
       const response = await fetch(`${API_URL}/run-suite/${suite.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workers: pwWorkersSuite, fullyParallel: pwFullyParallelSuite, screenshotMode: screenshotModeSuite }),
       });
 
       if (response.ok) {
@@ -229,7 +247,7 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
     }
   };
 
-  const handleRunDockerSuite = async (suite, event) => {
+  const handleRunHeadlessSuite = async (suite, event) => {
     event.stopPropagation();
 
     if (suite.test_file_count === 0) {
@@ -240,25 +258,42 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
     setRunningDockerSuiteId(suite.id);
 
     try {
+      let pwWorkersCI = 1;
+      let pwFullyParallelCI = false;
+      try {
+        const pwCfg = localStorage.getItem('playwright_config');
+        if (pwCfg) {
+          const parsed = JSON.parse(pwCfg);
+          pwFullyParallelCI = parsed.executionMode === 'parallel';
+          pwWorkersCI = pwFullyParallelCI ? (parsed.workers || 2) : 1;
+        }
+      } catch {}
+
+      let screenshotModeCI = 'only-on-failure';
+      try {
+        const pwCfg = JSON.parse(localStorage.getItem('playwright_config') || '{}');
+        screenshotModeCI = pwCfg.screenshotMode || 'only-on-failure';
+      } catch {}
+
       const response = await fetch(`${API_URL}/run-suite/${suite.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ useDocker: true }),
+        body: JSON.stringify({ useDocker: true, workers: pwWorkersCI, fullyParallel: pwFullyParallelCI, screenshotMode: screenshotModeCI }),
       });
 
       if (response.ok) {
         const result = await response.json();
-        console.log('Docker suite execution result:', result);
+        console.log('Headless suite execution result:', result);
         if (result.suite_execution_id && onNavigateToSuiteExecution) {
           onNavigateToSuiteExecution(result.suite_execution_id);
         }
       } else {
         const errorData = await response.json().catch(() => ({}));
-        alert(errorData.error || `Failed to run suite in Docker: ${response.status}`);
+        alert(errorData.error || `Failed to run suite headlessly: ${response.status}`);
       }
     } catch (error) {
-      console.error('Error running suite in Docker:', error);
-      alert(`Failed to run suite in Docker: ${error.message}`);
+      console.error('Error running headless suite:', error);
+      alert(`Failed to run suite headlessly: ${error.message}`);
     } finally {
       setRunningDockerSuiteId(null);
     }
@@ -648,9 +683,9 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
                         )}
                       </button>
                       <button
-                        onClick={(e) => handleRunDockerSuite(suite, e)}
+                        onClick={(e) => handleRunHeadlessSuite(suite, e)}
                         disabled={runningSuiteId === suite.id || runningDockerSuiteId === suite.id}
-                        title="Run headlessly inside Docker — no browser window needed"
+                        title="Run headlessly (CI mode) — no browser window, like Azure DevOps / GitHub Actions"
                         className="px-3 py-1 bg-cyan-600 text-white text-sm rounded-xl hover:bg-cyan-700 transition-all duration-200 disabled:bg-slate-600 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-cyan-600/40 disabled:shadow-none"
                       >
                         {runningDockerSuiteId === suite.id ? (
@@ -659,14 +694,14 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
-                            Docker...
+                            CI Run...
                           </>
                         ) : (
                           <>
-                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M13.5 2H10.5V5H7.5V8H4.5V11H1.5V14H7.5C7.5 15.66 8.84 17 10.5 17V21H13.5V17C15.16 17 16.5 15.66 16.5 14H22.5V11H19.5V8H16.5V5H13.5V2ZM10.5 8H7.5V11H10.5V8ZM13.5 8V11H16.5V8H13.5ZM10.5 5H13.5V8H10.5V5ZM10.5 11H13.5V14C13.5 14.83 12.83 15.5 12 15.5C11.17 15.5 10.5 14.83 10.5 14V11Z" />
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
                             </svg>
-                            Docker
+                            CI Run
                           </>
                         )}
                       </button>

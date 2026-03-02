@@ -178,6 +178,48 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    sprint_id INTEGER REFERENCES sprints(id) ON DELETE SET NULL,
+    assignee_id INTEGER,
+    status TEXT NOT NULL CHECK(status IN ('New','In Progress','Completed','Done')) DEFAULT 'New',
+    priority TEXT NOT NULL CHECK(priority IN ('Low','Medium','High','Critical')) DEFAULT 'Medium',
+    created_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+// Migration: Add start_date / end_date / planned_hours / completed_hours to tasks if not present
+try {
+  const taskCols = db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
+  if (!taskCols.includes('start_date')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN start_date TEXT');
+    console.log('Migration: Added start_date column to tasks table');
+  }
+  if (!taskCols.includes('end_date')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN end_date TEXT');
+    console.log('Migration: Added end_date column to tasks table');
+  }
+  if (!taskCols.includes('planned_hours')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN planned_hours REAL DEFAULT 0');
+    console.log('Migration: Added planned_hours column to tasks table');
+  }
+  if (!taskCols.includes('completed_hours')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN completed_hours REAL DEFAULT 0');
+    console.log('Migration: Added completed_hours column to tasks table');
+  }
+  if (!taskCols.includes('requirement_id')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN requirement_id INTEGER REFERENCES requirements(id)');
+    console.log('Migration: Added requirement_id column to tasks table');
+  }
+} catch (error) {
+  console.error('Migration error for tasks date/hours columns:', error);
+}
+
 // Migration: Add tags column if it doesn't exist
 try {
   const columns = db.prepare("PRAGMA table_info(modules)").all();
@@ -615,6 +657,24 @@ const suiteExecutionOperations = {
       suiteExecution.reportPath || null
     );
     return { id: result.lastInsertRowid, ...suiteExecution };
+  },
+
+  update: (id, fields) => {
+    const stmt = db.prepare(`
+      UPDATE suite_executions
+      SET status = ?, total_tests = ?, passed = ?, failed = ?, duration_ms = ?, report_path = ?
+      WHERE id = ?
+    `);
+    stmt.run(
+      fields.status,
+      fields.totalTests,
+      fields.passed,
+      fields.failed,
+      fields.durationMs,
+      fields.reportPath || null,
+      id
+    );
+    return db.prepare('SELECT * FROM suite_executions WHERE id = ?').get(id);
   },
 
   delete: (id) => {
@@ -1561,6 +1621,85 @@ const settingsOperations = {
   }
 };
 
+const taskOperations = {
+  getAll: () => db.prepare(`
+    SELECT t.*, r.title AS requirement_title, u.username AS assignee_username
+    FROM tasks t
+    LEFT JOIN requirements r ON t.requirement_id = r.id
+    LEFT JOIN users u ON t.assignee_id = u.id
+    ORDER BY t.created_at DESC
+  `).all(),
+
+  getBySprintId: (sprintId) => db.prepare(`
+    SELECT t.*, r.title AS requirement_title, u.username AS assignee_username
+    FROM tasks t
+    LEFT JOIN requirements r ON t.requirement_id = r.id
+    LEFT JOIN users u ON t.assignee_id = u.id
+    WHERE t.sprint_id = ?
+    ORDER BY t.created_at DESC
+  `).all(sprintId),
+
+  getById: (id) => db.prepare('SELECT * FROM tasks WHERE id = ?').get(id),
+
+  create: (task) => {
+    const stmt = db.prepare(`
+      INSERT INTO tasks (title, description, sprint_id, assignee_id, status, priority, created_by, start_date, end_date, planned_hours, completed_hours, requirement_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(
+      task.title,
+      task.description || null,
+      task.sprintId || null,
+      task.assigneeId || null,
+      task.status || 'New',
+      task.priority || 'Medium',
+      task.createdBy || null,
+      task.startDate || null,
+      task.endDate || null,
+      task.plannedHours != null ? parseFloat(task.plannedHours) : 0,
+      task.completedHours != null ? parseFloat(task.completedHours) : 0,
+      task.requirementId || null
+    );
+    return taskOperations.getById(result.lastInsertRowid);
+  },
+
+  update: (id, task) => {
+    const stmt = db.prepare(`
+      UPDATE tasks
+      SET title = ?,
+          description = ?,
+          sprint_id = ?,
+          assignee_id = ?,
+          status = ?,
+          priority = ?,
+          start_date = ?,
+          end_date = ?,
+          planned_hours = ?,
+          completed_hours = ?,
+          requirement_id = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    stmt.run(
+      task.title,
+      task.description || null,
+      task.sprintId || null,
+      task.assigneeId || null,
+      task.status,
+      task.priority,
+      task.startDate || null,
+      task.endDate || null,
+      task.plannedHours != null ? parseFloat(task.plannedHours) : 0,
+      task.completedHours != null ? parseFloat(task.completedHours) : 0,
+      task.requirementId || null,
+      id
+    );
+    return taskOperations.getById(id);
+  },
+
+  delete: (id) => db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
+};
+
 module.exports = {
   db,
   moduleOperations,
@@ -1577,6 +1716,7 @@ module.exports = {
   manualTestRunOperations,
   defectOperations,
   sprintOperations,
+  taskOperations,
   userOperations,
   customRoleOperations,
   wikiOperations,
