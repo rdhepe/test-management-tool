@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import Login from './components/Login';
@@ -25,12 +26,18 @@ import Defects from './components/Defects';
 import Sprints from './components/Sprints';
 import Reports from './components/Reports';
 import Tutorial from './components/Tutorial';
+import OrgManagement from './components/OrgManagement';
 
 const API_URL = 'http://localhost:3001';
 
-function App() {
+function App({ orgSlug = 'default' }) {
+  const navigate = useNavigate();
   const [modules, setModules] = useState([]);
-  const [requirements, setRequirements] = useState([]);
+  const [requirements, setRequirements] = useState([]);  
+  // Org info loaded from server for this slug
+  const [orgInfo, setOrgInfo]   = useState(null);
+  const [orgError, setOrgError] = useState('');
+  const [authError, setAuthError] = useState('');
   const [selectedModule, setSelectedModule] = useState(null);
   const [selectedTestFile, setSelectedTestFile] = useState(null);
   const [isModuleModalOpen, setIsModuleModalOpen] = useState(false);
@@ -50,32 +57,58 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // Restore session from localStorage on mount
+  // Restore session + fetch org info on mount
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
-    const stored = localStorage.getItem('auth_user');
-    if (token && stored) {
-      // Validate token with server
-      fetch(`${API_URL}/auth/me`, { headers: { 'x-auth-token': token } })
-        .then(r => r.ok ? r.json() : Promise.reject())
-        .then(data => setCurrentUser(data.user))
-        .catch(() => {
+    const orgFetch = fetch(`${API_URL}/public/org/${orgSlug}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .catch(() => null);
+    const authFetch = token
+      ? fetch(`${API_URL}/auth/me`, { headers: { 'x-auth-token': token } })
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .catch(() => null)
+      : Promise.resolve(null);
+    Promise.all([orgFetch, authFetch]).then(([org, authData]) => {
+      if (!org) {
+        setOrgError(`Organization "${orgSlug}" not found.`);
+      } else {
+        setOrgInfo(org);
+      }
+      if (authData?.user) {
+        const user = authData.user;
+        // Validate org membership — super_admin can access any org
+        if (user.role !== 'super_admin' && org && user.orgId !== org.id) {
           localStorage.removeItem('auth_token');
           localStorage.removeItem('auth_user');
-        })
-        .finally(() => setAuthChecked(true));
-    } else {
+        } else {
+          setCurrentUser(user);
+          if (user.role === 'super_admin') setCurrentView('orgManagement');
+        }
+      } else if (token) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+      }
       setAuthChecked(true);
-    }
-  }, []);
+    });
+  }, [orgSlug]);
 
   const handleLoginSuccess = (user) => {
+    // Validate org membership on login — super_admin can access any org
+    if (user.role !== 'super_admin' && orgInfo && user.orgId !== orgInfo.id) {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('auth_user');
+      setAuthError(`This account does not belong to "${orgInfo.name}". Please sign in at the correct org URL.`);
+      return;
+    }
+    setAuthError('');
     setCurrentUser(user);
+    if (user.role === 'super_admin') setCurrentView('orgManagement');
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     setCurrentView('dashboard');
+    navigate(`/org/${orgSlug}`);
   };
   
   // Theme management with localStorage persistence
@@ -635,7 +668,7 @@ function App() {
       // Keep debugActive=true — UI stays locked until user clicks Stop Debug
       setExecutionStatus('completed');
       setExecutionResult({
-        status: 'pass',
+        status: 'debug',
         message: data.logs || 'Debug session started.',
         screenshot: null,
       });
@@ -664,6 +697,10 @@ function App() {
     if (currentUser.role === 'contributor') return view !== 'userManagement';
     if (currentUser.role === 'custom') {
       return Array.isArray(currentUser.permissions) && currentUser.permissions.includes(view);
+    }
+    // Free-text custom role — check user's explicit permissions
+    if (Array.isArray(currentUser.permissions)) {
+      return currentUser.permissions.includes(view);
     }
     return false;
   };
@@ -735,6 +772,10 @@ function App() {
       setCurrentView('userManagement');
       setSelectedModule(null);
       setSelectedTestFile(null);
+    } else if (view === 'orgManagement') {
+      setCurrentView('orgManagement');
+      setSelectedModule(null);
+      setSelectedTestFile(null);
     } else if (view === 'tutorial') {
       setCurrentView('tutorial');
       setSelectedModule(null);
@@ -803,8 +844,23 @@ function App() {
           </svg>
         </div>
       )}
-      {authChecked && !currentUser && (
-        <Login onLoginSuccess={handleLoginSuccess} />
+      {/* Org not found */}
+      {authChecked && orgError && (
+        <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'rgb(var(--bg-primary))' }}>
+          <div className="text-center">
+            <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-bold text-white mb-2">Organization Not Found</h1>
+            <p className="text-slate-400 mb-6">The organization "<span className="text-white font-mono">{orgSlug}</span>" doesn't exist.</p>
+            <a href="/" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm transition-colors">Go to Default</a>
+          </div>
+        </div>
+      )}
+      {authChecked && !orgError && !currentUser && (
+        <Login onLoginSuccess={handleLoginSuccess} orgName={orgInfo?.name} orgSlug={orgSlug} authError={authError} />
       )}
       {authChecked && currentUser && (
         <>
@@ -823,6 +879,7 @@ function App() {
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           currentUser={currentUser}
+          currentView={currentView}
         />
         
         {/* Main Content Area - with left margin for fixed sidebar */}
@@ -990,6 +1047,10 @@ function App() {
 
             {currentView === 'userManagement' && ['admin', 'super_admin'].includes(currentUser?.role) && (
               <UserManagement currentUser={currentUser} />
+            )}
+
+            {currentView === 'orgManagement' && currentUser?.role === 'super_admin' && (
+              <OrgManagement currentUser={currentUser} />
             )}
 
             {currentView === 'tutorial' && (

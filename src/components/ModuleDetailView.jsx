@@ -266,15 +266,6 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Base URL</label>
-                <input
-                  type="text"
-                  value={moduleFormData.baseUrl}
-                  onChange={(e) => setModuleFormData({ ...moduleFormData, baseUrl: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-              <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Language</label>
                 <select
                   value={moduleFormData.language}

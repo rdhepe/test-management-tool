@@ -5,7 +5,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { db, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
+const { db, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
 
 const execAsync = promisify(exec);
 const app = express();
@@ -82,7 +82,8 @@ async function copyDirectory(src, dest) {
 // GET /modules - Get all modules
 app.get('/modules', (req, res) => {
   try {
-    const modules = moduleOperations.getAll();
+    const orgId = req.session?.orgId || 1;
+    const modules = moduleOperations.getAll(orgId);
     res.json(modules);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -92,7 +93,8 @@ app.get('/modules', (req, res) => {
 // POST /modules - Create a new module
 app.post('/modules', (req, res) => {
   try {
-    const module = moduleOperations.create(req.body);
+    const orgId = req.session?.orgId || 1;
+    const module = moduleOperations.create(req.body, orgId);
     res.json(module);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -114,7 +116,8 @@ app.delete('/modules/:id', (req, res) => {
 // GET /test-files - Get all test files across all modules
 app.get('/test-files', (req, res) => {
   try {
-    const testFiles = testFileOperations.getAll();
+    const orgId = req.session?.orgId || 1;
+    const testFiles = testFileOperations.getAll(orgId);
     res.json(testFiles);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -134,12 +137,13 @@ app.get('/modules/:id/test-files', (req, res) => {
 // POST /modules/:id/test-files - Create a new test file
 app.post('/modules/:id/test-files', (req, res) => {
   try {
+    const orgId = req.session?.orgId || 1;
     const testFile = testFileOperations.create({
       moduleId: req.params.id,
       name: req.body.name,
       content: req.body.content,
       requirementId: req.body.requirementId || null
-    });
+    }, orgId);
     res.json(testFile);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -253,7 +257,8 @@ app.delete('/test-files/:id/dependencies', (req, res) => {
 // GET /executions - Get all executions
 app.get('/executions', (req, res) => {
   try {
-    const executions = executionOperations.getAll();
+    const orgId = req.session?.orgId || 1;
+    const executions = executionOperations.getAll(orgId);
     res.json(executions);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -263,7 +268,8 @@ app.get('/executions', (req, res) => {
 // GET /executions/stats - Get execution statistics
 app.get('/executions/stats', (req, res) => {
   try {
-    const executions = executionOperations.getAll();
+    const orgId = req.session?.orgId || 1;
+    const executions = executionOperations.getAll(orgId);
     
     const total = executions.length;
     const passed = executions.filter(e => e.status === 'PASS').length;
@@ -312,7 +318,8 @@ app.post('/run-test', async (req, res) => {
   const { code, moduleId, testFileId, browser = 'chromium', debug = false, workers = 1, fullyParallel = false, screenshotMode = 'only-on-failure' } = req.body;
 
   // Load global variables and make them available to tests via process.env
-  const globalVarsEnv = globalVariableOperations.getAllAsEnv();
+  const orgId = req.session?.orgId || 1;
+  const globalVarsEnv = globalVariableOperations.getAllAsEnv(orgId);
 
   if (!code || typeof code !== 'string') {
     return res.status(400).json({
@@ -323,6 +330,7 @@ app.post('/run-test', async (req, res) => {
 
   const tempDir = path.join(__dirname, 'temp', `test-${Date.now()}`);
   const startTime = Date.now();
+  let dependencyHeader = '';
 
   try {
     // Create temp directory
@@ -330,7 +338,6 @@ app.post('/run-test', async (req, res) => {
 
     // Build the full ordered list of files to execute: before deps → main → after deps
     const filesToRun = []; // [{ label, name, content }]
-    let dependencyHeader = '';
 
     if (testFileId) {
       try {
@@ -386,7 +393,7 @@ app.post('/run-test', async (req, res) => {
 
     const specContent = `import { test, expect } from '@playwright/test';
 
-test(${JSON.stringify(combinedTestName)}, async ({ page }) => {
+test(${JSON.stringify(combinedTestName)}, async ({ page, request, browser, context, browserName }) => {
 ${combinedSteps}
 });
 `;
@@ -448,12 +455,13 @@ export default defineConfig({
       // Kill any lingering debug session (full process tree on Windows)
       killDebugSession();
 
-      // spawn with shell:true (needed for npx on Windows) + stdio:ignore (no output buffering
-      // which would silently stall the process) + no detached (so the Inspector GUI stays visible).
+      // shell:true is required on Windows for npx; windowsHide:true suppresses the cmd console
+      // flash without breaking the Playwright Inspector / browser GUI windows.
       const debugProc = spawn('npx', ['playwright', 'test', '--debug', '--headed', '--timeout', '0'], {
         cwd: tempDir,
         shell: true,
         stdio: 'ignore',
+        windowsHide: true,
         env: { ...process.env, ...globalVarsEnv, PWDEBUG: '1' },
       });
       debugProc.on('close', () => { activeDebugProcess = null; });
@@ -484,7 +492,8 @@ export default defineConfig({
 
     // Success - exit code 0
     const durationMs = Date.now() - startTime;
-    const logs = dependencyHeader + (stdout || stderr || 'Test completed successfully');
+    const combinedOutput = [stdout, stderr].filter(s => s && s.trim()).join('\n').trim();
+    const logs = dependencyHeader + (combinedOutput || 'Test completed successfully');
 
     // Try to find and read screenshot
     let screenshotBase64 = null;
@@ -552,7 +561,7 @@ export default defineConfig({
             screenshotBase64,
             durationMs,
             reportPath
-          });
+          }, orgId);
           executionId = execution.id;
           console.log('✓ Execution saved to database with ID:', executionId);
         } else {
@@ -578,7 +587,8 @@ export default defineConfig({
 
   } catch (error) {
     // Failure - non-zero exit code or execution error
-    const errorLogs = dependencyHeader + (error.stderr || error.stdout || error.message);
+    const combinedError = [error.stderr, error.stdout].filter(s => s && s.trim()).join('\n').trim();
+    const errorLogs = dependencyHeader + (combinedError || error.message || 'Test failed');
     const durationMs = Date.now() - startTime;
     
     // Try to find and read screenshot if test failed
@@ -627,7 +637,7 @@ export default defineConfig({
                 screenshotBase64: null,
                 durationMs,
                 reportPath
-              });
+              }, orgId);
               executionId = execution.id;
               console.log('✓ Execution saved to database with ID:', executionId);
             } else {
@@ -714,7 +724,7 @@ export default defineConfig({
             screenshotBase64,
             durationMs,
             reportPath
-          });
+          }, orgId);
           executionId = execution.id;
           console.log('✓ Execution saved to database with ID:', executionId);
         } else {
@@ -816,7 +826,8 @@ app.get('/suite-execution/:id/report', async (req, res) => {
 // GET /test-suites - Get all test suites
 app.get('/test-suites', (req, res) => {
   try {
-    const suites = testSuiteOperations.getAll();
+    const orgId = req.session?.orgId || 1;
+    const suites = testSuiteOperations.getAll(orgId);
     
     // For each suite, count the number of test files
     const suitesWithCounts = suites.map(suite => {
@@ -858,10 +869,11 @@ app.post('/test-suites', (req, res) => {
     const { moduleId, name, testFileIds } = req.body;
     
     // Create the suite
+    const orgId = req.session?.orgId || 1;
     const suite = testSuiteOperations.create({
       moduleId,
       name
-    });
+    }, orgId);
     
     // Add test files to the suite
     if (testFileIds && testFileIds.length > 0) {
@@ -968,7 +980,7 @@ app.get('/suite-executions/:id/results', (req, res) => {
 
 app.get('/global-variables', (req, res) => {
   try {
-    res.json(globalVariableOperations.getAll());
+    res.json(globalVariableOperations.getAll(req.session?.orgId || 1));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -978,7 +990,7 @@ app.post('/global-variables', (req, res) => {
   try {
     const { key, value, description } = req.body;
     if (!key || !key.trim()) return res.status(400).json({ error: 'key is required' });
-    const created = globalVariableOperations.create({ key: key.trim(), value: value ?? '', description: description ?? '' });
+    const created = globalVariableOperations.create({ key: key.trim(), value: value ?? '', description: description ?? '' }, req.session?.orgId || 1);
     res.status(201).json(created);
   } catch (err) {
     if (err.message && err.message.includes('UNIQUE')) {
@@ -1012,6 +1024,19 @@ app.delete('/global-variables/:id', (req, res) => {
   }
 });
 
+// GET /global-variables/by-key/:key — read a variable by key name at runtime.
+app.get('/global-variables/by-key/:key', (req, res) => {
+  try {
+    const key = req.params.key;
+    const orgId = req.session?.orgId || 1;
+    const existing = globalVariableOperations.getAll(orgId).find(v => v.key === key);
+    if (!existing) return res.status(404).json({ error: `Variable "${key}" not found` });
+    res.json(existing);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PATCH /global-variables/by-key/:key — upsert a variable by key name.
 // Tests can call this at runtime to write back values (e.g. auth tokens,
 // generated IDs) so later tests can read them as process.env.KEY.
@@ -1019,8 +1044,9 @@ app.patch('/global-variables/by-key/:key', (req, res) => {
   try {
     const key = req.params.key;
     const { value, description } = req.body;
+    const orgId = req.session?.orgId || 1;
     if (value === undefined) return res.status(400).json({ error: 'value is required' });
-    const existing = globalVariableOperations.getAll().find(v => v.key === key);
+    const existing = globalVariableOperations.getAll(orgId).find(v => v.key === key);
     if (existing) {
       const updated = globalVariableOperations.update(existing.id, {
         key,
@@ -1029,8 +1055,20 @@ app.patch('/global-variables/by-key/:key', (req, res) => {
       });
       return res.json(updated);
     }
-    const created = globalVariableOperations.create({ key, value: String(value), description: description ?? '' });
+    const created = globalVariableOperations.create({ key, value: String(value), description: description ?? '' }, orgId);
     res.status(201).json(created);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /executions/all — wipe all execution history (single runs + suite runs)
+app.delete('/executions/all', (req, res) => {
+  try {
+    db.prepare('DELETE FROM suite_test_results').run();
+    db.prepare('DELETE FROM suite_executions').run();
+    db.prepare('DELETE FROM executions').run();
+    res.json({ success: true, message: 'All execution data cleared.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1190,7 +1228,7 @@ app.post('/run-suite/:suiteId', async (req, res) => {
       failed: 0,
       durationMs: 0,
       reportPath: null
-    });
+    }, req.session?.orgId || 1);
     const suiteExecutionId = suiteExecution.id;
 
     // Initialize real-time log buffer — must be done before res.json() so a
@@ -1258,7 +1296,8 @@ ${userCode}
     const suiteScreenshotMode = (req.body && req.body.screenshotMode) || 'only-on-failure';
 
     // Load global variables and inject them into each test process via env
-    const suiteGlobalVarsEnv = globalVariableOperations.getAllAsEnv();
+    const suiteRunOrgId = req.session?.orgId || 1;
+    const suiteGlobalVarsEnv = globalVariableOperations.getAllAsEnv(suiteRunOrgId);
 
     // Create playwright.config.ts — headless for Docker, headed for local
     const configContent = useDocker
@@ -1540,7 +1579,7 @@ export default defineConfig({
 // GET /features - Get all features
 app.get('/features', (req, res) => {
   try {
-    const features = featureOperations.getAll();
+    const features = featureOperations.getAll(req.session?.orgId || 1);
     res.json(features);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1588,7 +1627,7 @@ app.post('/features', (req, res) => {
       name,
       description,
       priority: priority || 'Medium'
-    });
+    }, req.session?.orgId || 1);
     
     res.status(201).json(feature);
   } catch (error) {
@@ -1652,7 +1691,7 @@ app.delete('/features/:id', (req, res) => {
 // GET /requirements - Get all requirements
 app.get('/requirements', (req, res) => {
   try {
-    const requirements = requirementOperations.getAll();
+    const requirements = requirementOperations.getAll(req.session?.orgId || 1);
     res.json(requirements);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1717,7 +1756,7 @@ app.post('/requirements', (req, res) => {
       description,
       status: status || 'Draft',
       priority: priority || 'Medium'
-    });
+    }, req.session?.orgId || 1);
     
     res.status(201).json(requirement);
   } catch (error) {
@@ -1808,7 +1847,7 @@ app.delete('/requirements/:id', (req, res) => {
 // GET /test-cases - Get all test cases
 app.get('/test-cases', (req, res) => {
   try {
-    const testCases = testCaseOperations.getAll();
+    const testCases = testCaseOperations.getAll(req.session?.orgId || 1);
     res.json(testCases);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1883,7 +1922,7 @@ app.post('/test-cases', (req, res) => {
       priority: priority || 'Medium',
       status: status || 'Draft',
       testFileId: testFileId || null
-    });
+    }, req.session?.orgId || 1);
     
     res.status(201).json(testCase);
   } catch (error) {
@@ -1964,7 +2003,7 @@ app.delete('/test-cases/:id', (req, res) => {
 // GET /manual-test-runs - Get all manual test runs
 app.get('/manual-test-runs', (req, res) => {
   try {
-    const testRuns = manualTestRunOperations.getAll();
+    const testRuns = manualTestRunOperations.getAll(req.session?.orgId || 1);
     res.json(testRuns);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2019,7 +2058,7 @@ app.post('/manual-test-runs', (req, res) => {
       status: status || 'Passed',
       executedBy,
       executionNotes
-    });
+    }, req.session?.orgId || 1);
     
     res.status(201).json(testRun);
   } catch (error) {
@@ -2083,7 +2122,7 @@ app.delete('/manual-test-runs/:id', (req, res) => {
 // Get all defects
 app.get('/defects', (req, res) => {
   try {
-    const defects = defectOperations.getAll();
+    const defects = defectOperations.getAll(req.session?.orgId || 1);
     res.json(defects);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2143,7 +2182,7 @@ app.post('/defects', (req, res) => {
       linkedExecutionId,
       sprintId,
       screenshot: screenshot || null
-    });
+    }, req.session?.orgId || 1);
     
     res.status(201).json(defect);
   } catch (error) {
@@ -2226,7 +2265,7 @@ app.delete('/defects/:id', (req, res) => {
 // Get all sprints
 app.get('/sprints', (req, res) => {
   try {
-    const sprints = sprintOperations.getAll();
+    const sprints = sprintOperations.getAll(req.session?.orgId || 1);
     res.json(sprints);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2270,7 +2309,7 @@ app.post('/sprints', (req, res) => {
       startDate,
       endDate,
       status
-    });
+    }, req.session?.orgId || 1);
     
     res.status(201).json(sprint);
   } catch (error) {
@@ -2339,7 +2378,8 @@ const sessions = new Map(); // token -> { userId, username, role, loggedInAt }
 app.get('/tasks', (req, res) => {
   try {
     const { sprintId } = req.query;
-    const tasks = sprintId ? taskOperations.getBySprintId(parseInt(sprintId)) : taskOperations.getAll();
+    const orgId = req.session?.orgId || 1;
+    const tasks = sprintId ? taskOperations.getBySprintId(parseInt(sprintId)) : taskOperations.getAll(orgId);
     res.json(tasks);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
@@ -2348,7 +2388,7 @@ app.post('/tasks', (req, res) => {
   try {
     const { title, description, sprintId, assigneeId, status, priority, createdBy, startDate, endDate, plannedHours, completedHours, requirementId } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
-    const task = taskOperations.create({ title, description, sprintId, assigneeId, status, priority, createdBy, startDate, endDate, plannedHours, completedHours, requirementId });
+    const task = taskOperations.create({ title, description, sprintId, assigneeId, status, priority, createdBy, startDate, endDate, plannedHours, completedHours, requirementId }, req.session?.orgId || 1);
     res.status(201).json(task);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
@@ -2376,7 +2416,8 @@ app.delete('/tasks/:id', (req, res) => {
 // Basic user list for assignee pickers (no auth required — returns id+username only)
 app.get('/users/list', (req, res) => {
   try {
-    const users = userOperations.getAll().map(u => ({ id: u.id, username: u.username, role: u.role }));
+    const orgId = req.session?.orgId || 1;
+    const users = userOperations.getAll(orgId).map(u => ({ id: u.id, username: u.username, role: u.role }));
     res.json(users);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
@@ -2410,6 +2451,156 @@ function requireSuperAdmin(req, res, next) {
   });
 }
 
+// POST /auth/register-org  — create a new organization + its first admin user
+// This is a public endpoint (no auth needed) for SaaS onboarding.
+app.post('/auth/register-org', (req, res) => {
+  try {
+    const { orgName, orgSlug, adminUsername, adminPassword, plan, maxUsers, pocName, pocEmail } = req.body;
+    if (!orgName || !orgSlug || !adminUsername || !adminPassword) {
+      return res.status(400).json({ error: 'orgName, orgSlug, adminUsername, and adminPassword are required' });
+    }
+    // Ensure slug is URL-safe
+    const slug = orgSlug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    if (organizationOperations.getBySlug(slug)) {
+      return res.status(409).json({ error: 'An organization with that slug already exists' });
+    }
+    if (userOperations.getByUsername(adminUsername)) {
+      return res.status(409).json({ error: 'Username already exists' });
+    }
+    const parsedMaxUsers = maxUsers ? parseInt(maxUsers) : null;
+    const org = organizationOperations.create({ name: orgName, slug, plan: plan || 'free', maxUsers: parsedMaxUsers, pocName: pocName || null, pocEmail: pocEmail || null });
+    const adminUser = userOperations.create({
+      username: adminUsername,
+      password: adminPassword,
+      role: 'admin',
+      createdBy: null
+    }, org.id);
+    res.status(201).json({
+      org: { id: org.id, name: org.name, slug: org.slug, plan: org.plan },
+      user: { id: adminUser.id, username: adminUser.username, role: adminUser.role }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── Public org endpoint (no auth needed) ───────────────────────────────────
+app.get('/public/org/:slug', (req, res) => {
+  try {
+    const org = organizationOperations.getBySlug(req.params.slug);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    res.json({ id: org.id, name: org.name, slug: org.slug, plan: org.plan });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── Organization management (super_admin only) ──────────────────────────────
+
+// GET /orgs  — list all organizations
+app.get('/orgs', requireAuth, (req, res) => {
+  if (req.session.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Super admin access required' });
+  }
+  try {
+    const orgs = organizationOperations.getAll();
+    // Attach user count per org
+    const orgsWithCounts = orgs.map(org => {
+      const count = db.prepare('SELECT COUNT(*) as count FROM users WHERE org_id = ?').get(org.id);
+      return { ...org, user_count: count?.count || 0 };
+    });
+    res.json(orgsWithCounts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /orgs/:id  — update org name, plan, is_active, or max_users
+app.put('/orgs/:id', requireAuth, (req, res) => {
+  if (req.session.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Super admin access required' });
+  }
+  try {
+    const { name, plan, is_active, maxUsers, pocName, pocEmail } = req.body;
+    const parsedMaxUsers = maxUsers !== undefined ? (maxUsers ? parseInt(maxUsers) : null) : undefined;
+    const updated = organizationOperations.update(req.params.id, { name, plan, is_active, maxUsers: parsedMaxUsers, pocName: pocName !== undefined ? (pocName || null) : undefined, pocEmail: pocEmail !== undefined ? (pocEmail || null) : undefined });
+    if (!updated) return res.status(404).json({ error: 'Organization not found' });
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /orgs/:orgId/users — super_admin only
+app.get('/orgs/:orgId/users', requireAuth, (req, res) => {
+  if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Super admin access required' });
+  try {
+    res.json(userOperations.getAll(parseInt(req.params.orgId)));
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// POST /orgs/:orgId/users — super_admin only (create user in a specific org)
+app.post('/orgs/:orgId/users', requireAuth, (req, res) => {
+  if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Super admin access required' });
+  try {
+    const orgId = parseInt(req.params.orgId);
+    const { username, password, role, permissions } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
+    if (!role || !role.trim()) return res.status(400).json({ error: 'Role is required' });
+    if (role === 'super_admin') return res.status(403).json({ error: 'Cannot create super admin accounts' });
+    // Enforce user limit if set
+    const org = organizationOperations.getById(orgId);
+    if (org && org.max_users) {
+      const currentCount = db.prepare('SELECT COUNT(*) as count FROM users WHERE org_id = ?').get(orgId);
+      if (currentCount.count >= org.max_users) {
+        return res.status(403).json({ error: `User limit reached. This organization allows a maximum of ${org.max_users} user${org.max_users !== 1 ? 's' : ''}.` });
+      }
+    }
+    const existing = userOperations.getByUsername(username);
+    if (existing) return res.status(409).json({ error: 'Username already exists' });
+    const user = userOperations.create({ username, password, role, customRoleId: null, createdBy: req.session.userId,
+      permissions: Array.isArray(permissions) ? permissions : null }, orgId);
+    res.status(201).json(user);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// PUT /orgs/:orgId/users/:userId — super_admin only (edit a user in a specific org)
+app.put('/orgs/:orgId/users/:userId', requireAuth, (req, res) => {
+  if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Super admin access required' });
+  try {
+    const id = parseInt(req.params.userId);
+    const { username, password, role, is_active, permissions } = req.body;
+    const targetUser = userOperations.getById(id);
+    if (!targetUser) return res.status(404).json({ error: 'User not found' });
+    if (targetUser.role === 'super_admin') return res.status(403).json({ error: 'Cannot modify super admin accounts' });
+    if (role === 'super_admin') return res.status(403).json({ error: 'Cannot assign super admin role' });
+    const updated = userOperations.update(id, { username, password, role, customRoleId: null, is_active,
+      permissions: Array.isArray(permissions) ? permissions : null });
+    if (!is_active || password) {
+      for (const [token, sess] of sessions.entries()) {
+        if (sess.userId === id) sessions.delete(token);
+      }
+    }
+    res.json(updated);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// DELETE /orgs/:orgId/users/:userId — super_admin only
+app.delete('/orgs/:orgId/users/:userId', requireAuth, (req, res) => {
+  if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Super admin access required' });
+  try {
+    const id = parseInt(req.params.userId);
+    const targetUser = userOperations.getById(id);
+    if (!targetUser) return res.status(404).json({ error: 'User not found' });
+    if (targetUser.role === 'super_admin') return res.status(403).json({ error: 'Super admin accounts cannot be deleted' });
+    for (const [token, sess] of sessions.entries()) {
+      if (sess.userId === id) sessions.delete(token);
+    }
+    userOperations.delete(id);
+    res.json({ message: 'User deleted' });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 // POST /auth/login
 app.post('/auth/login', (req, res) => {
   try {
@@ -2436,12 +2627,21 @@ app.post('/auth/login', (req, res) => {
         permissions = JSON.parse(cr.permissions || '[]');
         customRoleName = cr.name;
       }
+    } else if (!['admin', 'contributor', 'super_admin'].includes(user.role)) {
+      // Free-text custom role — permissions stored directly on user record
+      customRoleName = user.role;
+      if (user.permissions) {
+        try { permissions = JSON.parse(user.permissions); } catch (_) { permissions = []; }
+      } else {
+        permissions = [];
+      }
     }
     const token = crypto.randomBytes(32).toString('hex');
     sessions.set(token, { userId: user.id, username: user.username, role: user.role,
+      orgId: user.org_id || 1,
       customRoleId: user.custom_role_id || null, permissions, customRoleName });
     res.json({ token, user: { id: user.id, username: user.username, role: user.role,
-      permissions, customRoleName } });
+      orgId: user.org_id || 1, permissions, customRoleName } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2469,7 +2669,7 @@ app.get('/auth/me', (req, res) => {
 // GET /auth/team — any authenticated user can see the team list
 app.get('/auth/team', requireAuth, (req, res) => {
   try {
-    const users = userOperations.getAll().map(u => ({
+    const users = userOperations.getAll(req.session.orgId).map(u => ({
       id: u.id,
       username: u.username,
       role: u.role,
@@ -2485,7 +2685,7 @@ app.get('/auth/team', requireAuth, (req, res) => {
 // GET /auth/users (admin only)
 app.get('/auth/users', requireAdmin, (req, res) => {
   try {
-    res.json(userOperations.getAll());
+    res.json(userOperations.getAll(req.session.orgId));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2516,7 +2716,7 @@ app.post('/auth/users', requireAdmin, (req, res) => {
     const limitVal = settingsOperations.get('user_limit');
     const limit = parseInt(limitVal || '0');
     if (limit > 0) {
-      const currentCount = userOperations.getAll().filter(u => u.role !== 'super_admin').length;
+      const currentCount = userOperations.getAll(req.session.orgId).filter(u => u.role !== 'super_admin').length;
       if (currentCount >= limit) {
         return res.status(403).json({ error: `User limit of ${limit} reached. Increase the seat limit to add more users.` });
       }
@@ -2526,7 +2726,7 @@ app.post('/auth/users', requireAdmin, (req, res) => {
     if (existing) {
       return res.status(409).json({ error: 'Username already exists' });
     }
-    const user = userOperations.create({ username, password, role, customRoleId: customRoleId || null, createdBy: req.session.userId });
+    const user = userOperations.create({ username, password, role, customRoleId: customRoleId || null, createdBy: req.session.userId }, req.session.orgId);
     res.status(201).json(user);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2592,7 +2792,7 @@ app.delete('/auth/users/:id', requireAdmin, (req, res) => {
 // GET /auth/roles
 app.get('/auth/roles', requireAdmin, (req, res) => {
   try {
-    res.json(customRoleOperations.getAll());
+    res.json(customRoleOperations.getAll(req.session.orgId));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2605,7 +2805,7 @@ app.post('/auth/roles', requireSuperAdmin, (req, res) => {
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Role name is required' });
     }
-    const role = customRoleOperations.create({ name: name.trim(), permissions: permissions || [], createdBy: req.session.userId });
+    const role = customRoleOperations.create({ name: name.trim(), permissions: permissions || [], createdBy: req.session.userId }, req.session.orgId);
     res.status(201).json(role);
   } catch (error) {
     if (error.message && error.message.includes('UNIQUE')) {
@@ -2678,7 +2878,7 @@ app.put('/auth/settings', requireSuperAdmin, (req, res) => {
 // GET /wiki/pages  – list all pages (no content, just metadata)
 app.get('/wiki/pages', requireAuth, (req, res) => {
   try {
-    res.json(wikiOperations.getAll());
+    res.json(wikiOperations.getAll(req.session.orgId));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2705,7 +2905,7 @@ app.post('/wiki/pages', requireAuth, (req, res) => {
       content: content || '',
       parentId: parentId || null,
       createdBy: req.session.username
-    });
+    }, req.session.orgId);
     res.status(201).json(page);
   } catch (err) {
     res.status(500).json({ error: err.message });

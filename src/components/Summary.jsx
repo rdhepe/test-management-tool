@@ -14,10 +14,31 @@ function Summary() {
   const [testHealth, setTestHealth] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState(null);
 
   useEffect(() => {
     loadData();
   }, []);
+
+  const handleResetAllData = async () => {
+    try {
+      setResetting(true);
+      setResetError(null);
+      const res = await fetch(`${API_URL}/executions/all`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Server returned ${res.status}`);
+      }
+      setShowResetConfirm(false);
+      await loadData();
+    } catch (err) {
+      setResetError(err.message);
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -107,23 +128,29 @@ function Summary() {
   const DoughnutChart = ({ passed, failed }) => {
     const total = passed + failed;
     if (total === 0) return <div className="text-slate-500 text-center">No data</div>;
-    const passedPercentage = (passed / total) * 100;
-    const strokeDasharray = `${passedPercentage} ${100 - passedPercentage}`;
+    const circumference = 2 * Math.PI * 80; // ≈ 502.65
+    const passedArc = (passed / total) * circumference;
+    const failedArc = circumference - passedArc;
+    const passedPct = ((passed / total) * 100).toFixed(0);
     return (
       <div className="flex items-center justify-center gap-8">
         <div className="relative">
           <svg width="200" height="200" viewBox="0 0 200 200">
+            {/* Track */}
             <circle cx="100" cy="100" r="80" fill="none" stroke="#1e293b" strokeWidth="40" />
-            <circle cx="100" cy="100" r="80" fill="none" stroke="#22c55e" strokeWidth="40"
-              strokeDasharray={strokeDasharray} strokeDashoffset="25"
-              transform="rotate(-90 100 100)" className="transition-all duration-500" />
+            {/* Red (failed) full ring — drawn first as background colour */}
             <circle cx="100" cy="100" r="80" fill="none" stroke="#ef4444" strokeWidth="40"
-              strokeDasharray={`${100 - passedPercentage} ${passedPercentage}`}
-              strokeDashoffset={`${25 - passedPercentage}`}
+              strokeDasharray={`${failedArc} ${passedArc}`}
+              strokeDashoffset={failedArc}
+              transform="rotate(-90 100 100)" className="transition-all duration-500" />
+            {/* Green (passed) arc on top */}
+            <circle cx="100" cy="100" r="80" fill="none" stroke="#22c55e" strokeWidth="40"
+              strokeDasharray={`${passedArc} ${failedArc}`}
+              strokeDashoffset={0}
               transform="rotate(-90 100 100)" className="transition-all duration-500" />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center flex-col">
-            <div className="text-3xl font-bold text-white">{passedPercentage.toFixed(0)}%</div>
+            <div className="text-3xl font-bold text-white">{passedPct}%</div>
             <div className="text-sm text-slate-400">Success</div>
           </div>
         </div>
@@ -206,10 +233,61 @@ function Summary() {
 
   return (
     <div className="space-y-6 animate-page-transition">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white">Automation Summary</h1>
-        <p className="text-slate-400 mt-2">Monitor your test automation performance</p>
+      <div className="mb-8 flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-white">Automation Summary</h1>
+          <p className="text-slate-400 mt-2">Monitor your test automation performance</p>
+        </div>
+        <button
+          onClick={() => { setShowResetConfirm(true); setResetError(null); }}
+          className="flex items-center gap-2 bg-slate-800 hover:bg-red-900/40 border border-slate-700 hover:border-red-700/50 text-slate-400 hover:text-red-400 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          Reset Execution Data
+        </button>
       </div>
+
+      {/* Reset confirmation modal */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowResetConfirm(false)}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-500/10 rounded-lg">
+                <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h2 className="text-lg font-semibold text-white">Reset All Execution Data?</h2>
+            </div>
+            <p className="text-slate-400 text-sm mb-6">
+              This will permanently delete all single-run and suite execution history, including logs, results, and screenshots. Your test files, modules, and suites will not be affected.
+            </p>
+            {resetError && (
+              <div className="mb-4 px-3 py-2 bg-red-950/50 border border-red-700/40 rounded-lg text-red-400 text-xs">
+                {resetError}
+              </div>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowResetConfirm(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResetAllData}
+                disabled={resetting}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+              >
+                {resetting ? 'Clearing...' : 'Yes, Reset Everything'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">

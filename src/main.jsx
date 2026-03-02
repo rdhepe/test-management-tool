@@ -1,14 +1,29 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import { BrowserRouter, Routes, Route, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import App from './App.jsx'
 import SprintDetailPage from './components/SprintDetailPage.jsx'
 import './index.css'
 
-const params = new URLSearchParams(window.location.search)
-const view = params.get('view')
+// Renders either SprintDetailPage (for ?view=sprint) or the main App for a given org slug
+function OrgEntry() {
+  const { slug } = useParams();
+  const [searchParams] = useSearchParams();
+  if (searchParams.get('view') === 'sprint') return <SprintDetailPage />;
+  return <App orgSlug={slug} />;
+}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {view === 'sprint' ? <SprintDetailPage /> : <App />}
+    <BrowserRouter>
+      <Routes>
+        {/* Root → redirect to default org */}
+        <Route path="/" element={<Navigate to="/org/default" replace />} />
+        {/* Per-org app (login + full app) */}
+        <Route path="/org/:slug" element={<OrgEntry />} />
+        {/* Catch-all */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   </React.StrictMode>,
 )

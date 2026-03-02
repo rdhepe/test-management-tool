@@ -8,6 +8,7 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
   const [activeTab, setActiveTab] = useState('output'); // 'output' or 'problems'
   const [panelHeight, setPanelHeight] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [isEditRequirementModalOpen, setIsEditRequirementModalOpen] = useState(false);
   const panelRef = useRef(null);
   
@@ -352,15 +353,44 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
               </button>
             </div>
 
-            {/* Close Button */}
-            <button
-              onClick={togglePanel}
-              className="text-slate-400 hover:text-slate-200 transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            {/* Copy + Close Buttons */}
+            <div className="flex items-center space-x-2">
+              {activeTab === 'output' && executionStatus === 'completed' && executionResult && (executionResult.message || executionResult.console_output) && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(executionResult.message || executionResult.console_output || '');
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  className="flex items-center space-x-1.5 px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                  title="Copy output"
+                >
+                  {copied ? (
+                    <>
+                      <svg className="w-3.5 h-3.5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-green-400">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
+              )}
+              <button
+                onClick={togglePanel}
+                className="text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* Panel Content */}
@@ -378,29 +408,37 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
                 ) : executionStatus === 'completed' && executionResult ? (
                   <div>
                     {/* Status Header */}
-                    <div className={`flex items-center space-x-2 mb-3 ${executionResult.status?.toLowerCase() === 'pass' ? 'text-green-400' : 'text-red-400'}`}>
-                      {executionResult.status?.toLowerCase() === 'pass' ? (
+                    {executionResult.status?.toLowerCase() === 'debug' ? (
+                      <div className="flex items-center space-x-2 mb-3 text-blue-400">
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                      ) : (
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      )}
-                      <span className="font-semibold">{executionResult.status}</span>
-                    </div>
-
-                    {/* Console Output */}
-                    {executionResult.console_output && (
-                      <pre className="text-slate-300 whitespace-pre-wrap">{executionResult.console_output}</pre>
+                        <span className="font-semibold">Debug Session Active</span>
+                      </div>
+                    ) : (
+                      <div className={`flex items-center space-x-2 mb-3 ${executionResult.status?.toLowerCase() === 'pass' ? 'text-green-400' : 'text-red-400'}`}>
+                        {executionResult.status?.toLowerCase() === 'pass' ? (
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        )}
+                        <span className="font-semibold">{executionResult.status}</span>
+                      </div>
                     )}
 
-                    {/* Error Message */}
-                    {executionResult.error && (
-                      <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded text-red-400">
-                        {executionResult.error}
-                      </div>
+                    {/* Console / Error Output */}
+                    {(executionResult.message || executionResult.console_output) && (
+                      <pre className={`whitespace-pre-wrap ${
+                        executionResult.status?.toLowerCase() === 'debug'
+                          ? 'text-blue-300'
+                          : executionResult.status?.toLowerCase() === 'pass'
+                          ? 'text-slate-300'
+                          : 'text-red-300'
+                      }`}>{executionResult.message || executionResult.console_output}</pre>
                     )}
 
                     {/* Screenshots */}

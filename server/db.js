@@ -5,6 +5,44 @@ const crypto = require('crypto');
 // Initialize database
 const db = new Database(path.join(__dirname, 'playwright-cloud.db'));
 
+// ─── Organizations (tenants) ──────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS organizations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    slug TEXT NOT NULL UNIQUE,
+    plan TEXT NOT NULL DEFAULT 'free',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Seed a default org so the existing single-tenant data belongs to org 1
+try {
+  const existing = db.prepare("SELECT id FROM organizations WHERE slug = 'default'").get();
+  if (!existing) {
+    db.prepare("INSERT INTO organizations (name, slug, plan) VALUES (?, ?, ?)").run('Default Org', 'default', 'free');
+    console.log('Seeded default organization (id=1)');
+  }
+} catch (e) { console.error('Org seed error:', e.message); }
+
+// Migration: add max_users to organizations
+try {
+  const orgCols = db.prepare('PRAGMA table_info(organizations)').all().map(c => c.name);
+  if (!orgCols.includes('max_users')) {
+    db.exec('ALTER TABLE organizations ADD COLUMN max_users INTEGER DEFAULT NULL');
+    console.log('Added max_users column to organizations table');
+  }
+  if (!orgCols.includes('poc_name')) {
+    db.exec('ALTER TABLE organizations ADD COLUMN poc_name TEXT DEFAULT NULL');
+    console.log('Added poc_name column to organizations table');
+  }
+  if (!orgCols.includes('poc_email')) {
+    db.exec('ALTER TABLE organizations ADD COLUMN poc_email TEXT DEFAULT NULL');
+    console.log('Added poc_email column to organizations table');
+  }
+} catch (e) { console.error('Migration error adding org columns:', e.message); }
+
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
 
@@ -311,10 +349,31 @@ try {
   console.error('Migration error for defects FK fix:', error);
 }
 
+// ─── Multi-tenancy: add org_id to every tenant-scoped table ──────────────────
+const TENANT_TABLES = [
+  'modules', 'test_files', 'executions', 'test_suites', 'suite_executions',
+  'suite_test_results', 'features', 'requirements', 'test_cases',
+  'manual_test_runs', 'defects', 'sprints', 'tasks', 'wiki_pages',
+  'global_variables', 'users', 'custom_roles'
+];
+try {
+  for (const table of TENANT_TABLES) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+    if (!cols.includes('org_id')) {
+      // SQLite doesn't allow ADD COLUMN with REFERENCES + NOT NULL + DEFAULT in one step,
+      // so we add as nullable integer with a default value first, then it's effectively scoped.
+      db.exec(`ALTER TABLE ${table} ADD COLUMN org_id INTEGER NOT NULL DEFAULT 1`);
+      console.log(`Migration: Added org_id to ${table}`);
+    }
+  }
+} catch (e) {
+  console.error('Migration error for org_id columns:', e.message);
+}
+
 // Module operations
 const moduleOperations = {
-  getAll: () => {
-    const modules = db.prepare('SELECT * FROM modules ORDER BY created_at DESC').all();
+  getAll: (orgId = 1) => {
+    const modules = db.prepare('SELECT * FROM modules WHERE org_id = ? ORDER BY created_at DESC').all(orgId);
     return modules.map(module => ({
       ...module,
       tags: module.tags ? JSON.parse(module.tags) : []
@@ -329,17 +388,18 @@ const moduleOperations = {
     return module;
   },
 
-  create: (module) => {
+  create: (module, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO modules (name, description, base_url, language, tags)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO modules (name, description, base_url, language, tags, org_id)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       module.name,
       module.description || '',
       module.baseUrl || '',
       module.language || 'TypeScript',
-      JSON.stringify(module.tags || [])
+      JSON.stringify(module.tags || []),
+      orgId
     );
     return { id: result.lastInsertRowid, ...module };
   },
@@ -387,13 +447,14 @@ const moduleOperations = {
 
 // Test file operations
 const testFileOperations = {
-  getAll: () => {
+  getAll: (orgId = 1) => {
     return db.prepare(`
       SELECT tf.*, m.name as module_name
       FROM test_files tf
       LEFT JOIN modules m ON tf.module_id = m.id
+      WHERE tf.org_id = ?
       ORDER BY m.name ASC, tf.name ASC
-    `).all();
+    `).all(orgId);
   },
 
   getByModuleId: (moduleId) => {
@@ -425,16 +486,17 @@ const testFileOperations = {
     `).all(requirementId);
   },
 
-  create: (testFile) => {
+  create: (testFile, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO test_files (module_id, name, content, requirement_id)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO test_files (module_id, name, content, requirement_id, org_id)
+      VALUES (?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       testFile.moduleId,
       testFile.name,
       testFile.content,
-      testFile.requirementId || null
+      testFile.requirementId || null,
+      orgId
     );
     return { id: result.lastInsertRowid, ...testFile };
   },
@@ -485,7 +547,7 @@ const testFileOperations = {
 
 // Execution operations
 const executionOperations = {
-  getAll: () => {
+  getAll: (orgId = 1) => {
     return db.prepare(`
       SELECT 
         e.*,
@@ -494,8 +556,9 @@ const executionOperations = {
       FROM executions e
       LEFT JOIN modules m ON e.module_id = m.id
       LEFT JOIN test_files tf ON e.test_file_id = tf.id
+      WHERE e.org_id = ?
       ORDER BY e.created_at DESC
-    `).all();
+    `).all(orgId);
   },
 
   getById: (id) => {
@@ -525,10 +588,10 @@ const executionOperations = {
     `).all(moduleId);
   },
 
-  create: (execution) => {
+  create: (execution, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO executions (module_id, test_file_id, status, logs, error_message, screenshot_base64, duration_ms, report_path)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO executions (module_id, test_file_id, status, logs, error_message, screenshot_base64, duration_ms, report_path, org_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       execution.moduleId,
@@ -538,7 +601,8 @@ const executionOperations = {
       execution.errorMessage || null,
       execution.screenshotBase64 || null,
       execution.durationMs || null,
-      execution.reportPath || null
+      execution.reportPath || null,
+      orgId
     );
     return { id: result.lastInsertRowid, ...execution };
   },
@@ -550,8 +614,8 @@ const executionOperations = {
 
 // Test suite operations
 const testSuiteOperations = {
-  getAll: () => {
-    return db.prepare('SELECT * FROM test_suites ORDER BY created_at DESC').all();
+  getAll: (orgId = 1) => {
+    return db.prepare('SELECT * FROM test_suites WHERE org_id = ? ORDER BY created_at DESC').all(orgId);
   },
 
   getById: (id) => {
@@ -562,14 +626,15 @@ const testSuiteOperations = {
     return db.prepare('SELECT * FROM test_suites WHERE module_id = ? ORDER BY created_at DESC').all(moduleId);
   },
 
-  create: (suite) => {
+  create: (suite, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO test_suites (module_id, name)
-      VALUES (?, ?)
+      INSERT INTO test_suites (module_id, name, org_id)
+      VALUES (?, ?, ?)
     `);
     const result = stmt.run(
       suite.moduleId,
-      suite.name
+      suite.name,
+      orgId
     );
     return { id: result.lastInsertRowid, ...suite };
   },
@@ -630,8 +695,8 @@ const suiteTestFileOperations = {
 
 // Suite execution operations
 const suiteExecutionOperations = {
-  getAll: () => {
-    return db.prepare('SELECT * FROM suite_executions ORDER BY created_at DESC').all();
+  getAll: (orgId = 1) => {
+    return db.prepare('SELECT * FROM suite_executions WHERE org_id = ? ORDER BY created_at DESC').all(orgId);
   },
 
   getById: (id) => {
@@ -642,10 +707,10 @@ const suiteExecutionOperations = {
     return db.prepare('SELECT * FROM suite_executions WHERE suite_id = ? ORDER BY created_at DESC LIMIT ?').all(suiteId, limit);
   },
 
-  create: (suiteExecution) => {
+  create: (suiteExecution, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO suite_executions (suite_id, status, total_tests, passed, failed, duration_ms, report_path)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO suite_executions (suite_id, status, total_tests, passed, failed, duration_ms, report_path, org_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       suiteExecution.suiteId,
@@ -654,7 +719,8 @@ const suiteExecutionOperations = {
       suiteExecution.passed,
       suiteExecution.failed,
       suiteExecution.durationMs,
-      suiteExecution.reportPath || null
+      suiteExecution.reportPath || null,
+      orgId
     );
     return { id: result.lastInsertRowid, ...suiteExecution };
   },
@@ -801,23 +867,24 @@ const testFileDependencyOperations = {
 
 // Feature operations
 const featureOperations = {
-  getAll: () => {
-    return db.prepare('SELECT * FROM features ORDER BY created_at DESC').all();
+  getAll: (orgId = 1) => {
+    return db.prepare('SELECT * FROM features WHERE org_id = ? ORDER BY created_at DESC').all(orgId);
   },
 
   getById: (id) => {
     return db.prepare('SELECT * FROM features WHERE id = ?').get(id);
   },
 
-  create: (feature) => {
+  create: (feature, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO features (name, description, priority)
-      VALUES (?, ?, ?)
+      INSERT INTO features (name, description, priority, org_id)
+      VALUES (?, ?, ?, ?)
     `);
     const result = stmt.run(
       feature.name,
       feature.description || null,
-      feature.priority || 'Medium'
+      feature.priority || 'Medium',
+      orgId
     );
     return { id: result.lastInsertRowid, ...feature };
   },
@@ -847,13 +914,14 @@ const featureOperations = {
 
 // Requirement operations
 const requirementOperations = {
-  getAll: () => {
+  getAll: (orgId = 1) => {
     return db.prepare(`
       SELECT r.*, f.name as feature_name 
       FROM requirements r
       LEFT JOIN features f ON r.feature_id = f.id
+      WHERE r.org_id = ?
       ORDER BY r.created_at DESC
-    `).all();
+    `).all(orgId);
   },
 
   getById: (id) => {
@@ -870,10 +938,10 @@ const requirementOperations = {
     `).all(featureId);
   },
 
-  create: (requirement) => {
+  create: (requirement, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO requirements (feature_id, organization_id, sprint_id, title, description, status, priority)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO requirements (feature_id, organization_id, sprint_id, title, description, status, priority, org_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       requirement.featureId,
@@ -882,7 +950,8 @@ const requirementOperations = {
       requirement.title,
       requirement.description || null,
       requirement.status || 'Draft',
-      requirement.priority || 'Medium'
+      requirement.priority || 'Medium',
+      orgId
     );
     return { id: result.lastInsertRowid, ...requirement };
   },
@@ -920,7 +989,7 @@ const requirementOperations = {
 
 // Test case operations
 const testCaseOperations = {
-  getAll: () => {
+  getAll: (orgId = 1) => {
     return db.prepare(`
       SELECT 
         tc.*,
@@ -936,8 +1005,9 @@ const testCaseOperations = {
       LEFT JOIN sprints s ON r.sprint_id = s.id
       LEFT JOIN test_files tf ON tc.test_file_id = tf.id
       LEFT JOIN modules m ON tf.module_id = m.id
+      WHERE tc.org_id = ?
       ORDER BY tc.created_at DESC
-    `).all();
+    `).all(orgId);
   },
 
   getById: (id) => {
@@ -964,10 +1034,10 @@ const testCaseOperations = {
     return db.prepare('SELECT * FROM test_cases WHERE requirement_id = ? ORDER BY created_at DESC').all(requirementId);
   },
 
-  create: (testCase) => {
+  create: (testCase, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO test_cases (requirement_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO test_cases (requirement_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id, org_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       testCase.requirementId || null,
@@ -979,7 +1049,8 @@ const testCaseOperations = {
       testCase.type || 'Manual',
       testCase.priority || 'Medium',
       testCase.status || 'Draft',
-      testCase.testFileId || null
+      testCase.testFileId || null,
+      orgId
     );
     return testCaseOperations.getById(result.lastInsertRowid);
   },
@@ -1022,7 +1093,7 @@ const testCaseOperations = {
 };
 
 const manualTestRunOperations = {
-  getAll: () => {
+  getAll: (orgId = 1) => {
     return db.prepare(`
       SELECT 
         mtr.*,
@@ -1030,8 +1101,9 @@ const manualTestRunOperations = {
         tc.type as test_case_type
       FROM manual_test_runs mtr
       LEFT JOIN test_cases tc ON mtr.test_case_id = tc.id
+      WHERE mtr.org_id = ?
       ORDER BY mtr.created_at DESC
-    `).all();
+    `).all(orgId);
   },
 
   getById: (id) => {
@@ -1054,16 +1126,17 @@ const manualTestRunOperations = {
     `).all(testCaseId);
   },
 
-  create: (testRun) => {
+  create: (testRun, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO manual_test_runs (test_case_id, status, executed_by, execution_notes)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO manual_test_runs (test_case_id, status, executed_by, execution_notes, org_id)
+      VALUES (?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       testRun.testCaseId,
       testRun.status || 'Passed',
       testRun.executedBy || null,
-      testRun.executionNotes || null
+      testRun.executionNotes || null,
+      orgId
     );
     return { id: result.lastInsertRowid, ...testRun };
   },
@@ -1091,7 +1164,7 @@ const manualTestRunOperations = {
 };
 
 const defectOperations = {
-  getAll: () => {
+  getAll: (orgId = 1) => {
     return db.prepare(`
       SELECT 
         d.*,
@@ -1104,8 +1177,9 @@ const defectOperations = {
       LEFT JOIN executions e ON d.linked_execution_id = e.id
       LEFT JOIN test_files tf ON e.test_file_id = tf.id
       LEFT JOIN sprints s ON d.sprint_id = s.id
+      WHERE d.org_id = ?
       ORDER BY d.created_at DESC
-    `).all();
+    `).all(orgId);
   },
 
   getById: (id) => {
@@ -1125,10 +1199,10 @@ const defectOperations = {
     `).get(id);
   },
 
-  create: (defect) => {
+  create: (defect, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO defects (title, description, severity, status, linked_test_case_id, linked_execution_id, sprint_id, screenshot)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO defects (title, description, severity, status, linked_test_case_id, linked_execution_id, sprint_id, screenshot, org_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       defect.title,
@@ -1138,7 +1212,8 @@ const defectOperations = {
       defect.linkedTestCaseId || null,
       defect.linkedExecutionId || null,
       defect.sprintId || null,
-      defect.screenshot || null
+      defect.screenshot || null,
+      orgId
     );
     return defectOperations.getById(result.lastInsertRowid);
   },
@@ -1178,8 +1253,8 @@ const defectOperations = {
 
 // Sprint operations
 const sprintOperations = {
-  getAll: () => {
-    return db.prepare('SELECT * FROM sprints ORDER BY created_at DESC').all();
+  getAll: (orgId = 1) => {
+    return db.prepare('SELECT * FROM sprints WHERE org_id = ? ORDER BY created_at DESC').all(orgId);
   },
 
   getById: (id) => {
@@ -1326,17 +1401,18 @@ const sprintOperations = {
     };
   },
 
-  create: (sprint) => {
+  create: (sprint, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO sprints (name, goal, start_date, end_date, status)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO sprints (name, goal, start_date, end_date, status, org_id)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       sprint.name,
       sprint.goal || null,
       sprint.startDate || null,
       sprint.endDate || null,
-      sprint.status || 'Planned'
+      sprint.status || 'Planned',
+      orgId
     );
     return sprintOperations.getById(result.lastInsertRowid);
   },
@@ -1420,6 +1496,17 @@ try {
   console.error('Migration error for users table:', error);
 }
 
+// Add permissions column to users if not present
+try {
+  const cols = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
+  if (!cols.includes('permissions')) {
+    db.exec(`ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT NULL`);
+    console.log('Added permissions column to users table');
+  }
+} catch (error) {
+  console.error('Migration error adding permissions column:', error);
+}
+
 // Seed default admin if no users exist
 try {
   const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
@@ -1460,33 +1547,35 @@ try {
 
 
 const userOperations = {
-  getAll: () => {
+  getAll: (orgId = 1) => {
     return db.prepare(`
-      SELECT u.id, u.username, u.role, u.custom_role_id, u.is_active, u.created_at,
+      SELECT u.id, u.username, u.role, u.custom_role_id, u.is_active, u.created_at, u.permissions,
              c.username as created_by_username,
              cr.name as custom_role_name
       FROM users u
       LEFT JOIN users c ON u.created_by = c.id
       LEFT JOIN custom_roles cr ON u.custom_role_id = cr.id
+      WHERE u.org_id = ? AND u.role != 'super_admin'
       ORDER BY u.created_at ASC
-    `).all();
+    `).all(orgId);
   },
 
   getById: (id) => {
-    return db.prepare('SELECT id, username, role, custom_role_id, is_active, created_at FROM users WHERE id = ?').get(id);
+    return db.prepare('SELECT id, username, role, custom_role_id, is_active, created_at, org_id, permissions FROM users WHERE id = ?').get(id);
   },
 
   getByUsername: (username) => {
     return db.prepare('SELECT * FROM users WHERE username = ?').get(username);
   },
 
-  create: (user) => {
+  create: (user, orgId = 1) => {
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = crypto.scryptSync(user.password, salt, 64).toString('hex');
+    const permJson = (user.permissions && user.permissions.length > 0) ? JSON.stringify(user.permissions) : null;
     const result = db.prepare(`
-      INSERT INTO users (username, password_hash, salt, role, custom_role_id, created_by)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(user.username, hash, salt, user.role || 'contributor', user.customRoleId || null, user.createdBy || null);
+      INSERT INTO users (username, password_hash, salt, role, custom_role_id, created_by, org_id, permissions)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(user.username, hash, salt, user.role || 'contributor', user.customRoleId || null, user.createdBy || null, orgId, permJson);
     return userOperations.getById(result.lastInsertRowid);
   },
 
@@ -1496,14 +1585,27 @@ const userOperations = {
   },
 
   update: (id, updates) => {
+    const permJson = updates.permissions !== undefined
+      ? ((updates.permissions && updates.permissions.length > 0) ? JSON.stringify(updates.permissions) : null)
+      : undefined;
     if (updates.password) {
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = crypto.scryptSync(updates.password, salt, 64).toString('hex');
-      db.prepare(`UPDATE users SET username = ?, password_hash = ?, salt = ?, role = ?, custom_role_id = ?, is_active = ? WHERE id = ?`)
-        .run(updates.username, hash, salt, updates.role, updates.customRoleId || null, updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : 1, id);
+      if (permJson !== undefined) {
+        db.prepare(`UPDATE users SET username = ?, password_hash = ?, salt = ?, role = ?, custom_role_id = ?, is_active = ?, permissions = ? WHERE id = ?`)
+          .run(updates.username, hash, salt, updates.role, updates.customRoleId || null, updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : 1, permJson, id);
+      } else {
+        db.prepare(`UPDATE users SET username = ?, password_hash = ?, salt = ?, role = ?, custom_role_id = ?, is_active = ? WHERE id = ?`)
+          .run(updates.username, hash, salt, updates.role, updates.customRoleId || null, updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : 1, id);
+      }
     } else {
-      db.prepare(`UPDATE users SET username = ?, role = ?, custom_role_id = ?, is_active = ? WHERE id = ?`)
-        .run(updates.username, updates.role, updates.customRoleId || null, updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : 1, id);
+      if (permJson !== undefined) {
+        db.prepare(`UPDATE users SET username = ?, role = ?, custom_role_id = ?, is_active = ?, permissions = ? WHERE id = ?`)
+          .run(updates.username, updates.role, updates.customRoleId || null, updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : 1, permJson, id);
+      } else {
+        db.prepare(`UPDATE users SET username = ?, role = ?, custom_role_id = ?, is_active = ? WHERE id = ?`)
+          .run(updates.username, updates.role, updates.customRoleId || null, updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : 1, id);
+      }
     }
     return userOperations.getById(id);
   },
@@ -1514,22 +1616,23 @@ const userOperations = {
 };
 
 const customRoleOperations = {
-  getAll: () => {
+  getAll: (orgId = 1) => {
     return db.prepare(`
       SELECT cr.*, u.username as created_by_username
       FROM custom_roles cr
       LEFT JOIN users u ON cr.created_by = u.id
+      WHERE cr.org_id = ?
       ORDER BY cr.created_at ASC
-    `).all();
+    `).all(orgId);
   },
 
   getById: (id) => {
     return db.prepare('SELECT * FROM custom_roles WHERE id = ?').get(id);
   },
 
-  create: ({ name, permissions, createdBy }) => {
-    const result = db.prepare('INSERT INTO custom_roles (name, permissions, created_by) VALUES (?, ?, ?)')
-      .run(name, JSON.stringify(permissions || []), createdBy || null);
+  create: ({ name, permissions, createdBy }, orgId = 1) => {
+    const result = db.prepare('INSERT INTO custom_roles (name, permissions, created_by, org_id) VALUES (?, ?, ?, ?)')
+      .run(name, JSON.stringify(permissions || []), createdBy || null, orgId);
     return customRoleOperations.getById(result.lastInsertRowid);
   },
 
@@ -1559,25 +1662,25 @@ db.exec(`
 `);
 
 const wikiOperations = {
-  getAll: () => {
+  getAll: (orgId = 1) => {
     return db.prepare(`
       SELECT id, title, parent_id, sort_order, created_by, created_at, updated_at
-      FROM wiki_pages ORDER BY parent_id ASC, sort_order ASC, title ASC
-    `).all();
+      FROM wiki_pages WHERE org_id = ? ORDER BY parent_id ASC, sort_order ASC, title ASC
+    `).all(orgId);
   },
 
   getById: (id) => {
     return db.prepare('SELECT * FROM wiki_pages WHERE id = ?').get(id);
   },
 
-  create: ({ title, content = '', parentId = null, createdBy = null }) => {
+  create: ({ title, content = '', parentId = null, createdBy = null }, orgId = 1) => {
     const maxOrder = db.prepare(
-      'SELECT COALESCE(MAX(sort_order),0) as m FROM wiki_pages WHERE parent_id IS ?'
-    ).get(parentId);
+      'SELECT COALESCE(MAX(sort_order),0) as m FROM wiki_pages WHERE parent_id IS ? AND org_id = ?'
+    ).get(parentId, orgId);
     const result = db.prepare(
-      `INSERT INTO wiki_pages (title, content, parent_id, sort_order, created_by)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(title, content, parentId, (maxOrder.m || 0) + 1, createdBy);
+      `INSERT INTO wiki_pages (title, content, parent_id, sort_order, created_by, org_id)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(title, content, parentId, (maxOrder.m || 0) + 1, createdBy, orgId);
     return db.prepare('SELECT * FROM wiki_pages WHERE id = ?').get(result.lastInsertRowid);
   },
 
@@ -1622,13 +1725,14 @@ const settingsOperations = {
 };
 
 const taskOperations = {
-  getAll: () => db.prepare(`
+  getAll: (orgId = 1) => db.prepare(`
     SELECT t.*, r.title AS requirement_title, u.username AS assignee_username
     FROM tasks t
     LEFT JOIN requirements r ON t.requirement_id = r.id
     LEFT JOIN users u ON t.assignee_id = u.id
+    WHERE t.org_id = ?
     ORDER BY t.created_at DESC
-  `).all(),
+  `).all(orgId),
 
   getBySprintId: (sprintId) => db.prepare(`
     SELECT t.*, r.title AS requirement_title, u.username AS assignee_username
@@ -1641,10 +1745,10 @@ const taskOperations = {
 
   getById: (id) => db.prepare('SELECT * FROM tasks WHERE id = ?').get(id),
 
-  create: (task) => {
+  create: (task, orgId = 1) => {
     const stmt = db.prepare(`
-      INSERT INTO tasks (title, description, sprint_id, assignee_id, status, priority, created_by, start_date, end_date, planned_hours, completed_hours, requirement_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (title, description, sprint_id, assignee_id, status, priority, created_by, start_date, end_date, planned_hours, completed_hours, requirement_id, org_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       task.title,
@@ -1658,7 +1762,8 @@ const taskOperations = {
       task.endDate || null,
       task.plannedHours != null ? parseFloat(task.plannedHours) : 0,
       task.completedHours != null ? parseFloat(task.completedHours) : 0,
-      task.requirementId || null
+      task.requirementId || null,
+      orgId
     );
     return taskOperations.getById(result.lastInsertRowid);
   },
@@ -1717,20 +1822,20 @@ try {
 }
 
 const globalVariableOperations = {
-  getAll: () => db.prepare('SELECT * FROM global_variables ORDER BY key ASC').all(),
+  getAll: (orgId = 1) => db.prepare('SELECT * FROM global_variables WHERE org_id = ? ORDER BY key ASC').all(orgId),
 
   getById: (id) => db.prepare('SELECT * FROM global_variables WHERE id = ?').get(id),
 
   // Returns a plain object { KEY: value, ... } ready to spread into process.env
-  getAllAsEnv: () => {
-    const rows = db.prepare('SELECT key, value FROM global_variables').all();
+  getAllAsEnv: (orgId = 1) => {
+    const rows = db.prepare('SELECT key, value FROM global_variables WHERE org_id = ?').all(orgId);
     return Object.fromEntries(rows.map(r => [r.key, r.value]));
   },
 
-  create: ({ key, value, description }) => {
+  create: ({ key, value, description }, orgId = 1) => {
     const result = db.prepare(
-      'INSERT INTO global_variables (key, value, description) VALUES (?, ?, ?)'
-    ).run(key, value ?? '', description ?? '');
+      'INSERT INTO global_variables (key, value, description, org_id) VALUES (?, ?, ?, ?)'
+    ).run(key, value ?? '', description ?? '', orgId);
     return db.prepare('SELECT * FROM global_variables WHERE id = ?').get(result.lastInsertRowid);
   },
 
@@ -1741,11 +1846,46 @@ const globalVariableOperations = {
     return db.prepare('SELECT * FROM global_variables WHERE id = ?').get(id);
   },
 
+  upsertByKey: (key, value, orgId = 1) => {
+    const existing = db.prepare('SELECT id FROM global_variables WHERE key = ? AND org_id = ?').get(key, orgId);
+    if (existing) {
+      db.prepare('UPDATE global_variables SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(value ?? '', existing.id);
+      return db.prepare('SELECT * FROM global_variables WHERE id = ?').get(existing.id);
+    }
+    const result = db.prepare('INSERT INTO global_variables (key, value, description, org_id) VALUES (?, ?, ?, ?)').run(key, value ?? '', '', orgId);
+    return db.prepare('SELECT * FROM global_variables WHERE id = ?').get(result.lastInsertRowid);
+  },
+
+  getByKey: (key, orgId = 1) => db.prepare('SELECT * FROM global_variables WHERE key = ? AND org_id = ?').get(key, orgId),
+
   delete: (id) => db.prepare('DELETE FROM global_variables WHERE id = ?').run(id)
+};
+
+// Organization operations
+const organizationOperations = {
+  getAll: () => db.prepare('SELECT * FROM organizations ORDER BY created_at ASC').all(),
+
+  getById: (id) => db.prepare('SELECT * FROM organizations WHERE id = ?').get(id),
+
+  getBySlug: (slug) => db.prepare('SELECT * FROM organizations WHERE slug = ?').get(slug),
+
+  create: ({ name, slug, plan = 'free', maxUsers = null, pocName = null, pocEmail = null }) => {
+    const result = db.prepare(
+      'INSERT INTO organizations (name, slug, plan, max_users, poc_name, poc_email) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(name, slug, plan, maxUsers || null, pocName || null, pocEmail || null);
+    return db.prepare('SELECT * FROM organizations WHERE id = ?').get(result.lastInsertRowid);
+  },
+
+  update: (id, { name, plan, is_active, maxUsers, pocName, pocEmail }) => {
+    db.prepare('UPDATE organizations SET name = ?, plan = ?, is_active = ?, max_users = ?, poc_name = ?, poc_email = ? WHERE id = ?')
+      .run(name, plan, is_active !== undefined ? (is_active ? 1 : 0) : 1, maxUsers !== undefined ? (maxUsers || null) : null, pocName !== undefined ? (pocName || null) : null, pocEmail !== undefined ? (pocEmail || null) : null, id);
+    return db.prepare('SELECT * FROM organizations WHERE id = ?').get(id);
+  }
 };
 
 module.exports = {
   db,
+  organizationOperations,
   moduleOperations,
   testFileOperations,
   executionOperations,
