@@ -55,7 +55,7 @@ function Login({ onLoginSuccess, orgName, orgSlug, authError }) {
             </svg>
           </div>
           <h1 className="text-2xl font-bold" style={{ color: 'rgb(var(--text-primary))' }}>
-            Test Cloud Studio
+            TestStudio.Cloud
           </h1>
           {orgName ? (
             <div className="mt-2 flex items-center justify-center gap-1.5">

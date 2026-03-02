@@ -94,7 +94,7 @@ const CHAPTERS = [
     content: () => (
       <div>
         <p className="text-slate-300 mb-4 leading-relaxed">
-          Welcome to <span className="text-white font-semibold">Test Cloud Studio</span> — a complete test management and automation platform. Follow this guide to set up your first project.
+          Welcome to <span className="text-white font-semibold">TestStudio.Cloud</span> — a complete test management and automation platform. Follow this guide to set up your first project.
         </p>
         <h4 className="text-white font-semibold mb-3">Recommended Setup Order</h4>
         <div className="flex flex-wrap items-start gap-1 mb-4">

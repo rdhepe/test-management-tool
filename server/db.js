@@ -1878,7 +1878,15 @@ const organizationOperations = {
 
   update: (id, { name, plan, is_active, maxUsers, pocName, pocEmail }) => {
     db.prepare('UPDATE organizations SET name = ?, plan = ?, is_active = ?, max_users = ?, poc_name = ?, poc_email = ? WHERE id = ?')
-      .run(name, plan, is_active !== undefined ? (is_active ? 1 : 0) : 1, maxUsers !== undefined ? (maxUsers || null) : null, pocName !== undefined ? (pocName || null) : null, pocEmail !== undefined ? (pocEmail || null) : null, id);
+      .run(
+        name,
+        plan,
+        is_active !== undefined ? (is_active ? 1 : 0) : 1,
+        maxUsers ?? null,
+        pocName ?? null,
+        pocEmail ?? null,
+        id
+      );
     return db.prepare('SELECT * FROM organizations WHERE id = ?').get(id);
   }
 };

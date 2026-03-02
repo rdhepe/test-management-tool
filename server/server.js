@@ -2522,8 +2522,13 @@ app.put('/orgs/:id', requireAuth, (req, res) => {
   }
   try {
     const { name, plan, is_active, maxUsers, pocName, pocEmail } = req.body;
-    const parsedMaxUsers = maxUsers !== undefined ? (maxUsers ? parseInt(maxUsers) : null) : undefined;
-    const updated = organizationOperations.update(req.params.id, { name, plan, is_active, maxUsers: parsedMaxUsers, pocName: pocName !== undefined ? (pocName || null) : undefined, pocEmail: pocEmail !== undefined ? (pocEmail || null) : undefined });
+    const parsedMaxUsers = (maxUsers !== null && maxUsers !== undefined && maxUsers !== '') ? parseInt(maxUsers, 10) : null;
+    const updated = organizationOperations.update(req.params.id, {
+      name, plan, is_active,
+      maxUsers: parsedMaxUsers,
+      pocName: pocName ?? null,
+      pocEmail: pocEmail ?? null
+    });
     if (!updated) return res.status(404).json({ error: 'Organization not found' });
     res.json(updated);
   } catch (error) {
@@ -2947,5 +2952,5 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Test Cloud Studio server running on http://localhost:${PORT}`);
+  console.log(`TestStudio.Cloud server running on http://localhost:${PORT}`);
 });

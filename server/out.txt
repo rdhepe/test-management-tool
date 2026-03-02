@@ -1,1 +1,1 @@
-Test Cloud Studio server running on http://localhost:3001
+TestStudio.Cloud server running on http://localhost:3001

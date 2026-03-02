@@ -1,7 +1,7 @@
 {
   "name": "playwright-cloud-studio-server",
   "version": "1.0.0",
-  "description": "Backend server for Test Cloud Studio",
+  "description": "Backend server for TestStudio.Cloud",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

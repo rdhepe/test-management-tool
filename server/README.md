@@ -1,4 +1,4 @@
-# Test Cloud Studio Server
+# TestStudio.Cloud Server
 
 Backend server for executing Playwright tests.
 

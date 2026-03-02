@@ -25,7 +25,7 @@ function Navbar({ theme, onToggleTheme, currentUser, onLogout, onNavigate }) {
     <nav className="h-[60px] border-b flex items-center justify-between px-6 relative z-50" style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
       {/* App Name */}
       <div className="flex items-center">
-        <h1 className="text-xl font-semibold" style={{ color: 'rgb(var(--text-primary))' }}>Test Cloud Studio</h1>
+        <h1 className="text-xl font-semibold" style={{ color: 'rgb(var(--text-primary))' }}>TestStudio.Cloud</h1>
       </div>
 
       {/* Right Section */}

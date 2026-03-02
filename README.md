@@ -1,4 +1,4 @@
-# Test Cloud Studio
+# TestStudio.Cloud
 
 A modern SaaS web application layout built with React and Tailwind CSS.
 
