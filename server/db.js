@@ -1,1629 +1,1144 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+'use strict';
+
+const { Pool } = require('pg');
 const crypto = require('crypto');
-const fs = require('fs');
 
-// Use DATA_DIR env var if set (Railway Volume mount point), otherwise co-locate with server
-const dataDir = process.env.DATA_DIR || __dirname;
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+// ---------------------------------------------------------------------------
+// Connection pool
+// ---------------------------------------------------------------------------
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('localhost')
+    ? false
+    : { rejectUnauthorized: false }
+});
 
-// Initialize database
-const db = new Database(path.join(dataDir, 'playwright-cloud.db'));
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle PostgreSQL client', err.message);
+});
 
-// ─── Organizations (tenants) ──────────────────────────────────────────────────
-db.exec(`
-  CREATE TABLE IF NOT EXISTS organizations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    slug TEXT NOT NULL UNIQUE,
-    plan TEXT NOT NULL DEFAULT 'free',
-    is_active INTEGER NOT NULL DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+// ---------------------------------------------------------------------------
+// Schema initialisation
+// ---------------------------------------------------------------------------
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS organizations (
+      id            SERIAL PRIMARY KEY,
+      name          TEXT NOT NULL,
+      slug          TEXT NOT NULL UNIQUE,
+      plan          TEXT NOT NULL DEFAULT 'free',
+      is_active     SMALLINT NOT NULL DEFAULT 1,
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      max_users     INTEGER DEFAULT NULL,
+      poc_name      TEXT DEFAULT NULL,
+      poc_email     TEXT DEFAULT NULL,
+      ai_healing_enabled SMALLINT NOT NULL DEFAULT 0,
+      openai_api_key TEXT DEFAULT NULL
+    )
+  `);
 
-// Seed a default org so the existing single-tenant data belongs to org 1
-try {
-  const existing = db.prepare("SELECT id FROM organizations WHERE slug = 'default'").get();
-  if (!existing) {
-    db.prepare("INSERT INTO organizations (name, slug, plan) VALUES (?, ?, ?)").run('Default Org', 'default', 'free');
-    console.log('Seeded default organization (id=1)');
-  }
-} catch (e) { console.error('Org seed error:', e.message); }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS modules (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      description TEXT,
+      base_url    TEXT,
+      language    TEXT DEFAULT 'javascript',
+      tags        TEXT,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      imports     TEXT,
+      org_id      INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-// Migration: add max_users to organizations
-try {
-  const orgCols = db.prepare('PRAGMA table_info(organizations)').all().map(c => c.name);
-  if (!orgCols.includes('max_users')) {
-    db.exec('ALTER TABLE organizations ADD COLUMN max_users INTEGER DEFAULT NULL');
-    console.log('Added max_users column to organizations table');
-  }
-  if (!orgCols.includes('poc_name')) {
-    db.exec('ALTER TABLE organizations ADD COLUMN poc_name TEXT DEFAULT NULL');
-    console.log('Added poc_name column to organizations table');
-  }
-  if (!orgCols.includes('poc_email')) {
-    db.exec('ALTER TABLE organizations ADD COLUMN poc_email TEXT DEFAULT NULL');
-    console.log('Added poc_email column to organizations table');
-  }
-  if (!orgCols.includes('ai_healing_enabled')) {
-    db.exec('ALTER TABLE organizations ADD COLUMN ai_healing_enabled INTEGER DEFAULT 0');
-    console.log('Added ai_healing_enabled column to organizations table');
-  }
-  if (!orgCols.includes('openai_api_key')) {
-    db.exec('ALTER TABLE organizations ADD COLUMN openai_api_key TEXT DEFAULT NULL');
-    console.log('Added openai_api_key column to organizations table');
-  }
-} catch (e) { console.error('Migration error adding org columns:', e.message); }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS test_files (
+      id             SERIAL PRIMARY KEY,
+      module_id      INTEGER REFERENCES modules(id) ON DELETE CASCADE,
+      name           TEXT NOT NULL,
+      content        TEXT NOT NULL DEFAULT '',
+      requirement_id INTEGER,
+      created_at     TIMESTAMPTZ DEFAULT NOW(),
+      updated_at     TIMESTAMPTZ DEFAULT NOW(),
+      org_id         INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-// Enable foreign keys
-db.pragma('foreign_keys = ON');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS executions (
+      id                 SERIAL PRIMARY KEY,
+      module_id          INTEGER REFERENCES modules(id) ON DELETE CASCADE,
+      test_file_id       INTEGER REFERENCES test_files(id) ON DELETE CASCADE,
+      status             TEXT NOT NULL DEFAULT 'pending',
+      logs               TEXT,
+      error_message      TEXT,
+      screenshot_base64  TEXT,
+      duration_ms        INTEGER,
+      report_path        TEXT,
+      created_at         TIMESTAMPTZ DEFAULT NOW(),
+      org_id             INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS modules (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    base_url TEXT,
-    language TEXT DEFAULT 'TypeScript',
-    tags TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS test_suites (
+      id         SERIAL PRIMARY KEY,
+      module_id  INTEGER REFERENCES modules(id) ON DELETE CASCADE,
+      name       TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      org_id     INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS test_files (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    module_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    content TEXT NOT NULL,
-    requirement_id INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE,
-    FOREIGN KEY (requirement_id) REFERENCES requirements(id) ON DELETE SET NULL
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS suite_test_files (
+      id           SERIAL PRIMARY KEY,
+      suite_id     INTEGER REFERENCES test_suites(id) ON DELETE CASCADE,
+      test_file_id INTEGER REFERENCES test_files(id) ON DELETE CASCADE
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS executions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    module_id INTEGER NOT NULL,
-    test_file_id INTEGER NOT NULL,
-    status TEXT NOT NULL,
-    logs TEXT,
-    error_message TEXT,
-    screenshot_base64 TEXT,
-    duration_ms INTEGER,
-    report_path TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE,
-    FOREIGN KEY (test_file_id) REFERENCES test_files(id) ON DELETE CASCADE
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS suite_executions (
+      id           SERIAL PRIMARY KEY,
+      suite_id     INTEGER REFERENCES test_suites(id) ON DELETE CASCADE,
+      status       TEXT NOT NULL DEFAULT 'pending',
+      total_tests  INTEGER DEFAULT 0,
+      passed       INTEGER DEFAULT 0,
+      failed       INTEGER DEFAULT 0,
+      duration_ms  INTEGER,
+      report_path  TEXT,
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      org_id       INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS test_suites (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    module_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS suite_test_results (
+      id                  SERIAL PRIMARY KEY,
+      suite_execution_id  INTEGER REFERENCES suite_executions(id) ON DELETE CASCADE,
+      test_file_id        INTEGER REFERENCES test_files(id) ON DELETE CASCADE,
+      status              TEXT NOT NULL DEFAULT 'pending',
+      duration_ms         INTEGER,
+      error_message       TEXT,
+      logs                TEXT,
+      screenshot_base64   TEXT,
+      org_id              INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS suite_test_files (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    suite_id INTEGER NOT NULL,
-    test_file_id INTEGER NOT NULL,
-    FOREIGN KEY (suite_id) REFERENCES test_suites(id) ON DELETE CASCADE,
-    FOREIGN KEY (test_file_id) REFERENCES test_files(id) ON DELETE CASCADE
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS test_file_dependencies (
+      id                  SERIAL PRIMARY KEY,
+      test_file_id        INTEGER REFERENCES test_files(id) ON DELETE CASCADE,
+      dependency_file_id  INTEGER REFERENCES test_files(id) ON DELETE CASCADE,
+      dependency_type     TEXT NOT NULL CHECK (dependency_type IN ('before', 'after')),
+      execution_order     INTEGER NOT NULL DEFAULT 0,
+      UNIQUE (test_file_id, dependency_file_id, dependency_type)
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS suite_executions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    suite_id INTEGER NOT NULL,
-    status TEXT NOT NULL,
-    total_tests INTEGER NOT NULL,
-    passed INTEGER NOT NULL,
-    failed INTEGER NOT NULL,
-    duration_ms INTEGER NOT NULL,
-    report_path TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (suite_id) REFERENCES test_suites(id) ON DELETE CASCADE
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS features (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      description TEXT,
+      priority    TEXT DEFAULT 'Medium' CHECK (priority IN ('Low','Medium','High','Critical')),
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ DEFAULT NOW(),
+      org_id      INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS suite_test_results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    suite_execution_id INTEGER NOT NULL,
-    test_file_id INTEGER NOT NULL,
-    status TEXT NOT NULL,
-    duration_ms INTEGER,
-    error_message TEXT,
-    logs TEXT,
-    screenshot_base64 TEXT,
-    FOREIGN KEY (suite_execution_id) REFERENCES suite_executions(id) ON DELETE CASCADE,
-    FOREIGN KEY (test_file_id) REFERENCES test_files(id) ON DELETE CASCADE
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sprints (
+      id         SERIAL PRIMARY KEY,
+      name       TEXT NOT NULL,
+      goal       TEXT,
+      start_date TEXT,
+      end_date   TEXT,
+      status     TEXT NOT NULL DEFAULT 'Planning' CHECK (status IN ('Planning','Active','Completed','Cancelled')),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      org_id     INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS test_file_dependencies (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    test_file_id INTEGER NOT NULL,
-    dependency_file_id INTEGER NOT NULL,
-    dependency_type TEXT NOT NULL CHECK(dependency_type IN ('before', 'after')),
-    execution_order INTEGER DEFAULT 0,
-    FOREIGN KEY (test_file_id) REFERENCES test_files(id) ON DELETE CASCADE,
-    FOREIGN KEY (dependency_file_id) REFERENCES test_files(id) ON DELETE CASCADE,
-    UNIQUE(test_file_id, dependency_file_id, dependency_type)
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS requirements (
+      id              SERIAL PRIMARY KEY,
+      feature_id      INTEGER REFERENCES features(id) ON DELETE SET NULL,
+      organization_id INTEGER,
+      sprint_id       INTEGER REFERENCES sprints(id) ON DELETE SET NULL,
+      title           TEXT NOT NULL,
+      description     TEXT,
+      status          TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft','Review','Approved','Rejected')),
+      priority        TEXT NOT NULL DEFAULT 'Medium' CHECK (priority IN ('Low','Medium','High','Critical')),
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW(),
+      org_id          INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS features (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    priority TEXT NOT NULL CHECK(priority IN ('Low', 'Medium', 'High')) DEFAULT 'Medium',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS test_cases (
+      id              SERIAL PRIMARY KEY,
+      requirement_id  INTEGER REFERENCES requirements(id) ON DELETE CASCADE,
+      title           TEXT NOT NULL,
+      description     TEXT,
+      preconditions   TEXT,
+      test_steps      TEXT,
+      expected_result TEXT,
+      type            TEXT NOT NULL DEFAULT 'Manual' CHECK (type IN ('Manual','Automated')),
+      priority        TEXT NOT NULL DEFAULT 'Medium' CHECK (priority IN ('Low','Medium','High','Critical')),
+      status          TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft','Active','Deprecated')),
+      test_file_id    INTEGER REFERENCES test_files(id) ON DELETE SET NULL,
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW(),
+      org_id          INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS requirements (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    feature_id INTEGER NOT NULL,
-    organization_id INTEGER,
-    sprint_id INTEGER,
-    title TEXT NOT NULL,
-    description TEXT,
-    status TEXT NOT NULL CHECK(status IN ('Draft', 'Approved', 'Implemented')) DEFAULT 'Draft',
-    priority TEXT NOT NULL CHECK(priority IN ('Low', 'Medium', 'High')) DEFAULT 'Medium',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE,
-    FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS manual_test_runs (
+      id               SERIAL PRIMARY KEY,
+      test_case_id     INTEGER REFERENCES test_cases(id) ON DELETE CASCADE,
+      status           TEXT NOT NULL DEFAULT 'Not Run' CHECK (status IN ('Not Run','Passed','Failed','Blocked')),
+      executed_by      TEXT,
+      execution_notes  TEXT,
+      created_at       TIMESTAMPTZ DEFAULT NOW(),
+      org_id           INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS test_cases (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    requirement_id INTEGER,
-    title TEXT NOT NULL,
-    description TEXT,
-    preconditions TEXT,
-    test_steps TEXT,
-    expected_result TEXT,
-    type TEXT NOT NULL CHECK(type IN ('Manual', 'Automated')) DEFAULT 'Manual',
-    priority TEXT NOT NULL CHECK(priority IN ('Low', 'Medium', 'High')) DEFAULT 'Medium',
-    status TEXT NOT NULL CHECK(status IN ('Draft', 'Ready', 'Deprecated')) DEFAULT 'Draft',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (requirement_id) REFERENCES requirements(id) ON DELETE SET NULL
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS defects (
+      id                  SERIAL PRIMARY KEY,
+      title               TEXT NOT NULL,
+      description         TEXT,
+      severity            TEXT NOT NULL DEFAULT 'Medium' CHECK (severity IN ('Low','Medium','High','Critical')),
+      status              TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open','In Progress','Resolved','Closed')),
+      linked_test_case_id INTEGER REFERENCES test_cases(id) ON DELETE SET NULL,
+      linked_execution_id INTEGER REFERENCES manual_test_runs(id) ON DELETE SET NULL,
+      sprint_id           INTEGER REFERENCES sprints(id) ON DELETE SET NULL,
+      screenshot          TEXT,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ DEFAULT NOW(),
+      org_id              INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS manual_test_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    test_case_id INTEGER NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('Passed', 'Failed', 'Blocked')) DEFAULT 'Passed',
-    executed_by TEXT,
-    execution_notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (test_case_id) REFERENCES test_cases(id) ON DELETE CASCADE
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id              SERIAL PRIMARY KEY,
+      title           TEXT NOT NULL,
+      description     TEXT,
+      sprint_id       INTEGER REFERENCES sprints(id) ON DELETE SET NULL,
+      assignee_id     INTEGER,
+      status          TEXT NOT NULL DEFAULT 'New' CHECK (status IN ('New','In Progress','Done','Blocked')),
+      priority        TEXT NOT NULL DEFAULT 'Medium' CHECK (priority IN ('Low','Medium','High','Critical')),
+      created_by      INTEGER,
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW(),
+      start_date      TEXT,
+      end_date        TEXT,
+      planned_hours   REAL DEFAULT 0,
+      completed_hours REAL DEFAULT 0,
+      requirement_id  INTEGER REFERENCES requirements(id) ON DELETE SET NULL,
+      org_id          INTEGER NOT NULL DEFAULT 1
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS defects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    description TEXT,
-    severity TEXT NOT NULL CHECK(severity IN ('Low', 'Medium', 'High', 'Critical')) DEFAULT 'Medium',
-    status TEXT NOT NULL CHECK(status IN ('Open', 'In Progress', 'Resolved', 'Closed')) DEFAULT 'Open',
-    linked_test_case_id INTEGER,
-    linked_execution_id INTEGER,
-    sprint_id INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (linked_test_case_id) REFERENCES test_cases(id) ON DELETE SET NULL,
-    FOREIGN KEY (linked_execution_id) REFERENCES executions(id) ON DELETE SET NULL,
-    FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL
-  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS custom_roles (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      permissions TEXT NOT NULL DEFAULT '[]',
+      created_by  INTEGER,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      org_id      INTEGER NOT NULL DEFAULT 1,
+      UNIQUE (name, org_id)
+    )
+  `);
 
-  CREATE TABLE IF NOT EXISTS sprints (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    goal TEXT,
-    start_date DATE,
-    end_date DATE,
-    status TEXT NOT NULL CHECK(status IN ('Planned', 'Active', 'Completed')) DEFAULT 'Planned',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id               SERIAL PRIMARY KEY,
+      username         TEXT NOT NULL UNIQUE,
+      password_hash    TEXT NOT NULL,
+      salt             TEXT NOT NULL,
+      role             TEXT NOT NULL DEFAULT 'contributor',
+      custom_role_id   INTEGER REFERENCES custom_roles(id) ON DELETE SET NULL,
+      created_by       INTEGER,
+      is_active        SMALLINT NOT NULL DEFAULT 1,
+      permissions      TEXT DEFAULT NULL,
+      org_id           INTEGER NOT NULL DEFAULT 1,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    description TEXT,
-    sprint_id INTEGER REFERENCES sprints(id) ON DELETE SET NULL,
-    assignee_id INTEGER,
-    status TEXT NOT NULL CHECK(status IN ('New','In Progress','Completed','Done')) DEFAULT 'New',
-    priority TEXT NOT NULL CHECK(priority IN ('Low','Medium','High','Critical')) DEFAULT 'Medium',
-    created_by INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wiki_pages (
+      id          SERIAL PRIMARY KEY,
+      title       TEXT NOT NULL,
+      content     TEXT NOT NULL DEFAULT '',
+      parent_id   INTEGER REFERENCES wiki_pages(id) ON DELETE CASCADE,
+      sort_order  INTEGER NOT NULL DEFAULT 0,
+      created_by  TEXT,
+      org_id      INTEGER NOT NULL DEFAULT 1,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
 
-// Migration: Add start_date / end_date / planned_hours / completed_hours to tasks if not present
-try {
-  const taskCols = db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
-  if (!taskCols.includes('start_date')) {
-    db.exec('ALTER TABLE tasks ADD COLUMN start_date TEXT');
-    console.log('Migration: Added start_date column to tasks table');
-  }
-  if (!taskCols.includes('end_date')) {
-    db.exec('ALTER TABLE tasks ADD COLUMN end_date TEXT');
-    console.log('Migration: Added end_date column to tasks table');
-  }
-  if (!taskCols.includes('planned_hours')) {
-    db.exec('ALTER TABLE tasks ADD COLUMN planned_hours REAL DEFAULT 0');
-    console.log('Migration: Added planned_hours column to tasks table');
-  }
-  if (!taskCols.includes('completed_hours')) {
-    db.exec('ALTER TABLE tasks ADD COLUMN completed_hours REAL DEFAULT 0');
-    console.log('Migration: Added completed_hours column to tasks table');
-  }
-  if (!taskCols.includes('requirement_id')) {
-    db.exec('ALTER TABLE tasks ADD COLUMN requirement_id INTEGER REFERENCES requirements(id)');
-    console.log('Migration: Added requirement_id column to tasks table');
-  }
-} catch (error) {
-  console.error('Migration error for tasks date/hours columns:', error);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+  await pool.query(`
+    INSERT INTO settings (key, value) VALUES ($1, $2)
+    ON CONFLICT (key) DO NOTHING
+  `, ['user_limit', '0']);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS global_variables (
+      id          SERIAL PRIMARY KEY,
+      key         TEXT NOT NULL,
+      value       TEXT NOT NULL DEFAULT '',
+      description TEXT DEFAULT '',
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ DEFAULT NOW(),
+      org_id      INTEGER NOT NULL DEFAULT 1,
+      UNIQUE (key, org_id)
+    )
+  `);
+
+  await seedDefaultOrg();
+  await seedDefaultUsers();
+  console.log('Database initialised');
 }
 
-// Migration: Add tags column if it doesn't exist
-try {
-  const columns = db.prepare("PRAGMA table_info(modules)").all();
-  const hasTagsColumn = columns.some(col => col.name === 'tags');
-  
-  if (!hasTagsColumn) {
-    db.exec('ALTER TABLE modules ADD COLUMN tags TEXT');
-    console.log('Migration: Added tags column to modules table');
+async function seedDefaultOrg() {
+  const existing = await pool.query("SELECT id FROM organizations WHERE slug = 'default'");
+  if (existing.rows.length === 0) {
+    await pool.query("INSERT INTO organizations (name, slug, plan) VALUES ($1, $2, $3)", ['Default Org', 'default', 'free']);
+    console.log('Default organisation seeded');
   }
-} catch (error) {
-  console.error('Migration error:', error);
 }
 
-// Migration: Add feature_id column to requirements if it doesn't exist
-try {
-  const columns = db.prepare("PRAGMA table_info(requirements)").all();
-  const hasFeatureIdColumn = columns.some(col => col.name === 'feature_id');
-  
-  if (!hasFeatureIdColumn) {
-    // First create a default feature for existing requirements
-    const defaultFeature = db.prepare(`
-      INSERT INTO features (name, description, priority)
-      VALUES ('Legacy Feature', 'Default feature for existing requirements', 'Medium')
-    `).run();
-    
-    // Add the column with default value
-    db.exec(`ALTER TABLE requirements ADD COLUMN feature_id INTEGER NOT NULL DEFAULT ${defaultFeature.lastInsertRowid}`);
-    console.log('Migration: Added feature_id column to requirements table');
+async function seedDefaultUsers() {
+  const { rows: [{ count: userCount }] } = await pool.query('SELECT COUNT(*) as count FROM users');
+  if (parseInt(userCount, 10) === 0) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync('admin123', salt, 64).toString('hex');
+    await pool.query('INSERT INTO users (username, password_hash, salt, role) VALUES ($1, $2, $3, $4)',
+      ['admin', hash, salt, 'admin']);
+    console.log('Default admin created — username: admin  password: admin123');
   }
-} catch (error) {
-  console.error('Migration error for feature_id:', error);
-}
 
-// Migration: Add test_file_id column to test_cases if it doesn't exist
-try {
-  const tcColumns = db.prepare('PRAGMA table_info(test_cases)').all();
-  const hasTestFileId = tcColumns.some(col => col.name === 'test_file_id');
-  if (!hasTestFileId) {
-    db.exec('ALTER TABLE test_cases ADD COLUMN test_file_id INTEGER REFERENCES test_files(id) ON DELETE SET NULL');
-    console.log('Migration: Added test_file_id column to test_cases table');
-  }
-} catch (error) {
-  console.error('Migration error for test_file_id:', error);
-}
-
-// Migration: Add screenshot column to defects if it doesn't exist
-try {
-  const defectCols = db.prepare('PRAGMA table_info(defects)').all();
-  if (!defectCols.some(col => col.name === 'screenshot')) {
-    db.exec('ALTER TABLE defects ADD COLUMN screenshot TEXT');
-    console.log('Migration: Added screenshot column to defects table');
-  }
-} catch (error) {
-  console.error('Migration error for defects.screenshot:', error);
-}
-
-// Migration: Add imports column to modules if it doesn't exist
-try {
-  const moduleCols = db.prepare('PRAGMA table_info(modules)').all().map(c => c.name);
-  if (!moduleCols.includes('imports')) {
-    db.exec("ALTER TABLE modules ADD COLUMN imports TEXT DEFAULT ''");
-    console.log('Migration: Added imports column to modules table');
-  }
-} catch (error) {
-  console.error('Migration error for modules.imports:', error);
-}
-
-// Migration: Fix linked_execution_id FK — was wrongly referencing executions, should be manual_test_runs
-try {
-  const fkList = db.prepare('PRAGMA foreign_key_list(defects)').all();
-  const hasWrongFK = fkList.some(fk => fk.from === 'linked_execution_id' && fk.table === 'executions');
-
-  if (hasWrongFK) {
-    db.pragma('foreign_keys = OFF');
-    db.exec(`
-      CREATE TABLE defects_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        description TEXT,
-        severity TEXT NOT NULL CHECK(severity IN ('Low', 'Medium', 'High', 'Critical')) DEFAULT 'Medium',
-        status TEXT NOT NULL CHECK(status IN ('Open', 'In Progress', 'Resolved', 'Closed')) DEFAULT 'Open',
-        linked_test_case_id INTEGER,
-        linked_execution_id INTEGER,
-        sprint_id INTEGER,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        screenshot TEXT,
-        FOREIGN KEY (linked_test_case_id) REFERENCES test_cases(id) ON DELETE SET NULL,
-        FOREIGN KEY (linked_execution_id) REFERENCES manual_test_runs(id) ON DELETE SET NULL,
-        FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL
-      );
-      INSERT INTO defects_new SELECT * FROM defects;
-      DROP TABLE defects;
-      ALTER TABLE defects_new RENAME TO defects;
-    `);
-    db.pragma('foreign_keys = ON');
-    console.log('Migration: Fixed linked_execution_id FK in defects table (executions -> manual_test_runs)');
-  }
-} catch (error) {
-  console.error('Migration error for defects FK fix:', error);
-}
-
-// ─── Multi-tenancy: add org_id to every tenant-scoped table ──────────────────
-const TENANT_TABLES = [
-  'modules', 'test_files', 'executions', 'test_suites', 'suite_executions',
-  'suite_test_results', 'features', 'requirements', 'test_cases',
-  'manual_test_runs', 'defects', 'sprints', 'tasks', 'wiki_pages',
-  'global_variables', 'users', 'custom_roles'
-];
-try {
-  for (const table of TENANT_TABLES) {
-    const exists = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(table);
-    if (!exists) continue; // table not created yet; its CREATE TABLE already includes org_id
-    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
-    if (!cols.includes('org_id')) {
-      // SQLite doesn't allow ADD COLUMN with REFERENCES + NOT NULL + DEFAULT in one step,
-      // so we add as nullable integer with a default value first, then it's effectively scoped.
-      db.exec(`ALTER TABLE ${table} ADD COLUMN org_id INTEGER NOT NULL DEFAULT 1`);
-      console.log(`Migration: Added org_id to ${table}`);
+  const { rows: [{ count: saCount }] } = await pool.query("SELECT COUNT(*) as count FROM users WHERE role = 'super_admin'");
+  if (parseInt(saCount, 10) === 0) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync('playwright2403', salt, 64).toString('hex');
+    await pool.query('INSERT INTO users (username, password_hash, salt, role) VALUES ($1, $2, $3, $4)',
+      ['admin01', hash, salt, 'super_admin']);
+    console.log('Default super admin created — username: admin01  password: playwright2403');
+  } else {
+    const existing = await pool.query("SELECT id FROM users WHERE username = 'superadmin' AND role = 'super_admin'");
+    if (existing.rows.length > 0) {
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = crypto.scryptSync('playwright2403', salt, 64).toString('hex');
+      await pool.query('UPDATE users SET username = $1, password_hash = $2, salt = $3 WHERE id = $4',
+        ['admin01', hash, salt, existing.rows[0].id]);
+      console.log('Super admin credentials updated — username: admin01  password: playwright2403');
     }
   }
-} catch (e) {
-  console.error('Migration error for org_id columns:', e.message);
 }
 
-// Module operations
+// ---------------------------------------------------------------------------
+// Module Operations
+// ---------------------------------------------------------------------------
 const moduleOperations = {
-  getAll: (orgId = 1) => {
-    const modules = db.prepare('SELECT * FROM modules WHERE org_id = ? ORDER BY created_at DESC').all(orgId);
-    return modules.map(module => ({
-      ...module,
-      tags: module.tags ? JSON.parse(module.tags) : []
-    }));
+  getAll: async (orgId = 1) => {
+    const r = await pool.query('SELECT * FROM modules WHERE org_id = $1 ORDER BY created_at ASC', [orgId]);
+    return r.rows;
   },
 
-  getById: (id) => {
-    const module = db.prepare('SELECT * FROM modules WHERE id = ?').get(id);
-    if (module && module.tags) {
-      module.tags = JSON.parse(module.tags);
-    }
-    return module;
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM modules WHERE id = $1', [id]);
+    return r.rows[0] || null;
   },
 
-  create: (module, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO modules (name, description, base_url, language, tags, org_id)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      module.name,
-      module.description || '',
-      module.baseUrl || '',
-      module.language || 'TypeScript',
-      JSON.stringify(module.tags || []),
-      orgId
+  create: async ({ name, description, base_url, language = 'javascript', tags, imports }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO modules (name, description, base_url, language, tags, imports, org_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+      [name, description || null, base_url || null, language, tags ? JSON.stringify(tags) : null, imports || null, orgId]
     );
-    return { id: result.lastInsertRowid, ...module };
+    return moduleOperations.getById(r.rows[0].id);
   },
 
-  update: (id, updates) => {
-    const fields = [];
-    const values = [];
-    
-    if (updates.name !== undefined) {
-      fields.push('name = ?');
-      values.push(updates.name);
-    }
-    if (updates.description !== undefined) {
-      fields.push('description = ?');
-      values.push(updates.description);
-    }
-    if (updates.baseUrl !== undefined) {
-      fields.push('base_url = ?');
-      values.push(updates.baseUrl);
-    }
-    if (updates.language !== undefined) {
-      fields.push('language = ?');
-      values.push(updates.language);
-    }
-    if (updates.tags !== undefined) {
-      fields.push('tags = ?');
-      values.push(JSON.stringify(updates.tags));
-    }
-    if (updates.imports !== undefined) {
-      fields.push('imports = ?');
-      values.push(updates.imports);
-    }
-    
-    if (fields.length > 0) {
-      const stmt = db.prepare(`
-        UPDATE modules 
-        SET ${fields.join(', ')}
-        WHERE id = ?
-      `);
-      stmt.run(...values, id);
-    }
+  update: async (id, { name, description, base_url, language, tags, imports }) => {
+    await pool.query(
+      'UPDATE modules SET name=$1, description=$2, base_url=$3, language=$4, tags=$5, imports=$6 WHERE id=$7',
+      [name, description || null, base_url || null, language, tags ? JSON.stringify(tags) : null, imports || null, id]
+    );
     return moduleOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM modules WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM modules WHERE id = $1', [id]);
   }
 };
 
-// Test file operations
+// ---------------------------------------------------------------------------
+// Test File Operations
+// ---------------------------------------------------------------------------
 const testFileOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare(`
-      SELECT tf.*, m.name as module_name
-      FROM test_files tf
-      LEFT JOIN modules m ON tf.module_id = m.id
-      WHERE tf.org_id = ?
-      ORDER BY m.name ASC, tf.name ASC
-    `).all(orgId);
+  getAll: async (orgId = 1) => {
+    const r = await pool.query('SELECT * FROM test_files WHERE org_id = $1 ORDER BY created_at ASC', [orgId]);
+    return r.rows;
   },
 
-  getByModuleId: (moduleId) => {
-    return db.prepare(`
-      SELECT tf.*, r.title as requirement_title
-      FROM test_files tf
-      LEFT JOIN requirements r ON tf.requirement_id = r.id
-      WHERE tf.module_id = ?
-      ORDER BY tf.created_at ASC
-    `).all(moduleId);
+  getByModuleId: async (moduleId) => {
+    const r = await pool.query('SELECT * FROM test_files WHERE module_id = $1 ORDER BY created_at ASC', [moduleId]);
+    return r.rows;
   },
 
-  getById: (id) => {
-    return db.prepare(`
-      SELECT tf.*, r.title as requirement_title
-      FROM test_files tf
-      LEFT JOIN requirements r ON tf.requirement_id = r.id
-      WHERE tf.id = ?
-    `).get(id);
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM test_files WHERE id = $1', [id]);
+    return r.rows[0] || null;
   },
 
-  getByRequirementId: (requirementId) => {
-    return db.prepare(`
-      SELECT tf.*, m.name as module_name
-      FROM test_files tf
-      LEFT JOIN modules m ON tf.module_id = m.id
-      WHERE tf.requirement_id = ?
-      ORDER BY tf.created_at ASC
-    `).all(requirementId);
+  getByRequirementId: async (requirementId) => {
+    const r = await pool.query('SELECT * FROM test_files WHERE requirement_id = $1', [requirementId]);
+    return r.rows;
   },
 
-  create: (testFile, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO test_files (module_id, name, content, requirement_id, org_id)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      testFile.moduleId,
-      testFile.name,
-      testFile.content,
-      testFile.requirementId || null,
-      orgId
+  create: async ({ module_id, name, content = '', requirement_id }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO test_files (module_id, name, content, requirement_id, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+      [module_id, name, content, requirement_id || null, orgId]
     );
-    return { id: result.lastInsertRowid, ...testFile };
+    return testFileOperations.getById(r.rows[0].id);
   },
 
-  update: (id, updates) => {
-    // Handle both old update(id, content) and new update(id, {content, requirementId})
-    if (typeof updates === 'string') {
-      const stmt = db.prepare(`
-        UPDATE test_files 
-        SET content = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `);
-      stmt.run(updates, id);
-    } else {
-      const fields = [];
-      const values = [];
-      
-      if (updates.name !== undefined) {
-        fields.push('name = ?');
-        values.push(updates.name);
-      }
-      if (updates.content !== undefined) {
-        fields.push('content = ?');
-        values.push(updates.content);
-      }
-      if (updates.requirementId !== undefined) {
-        fields.push('requirement_id = ?');
-        values.push(updates.requirementId || null);
-      }
-      fields.push('updated_at = CURRENT_TIMESTAMP');
-      
-      if (fields.length > 1) {
-        const stmt = db.prepare(`
-          UPDATE test_files 
-          SET ${fields.join(', ')}
-          WHERE id = ?
-        `);
-        stmt.run(...values, id);
-      }
-    }
+  update: async (id, { name, content, requirement_id }) => {
+    await pool.query(
+      'UPDATE test_files SET name=$1, content=$2, requirement_id=$3, updated_at=NOW() WHERE id=$4',
+      [name, content, requirement_id || null, id]
+    );
     return testFileOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM test_files WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM test_files WHERE id = $1', [id]);
   }
 };
 
-// Execution operations
+// ---------------------------------------------------------------------------
+// Execution Operations
+// ---------------------------------------------------------------------------
 const executionOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare(`
-      SELECT 
-        e.*,
-        m.name as module_name,
-        tf.name as test_file_name
-      FROM executions e
-      LEFT JOIN modules m ON e.module_id = m.id
-      LEFT JOIN test_files tf ON e.test_file_id = tf.id
-      WHERE e.org_id = ?
-      ORDER BY e.created_at DESC
-    `).all(orgId);
+  getAll: async (orgId = 1) => {
+    const r = await pool.query('SELECT * FROM executions WHERE org_id = $1 ORDER BY created_at DESC', [orgId]);
+    return r.rows;
   },
 
-  getById: (id) => {
-    return db.prepare(`
-      SELECT 
-        e.*,
-        m.name as module_name,
-        tf.name as test_file_name
-      FROM executions e
-      LEFT JOIN modules m ON e.module_id = m.id
-      LEFT JOIN test_files tf ON e.test_file_id = tf.id
-      WHERE e.id = ?
-    `).get(id);
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM executions WHERE id = $1', [id]);
+    return r.rows[0] || null;
   },
 
-  getByModuleId: (moduleId) => {
-    return db.prepare(`
-      SELECT 
-        e.*,
-        m.name as module_name,
-        tf.name as test_file_name
-      FROM executions e
-      LEFT JOIN modules m ON e.module_id = m.id
-      LEFT JOIN test_files tf ON e.test_file_id = tf.id
-      WHERE e.module_id = ?
-      ORDER BY e.created_at DESC
-    `).all(moduleId);
+  getByModuleId: async (moduleId) => {
+    const r = await pool.query('SELECT * FROM executions WHERE module_id = $1 ORDER BY created_at DESC', [moduleId]);
+    return r.rows;
   },
 
-  create: (execution, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO executions (module_id, test_file_id, status, logs, error_message, screenshot_base64, duration_ms, report_path, org_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      execution.moduleId,
-      execution.testFileId,
-      execution.status,
-      execution.logs || '',
-      execution.errorMessage || null,
-      execution.screenshotBase64 || null,
-      execution.durationMs || null,
-      execution.reportPath || null,
-      orgId
+  create: async ({ module_id, test_file_id, status, logs, error_message, screenshot_base64, duration_ms, report_path }, orgId = 1) => {
+    const r = await pool.query(
+      `INSERT INTO executions (module_id, test_file_id, status, logs, error_message, screenshot_base64, duration_ms, report_path, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [module_id, test_file_id || null, status, logs || null, error_message || null, screenshot_base64 || null, duration_ms || null, report_path || null, orgId]
     );
-    return { id: result.lastInsertRowid, ...execution };
+    return executionOperations.getById(r.rows[0].id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM executions WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM executions WHERE id = $1', [id]);
   }
 };
 
-// Test suite operations
+// ---------------------------------------------------------------------------
+// Test Suite Operations
+// ---------------------------------------------------------------------------
 const testSuiteOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare('SELECT * FROM test_suites WHERE org_id = ? ORDER BY created_at DESC').all(orgId);
+  getAll: async (orgId = 1) => {
+    const r = await pool.query('SELECT * FROM test_suites WHERE org_id = $1 ORDER BY created_at ASC', [orgId]);
+    return r.rows;
   },
 
-  getById: (id) => {
-    return db.prepare('SELECT * FROM test_suites WHERE id = ?').get(id);
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM test_suites WHERE id = $1', [id]);
+    return r.rows[0] || null;
   },
 
-  getByModuleId: (moduleId) => {
-    return db.prepare('SELECT * FROM test_suites WHERE module_id = ? ORDER BY created_at DESC').all(moduleId);
+  getByModuleId: async (moduleId) => {
+    const r = await pool.query('SELECT * FROM test_suites WHERE module_id = $1 ORDER BY created_at ASC', [moduleId]);
+    return r.rows;
   },
 
-  create: (suite, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO test_suites (module_id, name, org_id)
-      VALUES (?, ?, ?)
-    `);
-    const result = stmt.run(
-      suite.moduleId,
-      suite.name,
-      orgId
+  create: async ({ module_id, name }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO test_suites (module_id, name, org_id) VALUES ($1,$2,$3) RETURNING id',
+      [module_id, name, orgId]
     );
-    return { id: result.lastInsertRowid, ...suite };
+    return testSuiteOperations.getById(r.rows[0].id);
   },
 
-  update: (id, name) => {
-    const stmt = db.prepare(`
-      UPDATE test_suites 
-      SET name = ?
-      WHERE id = ?
-    `);
-    stmt.run(name, id);
+  update: async (id, { name }) => {
+    await pool.query('UPDATE test_suites SET name=$1 WHERE id=$2', [name, id]);
     return testSuiteOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM test_suites WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM test_suites WHERE id = $1', [id]);
   }
 };
 
-// Suite test file operations
+// ---------------------------------------------------------------------------
+// Suite Test File Operations
+// ---------------------------------------------------------------------------
 const suiteTestFileOperations = {
-  getBySuiteId: (suiteId) => {
-    return db.prepare(`
-      SELECT 
-        stf.*,
-        tf.name as test_file_name,
-        tf.content as test_file_content
-      FROM suite_test_files stf
-      LEFT JOIN test_files tf ON stf.test_file_id = tf.id
-      WHERE stf.suite_id = ?
-    `).all(suiteId);
-  },
-
-  getById: (id) => {
-    return db.prepare('SELECT * FROM suite_test_files WHERE id = ?').get(id);
-  },
-
-  add: (suiteTestFile) => {
-    const stmt = db.prepare(`
-      INSERT INTO suite_test_files (suite_id, test_file_id)
-      VALUES (?, ?)
-    `);
-    const result = stmt.run(
-      suiteTestFile.suiteId,
-      suiteTestFile.testFileId
+  getBySuiteId: async (suiteId) => {
+    const r = await pool.query(
+      `SELECT stf.*, tf.name, tf.content FROM suite_test_files stf
+       JOIN test_files tf ON stf.test_file_id = tf.id
+       WHERE stf.suite_id = $1`,
+      [suiteId]
     );
-    return { id: result.lastInsertRowid, ...suiteTestFile };
+    return r.rows;
   },
 
-  remove: (id) => {
-    return db.prepare('DELETE FROM suite_test_files WHERE id = ?').run(id);
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM suite_test_files WHERE id = $1', [id]);
+    return r.rows[0] || null;
   },
 
-  removeBySuiteAndTestFile: (suiteId, testFileId) => {
-    return db.prepare('DELETE FROM suite_test_files WHERE suite_id = ? AND test_file_id = ?').run(suiteId, testFileId);
+  add: async ({ suite_id, test_file_id }) => {
+    const r = await pool.query(
+      'INSERT INTO suite_test_files (suite_id, test_file_id) VALUES ($1,$2) RETURNING id',
+      [suite_id, test_file_id]
+    );
+    return suiteTestFileOperations.getById(r.rows[0].id);
+  },
+
+  remove: async (id) => {
+    return pool.query('DELETE FROM suite_test_files WHERE id = $1', [id]);
+  },
+
+  removeBySuiteAndTestFile: async (suiteId, testFileId) => {
+    return pool.query('DELETE FROM suite_test_files WHERE suite_id=$1 AND test_file_id=$2', [suiteId, testFileId]);
   }
 };
 
-// Suite execution operations
+// ---------------------------------------------------------------------------
+// Suite Execution Operations
+// ---------------------------------------------------------------------------
 const suiteExecutionOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare('SELECT * FROM suite_executions WHERE org_id = ? ORDER BY created_at DESC').all(orgId);
+  getAll: async (orgId = 1) => {
+    const r = await pool.query('SELECT * FROM suite_executions WHERE org_id = $1 ORDER BY created_at DESC', [orgId]);
+    return r.rows;
   },
 
-  getById: (id) => {
-    return db.prepare('SELECT * FROM suite_executions WHERE id = ?').get(id);
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM suite_executions WHERE id = $1', [id]);
+    return r.rows[0] || null;
   },
 
-  getBySuiteId: (suiteId, limit = 30) => {
-    return db.prepare('SELECT * FROM suite_executions WHERE suite_id = ? ORDER BY created_at DESC LIMIT ?').all(suiteId, limit);
+  getBySuiteId: async (suiteId) => {
+    const r = await pool.query('SELECT * FROM suite_executions WHERE suite_id = $1 ORDER BY created_at DESC', [suiteId]);
+    return r.rows;
   },
 
-  create: (suiteExecution, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO suite_executions (suite_id, status, total_tests, passed, failed, duration_ms, report_path, org_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      suiteExecution.suiteId,
-      suiteExecution.status,
-      suiteExecution.totalTests,
-      suiteExecution.passed,
-      suiteExecution.failed,
-      suiteExecution.durationMs,
-      suiteExecution.reportPath || null,
-      orgId
+  create: async ({ suite_id, status = 'pending', total_tests = 0, passed = 0, failed = 0, duration_ms, report_path }, orgId = 1) => {
+    const r = await pool.query(
+      `INSERT INTO suite_executions (suite_id, status, total_tests, passed, failed, duration_ms, report_path, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [suite_id, status, total_tests, passed, failed, duration_ms || null, report_path || null, orgId]
     );
-    return { id: result.lastInsertRowid, ...suiteExecution };
+    return suiteExecutionOperations.getById(r.rows[0].id);
   },
 
-  update: (id, fields) => {
-    const stmt = db.prepare(`
-      UPDATE suite_executions
-      SET status = ?, total_tests = ?, passed = ?, failed = ?, duration_ms = ?, report_path = ?
-      WHERE id = ?
-    `);
-    stmt.run(
-      fields.status,
-      fields.totalTests,
-      fields.passed,
-      fields.failed,
-      fields.durationMs,
-      fields.reportPath || null,
-      id
+  update: async (id, { status, total_tests, passed, failed, duration_ms, report_path }) => {
+    await pool.query(
+      `UPDATE suite_executions SET status=$1, total_tests=$2, passed=$3, failed=$4, duration_ms=$5, report_path=$6 WHERE id=$7`,
+      [status, total_tests, passed, failed, duration_ms || null, report_path || null, id]
     );
-    return db.prepare('SELECT * FROM suite_executions WHERE id = ?').get(id);
+    return suiteExecutionOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM suite_executions WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM suite_executions WHERE id = $1', [id]);
   }
 };
 
-// Suite test result operations
+// ---------------------------------------------------------------------------
+// Suite Test Result Operations
+// ---------------------------------------------------------------------------
 const suiteTestResultOperations = {
-  getBySuiteExecutionId: (suiteExecutionId) => {
-    return db.prepare(`
-      SELECT 
-        str.*,
-        tf.name as test_file_name
-      FROM suite_test_results str
-      LEFT JOIN test_files tf ON str.test_file_id = tf.id
-      WHERE str.suite_execution_id = ?
-    `).all(suiteExecutionId);
-  },
-
-  create: (testResult) => {
-    const stmt = db.prepare(`
-      INSERT INTO suite_test_results (suite_execution_id, test_file_id, status, duration_ms, error_message, logs, screenshot_base64)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      testResult.suiteExecutionId,
-      testResult.testFileId,
-      testResult.status,
-      testResult.durationMs,
-      testResult.errorMessage,
-      testResult.logs,
-      testResult.screenshotBase64 || null
+  getBySuiteExecutionId: async (suiteExecutionId) => {
+    const r = await pool.query(
+      `SELECT str.*, tf.name as test_file_name FROM suite_test_results str
+       LEFT JOIN test_files tf ON str.test_file_id = tf.id
+       WHERE str.suite_execution_id = $1`,
+      [suiteExecutionId]
     );
-    return { id: result.lastInsertRowid, ...testResult };
+    return r.rows;
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM suite_test_results WHERE id = ?').run(id);
+  create: async ({ suite_execution_id, test_file_id, status, duration_ms, error_message, logs, screenshot_base64 }, orgId = 1) => {
+    const r = await pool.query(
+      `INSERT INTO suite_test_results (suite_execution_id, test_file_id, status, duration_ms, error_message, logs, screenshot_base64, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [suite_execution_id, test_file_id || null, status, duration_ms || null, error_message || null, logs || null, screenshot_base64 || null, orgId]
+    );
+    const created = await pool.query('SELECT * FROM suite_test_results WHERE id = $1', [r.rows[0].id]);
+    return created.rows[0];
+  },
+
+  delete: async (id) => {
+    return pool.query('DELETE FROM suite_test_results WHERE id = $1', [id]);
   }
 };
 
-// Test file dependency operations
+// ---------------------------------------------------------------------------
+// Test File Dependency Operations
+// ---------------------------------------------------------------------------
 const testFileDependencyOperations = {
-  // Get all dependencies for a test file
-  getByTestFileId: (testFileId) => {
-    return db.prepare(`
-      SELECT 
-        tfd.*,
-        tf.name as dependency_name,
-        tf.module_id as dependency_module_id
-      FROM test_file_dependencies tfd
-      LEFT JOIN test_files tf ON tfd.dependency_file_id = tf.id
-      WHERE tfd.test_file_id = ?
-      ORDER BY tfd.dependency_type, tfd.execution_order
-    `).all(testFileId);
-  },
-
-  // Get dependencies by type (before/after)
-  getByTestFileIdAndType: (testFileId, dependencyType) => {
-    return db.prepare(`
-      SELECT 
-        tfd.*,
-        tf.name as dependency_name,
-        tf.module_id as dependency_module_id
-      FROM test_file_dependencies tfd
-      LEFT JOIN test_files tf ON tfd.dependency_file_id = tf.id
-      WHERE tfd.test_file_id = ? AND tfd.dependency_type = ?
-      ORDER BY tfd.execution_order
-    `).all(testFileId, dependencyType);
-  },
-
-  // Add a dependency
-  add: (dependency) => {
-    const stmt = db.prepare(`
-      INSERT INTO test_file_dependencies (test_file_id, dependency_file_id, dependency_type, execution_order)
-      VALUES (?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      dependency.testFileId,
-      dependency.dependencyFileId,
-      dependency.dependencyType,
-      dependency.executionOrder || 0
+  getByTestFileId: async (testFileId) => {
+    const r = await pool.query(
+      `SELECT tfd.*, tf.name as dependency_name FROM test_file_dependencies tfd
+       JOIN test_files tf ON tfd.dependency_file_id = tf.id
+       WHERE tfd.test_file_id = $1 ORDER BY tfd.execution_order ASC`,
+      [testFileId]
     );
-    return { id: result.lastInsertRowid, ...dependency };
+    return r.rows;
   },
 
-  // Remove a dependency
-  remove: (testFileId, dependencyFileId, dependencyType) => {
-    return db.prepare(`
-      DELETE FROM test_file_dependencies 
-      WHERE test_file_id = ? AND dependency_file_id = ? AND dependency_type = ?
-    `).run(testFileId, dependencyFileId, dependencyType);
+  getByTestFileIdAndType: async (testFileId, type) => {
+    const r = await pool.query(
+      `SELECT tfd.*, tf.name as dependency_name FROM test_file_dependencies tfd
+       JOIN test_files tf ON tfd.dependency_file_id = tf.id
+       WHERE tfd.test_file_id = $1 AND tfd.dependency_type = $2
+       ORDER BY tfd.execution_order ASC`,
+      [testFileId, type]
+    );
+    return r.rows;
   },
 
-  // Remove all dependencies for a test file
-  removeAllForTestFile: (testFileId) => {
-    return db.prepare('DELETE FROM test_file_dependencies WHERE test_file_id = ?').run(testFileId);
+  add: async ({ test_file_id, dependency_file_id, dependency_type, execution_order = 0 }) => {
+    const r = await pool.query(
+      `INSERT INTO test_file_dependencies (test_file_id, dependency_file_id, dependency_type, execution_order)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (test_file_id, dependency_file_id, dependency_type) DO UPDATE SET execution_order = EXCLUDED.execution_order
+       RETURNING id`,
+      [test_file_id, dependency_file_id, dependency_type, execution_order]
+    );
+    const created = await pool.query('SELECT * FROM test_file_dependencies WHERE id = $1', [r.rows[0].id]);
+    return created.rows[0];
   },
 
-  // Get execution order (all files that need to run for a given test file)
-  getExecutionOrder: (testFileId) => {
-    const beforeDeps = testFileDependencyOperations.getByTestFileIdAndType(testFileId, 'before');
-    const afterDeps = testFileDependencyOperations.getByTestFileIdAndType(testFileId, 'after');
-    const mainFile = testFileOperations.getById(testFileId);
+  remove: async (id) => {
+    return pool.query('DELETE FROM test_file_dependencies WHERE id = $1', [id]);
+  },
 
-    return {
-      before: beforeDeps.map(d => ({
-        id: d.dependency_file_id,
-        name: d.dependency_name,
-        module_id: d.dependency_module_id,
-        order: d.execution_order
-      })),
-      main: mainFile ? { id: mainFile.id, name: mainFile.name, module_id: mainFile.module_id } : null,
-      after: afterDeps.map(d => ({
-        id: d.dependency_file_id,
-        name: d.dependency_name,
-        module_id: d.dependency_module_id,
-        order: d.execution_order
-      }))
-    };
+  removeAllForTestFile: async (testFileId) => {
+    return pool.query('DELETE FROM test_file_dependencies WHERE test_file_id = $1', [testFileId]);
+  },
+
+  getExecutionOrder: async (testFileId) => {
+    const before = await testFileDependencyOperations.getByTestFileIdAndType(testFileId, 'before');
+    const after  = await testFileDependencyOperations.getByTestFileIdAndType(testFileId, 'after');
+    const self   = await testFileOperations.getById(testFileId);
+    return { before, self, after };
   }
 };
 
-// Feature operations
+// ---------------------------------------------------------------------------
+// Feature Operations
+// ---------------------------------------------------------------------------
 const featureOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare('SELECT * FROM features WHERE org_id = ? ORDER BY created_at DESC').all(orgId);
+  getAll: async (orgId = 1) => {
+    const r = await pool.query('SELECT * FROM features WHERE org_id = $1 ORDER BY created_at ASC', [orgId]);
+    return r.rows;
   },
 
-  getById: (id) => {
-    return db.prepare('SELECT * FROM features WHERE id = ?').get(id);
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM features WHERE id = $1', [id]);
+    return r.rows[0] || null;
   },
 
-  create: (feature, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO features (name, description, priority, org_id)
-      VALUES (?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      feature.name,
-      feature.description || null,
-      feature.priority || 'Medium',
-      orgId
+  create: async ({ name, description, priority = 'Medium' }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO features (name, description, priority, org_id) VALUES ($1,$2,$3,$4) RETURNING id',
+      [name, description || null, priority, orgId]
     );
-    return { id: result.lastInsertRowid, ...feature };
+    return featureOperations.getById(r.rows[0].id);
   },
 
-  update: (id, feature) => {
-    const stmt = db.prepare(`
-      UPDATE features 
-      SET name = ?,
-          description = ?,
-          priority = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
-    stmt.run(
-      feature.name,
-      feature.description || null,
-      feature.priority,
-      id
+  update: async (id, { name, description, priority }) => {
+    await pool.query(
+      'UPDATE features SET name=$1, description=$2, priority=$3, updated_at=NOW() WHERE id=$4',
+      [name, description || null, priority, id]
     );
     return featureOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM features WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM features WHERE id = $1', [id]);
   }
 };
 
-// Requirement operations
+// ---------------------------------------------------------------------------
+// Requirement Operations
+// ---------------------------------------------------------------------------
 const requirementOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare(`
-      SELECT r.*, f.name as feature_name 
-      FROM requirements r
-      LEFT JOIN features f ON r.feature_id = f.id
-      WHERE r.org_id = ?
-      ORDER BY r.created_at DESC
-    `).all(orgId);
-  },
-
-  getById: (id) => {
-    return db.prepare('SELECT * FROM requirements WHERE id = ?').get(id);
-  },
-
-  getByFeatureId: (featureId) => {
-    return db.prepare(`
-      SELECT r.*, s.name as sprint_name 
-      FROM requirements r
-      LEFT JOIN sprints s ON r.sprint_id = s.id
-      WHERE r.feature_id = ?
-      ORDER BY r.created_at DESC
-    `).all(featureId);
-  },
-
-  create: (requirement, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO requirements (feature_id, organization_id, sprint_id, title, description, status, priority, org_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      requirement.featureId,
-      requirement.organizationId || null,
-      requirement.sprintId || null,
-      requirement.title,
-      requirement.description || null,
-      requirement.status || 'Draft',
-      requirement.priority || 'Medium',
-      orgId
+  getAll: async (orgId = 1) => {
+    const r = await pool.query(
+      `SELECT r.*, f.name as feature_name, s.name as sprint_name FROM requirements r
+       LEFT JOIN features f ON r.feature_id = f.id
+       LEFT JOIN sprints s ON r.sprint_id = s.id
+       WHERE r.org_id = $1 ORDER BY r.created_at ASC`,
+      [orgId]
     );
-    return { id: result.lastInsertRowid, ...requirement };
+    return r.rows;
   },
 
-  update: (id, requirement) => {
-    const stmt = db.prepare(`
-      UPDATE requirements 
-      SET feature_id = ?,
-          organization_id = ?,
-          sprint_id = ?,
-          title = ?,
-          description = ?,
-          status = ?,
-          priority = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
-    stmt.run(
-      requirement.featureId,
-      requirement.organizationId || null,
-      requirement.sprintId || null,
-      requirement.title,
-      requirement.description || null,
-      requirement.status,
-      requirement.priority,
-      id
+  getById: async (id) => {
+    const r = await pool.query(
+      `SELECT r.*, f.name as feature_name, s.name as sprint_name FROM requirements r
+       LEFT JOIN features f ON r.feature_id = f.id
+       LEFT JOIN sprints s ON r.sprint_id = s.id
+       WHERE r.id = $1`,
+      [id]
+    );
+    return r.rows[0] || null;
+  },
+
+  getByFeatureId: async (featureId) => {
+    const r = await pool.query(
+      'SELECT * FROM requirements WHERE feature_id = $1 ORDER BY created_at ASC',
+      [featureId]
+    );
+    return r.rows;
+  },
+
+  create: async ({ feature_id, sprint_id, title, description, status = 'Draft', priority = 'Medium' }, orgId = 1) => {
+    const r = await pool.query(
+      `INSERT INTO requirements (feature_id, sprint_id, title, description, status, priority, org_id, organization_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`,
+      [feature_id || null, sprint_id || null, title, description || null, status, priority, orgId]
+    );
+    return requirementOperations.getById(r.rows[0].id);
+  },
+
+  update: async (id, { feature_id, sprint_id, title, description, status, priority }) => {
+    await pool.query(
+      `UPDATE requirements SET feature_id=$1, sprint_id=$2, title=$3, description=$4, status=$5, priority=$6, updated_at=NOW() WHERE id=$7`,
+      [feature_id || null, sprint_id || null, title, description || null, status, priority, id]
     );
     return requirementOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM requirements WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM requirements WHERE id = $1', [id]);
   }
 };
 
-// Test case operations
+// ---------------------------------------------------------------------------
+// Test Case Operations
+// ---------------------------------------------------------------------------
 const testCaseOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare(`
-      SELECT 
-        tc.*,
-        r.title as requirement_title,
-        r.sprint_id,
-        s.name as sprint_name,
-        s.status as sprint_status,
-        tf.name as test_file_name,
-        tf.module_id as test_file_module_id,
-        m.name as test_file_module_name
-      FROM test_cases tc
-      LEFT JOIN requirements r ON tc.requirement_id = r.id
-      LEFT JOIN sprints s ON r.sprint_id = s.id
-      LEFT JOIN test_files tf ON tc.test_file_id = tf.id
-      LEFT JOIN modules m ON tf.module_id = m.id
-      WHERE tc.org_id = ?
-      ORDER BY tc.created_at DESC
-    `).all(orgId);
-  },
-
-  getById: (id) => {
-    return db.prepare(`
-      SELECT 
-        tc.*,
-        r.title as requirement_title,
-        r.sprint_id,
-        s.name as sprint_name,
-        s.status as sprint_status,
-        tf.name as test_file_name,
-        tf.module_id as test_file_module_id,
-        m.name as test_file_module_name
-      FROM test_cases tc
-      LEFT JOIN requirements r ON tc.requirement_id = r.id
-      LEFT JOIN sprints s ON r.sprint_id = s.id
-      LEFT JOIN test_files tf ON tc.test_file_id = tf.id
-      LEFT JOIN modules m ON tf.module_id = m.id
-      WHERE tc.id = ?
-    `).get(id);
-  },
-
-  getByRequirementId: (requirementId) => {
-    return db.prepare('SELECT * FROM test_cases WHERE requirement_id = ? ORDER BY created_at DESC').all(requirementId);
-  },
-
-  create: (testCase, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO test_cases (requirement_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id, org_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      testCase.requirementId || null,
-      testCase.title,
-      testCase.description || null,
-      testCase.preconditions || null,
-      testCase.testSteps || null,
-      testCase.expectedResult || null,
-      testCase.type || 'Manual',
-      testCase.priority || 'Medium',
-      testCase.status || 'Draft',
-      testCase.testFileId || null,
-      orgId
+  getAll: async (orgId = 1) => {
+    const r = await pool.query(
+      `SELECT tc.*, r.title as requirement_title FROM test_cases tc
+       LEFT JOIN requirements r ON tc.requirement_id = r.id
+       WHERE tc.org_id = $1 ORDER BY tc.created_at ASC`,
+      [orgId]
     );
-    return testCaseOperations.getById(result.lastInsertRowid);
+    return r.rows;
   },
 
-  update: (id, testCase) => {
-    const stmt = db.prepare(`
-      UPDATE test_cases 
-      SET requirement_id = ?,
-          title = ?,
-          description = ?,
-          preconditions = ?,
-          test_steps = ?,
-          expected_result = ?,
-          type = ?,
-          priority = ?,
-          status = ?,
-          test_file_id = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
-    stmt.run(
-      testCase.requirementId || null,
-      testCase.title,
-      testCase.description || null,
-      testCase.preconditions || null,
-      testCase.testSteps || null,
-      testCase.expectedResult || null,
-      testCase.type,
-      testCase.priority,
-      testCase.status,
-      testCase.testFileId || null,
-      id
+  getById: async (id) => {
+    const r = await pool.query(
+      `SELECT tc.*, r.title as requirement_title FROM test_cases tc
+       LEFT JOIN requirements r ON tc.requirement_id = r.id
+       WHERE tc.id = $1`,
+      [id]
+    );
+    return r.rows[0] || null;
+  },
+
+  getByRequirementId: async (requirementId) => {
+    const r = await pool.query(
+      'SELECT * FROM test_cases WHERE requirement_id = $1 ORDER BY created_at ASC',
+      [requirementId]
+    );
+    return r.rows;
+  },
+
+  create: async ({ requirement_id, title, description, preconditions, test_steps, expected_result, type = 'Manual', priority = 'Medium', status = 'Draft', test_file_id }, orgId = 1) => {
+    const r = await pool.query(
+      `INSERT INTO test_cases (requirement_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [requirement_id || null, title, description || null, preconditions || null, test_steps || null, expected_result || null, type, priority, status, test_file_id || null, orgId]
+    );
+    return testCaseOperations.getById(r.rows[0].id);
+  },
+
+  update: async (id, { requirement_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id }) => {
+    await pool.query(
+      `UPDATE test_cases SET requirement_id=$1, title=$2, description=$3, preconditions=$4, test_steps=$5,
+       expected_result=$6, type=$7, priority=$8, status=$9, test_file_id=$10, updated_at=NOW() WHERE id=$11`,
+      [requirement_id || null, title, description || null, preconditions || null, test_steps || null, expected_result || null, type, priority, status, test_file_id || null, id]
     );
     return testCaseOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM test_cases WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM test_cases WHERE id = $1', [id]);
   }
 };
 
+// ---------------------------------------------------------------------------
+// Manual Test Run Operations
+// ---------------------------------------------------------------------------
 const manualTestRunOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare(`
-      SELECT 
-        mtr.*,
-        tc.title as test_case_title,
-        tc.type as test_case_type
-      FROM manual_test_runs mtr
-      LEFT JOIN test_cases tc ON mtr.test_case_id = tc.id
-      WHERE mtr.org_id = ?
-      ORDER BY mtr.created_at DESC
-    `).all(orgId);
-  },
-
-  getById: (id) => {
-    return db.prepare(`
-      SELECT 
-        mtr.*,
-        tc.title as test_case_title,
-        tc.type as test_case_type
-      FROM manual_test_runs mtr
-      LEFT JOIN test_cases tc ON mtr.test_case_id = tc.id
-      WHERE mtr.id = ?
-    `).get(id);
-  },
-
-  getByTestCaseId: (testCaseId) => {
-    return db.prepare(`
-      SELECT * FROM manual_test_runs 
-      WHERE test_case_id = ? 
-      ORDER BY created_at DESC
-    `).all(testCaseId);
-  },
-
-  create: (testRun, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO manual_test_runs (test_case_id, status, executed_by, execution_notes, org_id)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      testRun.testCaseId,
-      testRun.status || 'Passed',
-      testRun.executedBy || null,
-      testRun.executionNotes || null,
-      orgId
+  getAll: async (orgId = 1) => {
+    const r = await pool.query(
+      `SELECT mtr.*, tc.title as test_case_title FROM manual_test_runs mtr
+       LEFT JOIN test_cases tc ON mtr.test_case_id = tc.id
+       WHERE mtr.org_id = $1 ORDER BY mtr.created_at DESC`,
+      [orgId]
     );
-    return { id: result.lastInsertRowid, ...testRun };
+    return r.rows;
   },
 
-  update: (id, testRun) => {
-    const stmt = db.prepare(`
-      UPDATE manual_test_runs 
-      SET status = ?,
-          executed_by = ?,
-          execution_notes = ?
-      WHERE id = ?
-    `);
-    stmt.run(
-      testRun.status,
-      testRun.executedBy || null,
-      testRun.executionNotes || null,
-      id
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM manual_test_runs WHERE id = $1', [id]);
+    return r.rows[0] || null;
+  },
+
+  getByTestCaseId: async (testCaseId) => {
+    const r = await pool.query(
+      'SELECT * FROM manual_test_runs WHERE test_case_id = $1 ORDER BY created_at DESC',
+      [testCaseId]
+    );
+    return r.rows;
+  },
+
+  create: async ({ test_case_id, status = 'Not Run', executed_by, execution_notes }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO manual_test_runs (test_case_id, status, executed_by, execution_notes, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+      [test_case_id || null, status, executed_by || null, execution_notes || null, orgId]
+    );
+    return manualTestRunOperations.getById(r.rows[0].id);
+  },
+
+  update: async (id, { status, executed_by, execution_notes }) => {
+    await pool.query(
+      'UPDATE manual_test_runs SET status=$1, executed_by=$2, execution_notes=$3 WHERE id=$4',
+      [status, executed_by || null, execution_notes || null, id]
     );
     return manualTestRunOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM manual_test_runs WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM manual_test_runs WHERE id = $1', [id]);
   }
 };
 
+// ---------------------------------------------------------------------------
+// Defect Operations
+// ---------------------------------------------------------------------------
 const defectOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare(`
-      SELECT 
-        d.*,
-        tc.title as test_case_title,
-        tf.name as execution_test_file,
-        s.name as sprint_name,
-        s.status as sprint_status
-      FROM defects d
-      LEFT JOIN test_cases tc ON d.linked_test_case_id = tc.id
-      LEFT JOIN executions e ON d.linked_execution_id = e.id
-      LEFT JOIN test_files tf ON e.test_file_id = tf.id
-      LEFT JOIN sprints s ON d.sprint_id = s.id
-      WHERE d.org_id = ?
-      ORDER BY d.created_at DESC
-    `).all(orgId);
-  },
-
-  getById: (id) => {
-    return db.prepare(`
-      SELECT 
-        d.*,
-        tc.title as test_case_title,
-        tf.name as execution_test_file,
-        s.name as sprint_name,
-        s.status as sprint_status
-      FROM defects d
-      LEFT JOIN test_cases tc ON d.linked_test_case_id = tc.id
-      LEFT JOIN executions e ON d.linked_execution_id = e.id
-      LEFT JOIN test_files tf ON e.test_file_id = tf.id
-      LEFT JOIN sprints s ON d.sprint_id = s.id
-      WHERE d.id = ?
-    `).get(id);
-  },
-
-  create: (defect, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO defects (title, description, severity, status, linked_test_case_id, linked_execution_id, sprint_id, screenshot, org_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      defect.title,
-      defect.description || null,
-      defect.severity || 'Medium',
-      defect.status || 'Open',
-      defect.linkedTestCaseId || null,
-      defect.linkedExecutionId || null,
-      defect.sprintId || null,
-      defect.screenshot || null,
-      orgId
+  getAll: async (orgId = 1) => {
+    const r = await pool.query(
+      `SELECT d.*, tc.title as linked_test_case_title, s.name as sprint_name FROM defects d
+       LEFT JOIN test_cases tc ON d.linked_test_case_id = tc.id
+       LEFT JOIN sprints s ON d.sprint_id = s.id
+       WHERE d.org_id = $1 ORDER BY d.created_at DESC`,
+      [orgId]
     );
-    return defectOperations.getById(result.lastInsertRowid);
+    return r.rows;
   },
 
-  update: (id, defect) => {
-    const stmt = db.prepare(`
-      UPDATE defects 
-      SET title = ?,
-          description = ?,
-          severity = ?,
-          status = ?,
-          linked_test_case_id = ?,
-          linked_execution_id = ?,
-          sprint_id = ?,
-          screenshot = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
-    stmt.run(
-      defect.title,
-      defect.description || null,
-      defect.severity,
-      defect.status,
-      defect.linkedTestCaseId || null,
-      defect.linkedExecutionId || null,
-      defect.sprintId || null,
-      defect.screenshot !== undefined ? defect.screenshot : null,
-      id
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM defects WHERE id = $1', [id]);
+    return r.rows[0] || null;
+  },
+
+  create: async ({ title, description, severity = 'Medium', status = 'Open', linked_test_case_id, linked_execution_id, sprint_id, screenshot }, orgId = 1) => {
+    const r = await pool.query(
+      `INSERT INTO defects (title, description, severity, status, linked_test_case_id, linked_execution_id, sprint_id, screenshot, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [title, description || null, severity, status, linked_test_case_id || null, linked_execution_id || null, sprint_id || null, screenshot || null, orgId]
+    );
+    return defectOperations.getById(r.rows[0].id);
+  },
+
+  update: async (id, { title, description, severity, status, linked_test_case_id, linked_execution_id, sprint_id, screenshot }) => {
+    await pool.query(
+      `UPDATE defects SET title=$1, description=$2, severity=$3, status=$4, linked_test_case_id=$5,
+       linked_execution_id=$6, sprint_id=$7, screenshot=$8, updated_at=NOW() WHERE id=$9`,
+      [title, description || null, severity, status, linked_test_case_id || null, linked_execution_id || null, sprint_id || null, screenshot || null, id]
     );
     return defectOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM defects WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM defects WHERE id = $1', [id]);
   }
 };
 
-// Sprint operations
+// ---------------------------------------------------------------------------
+// Sprint Operations
+// ---------------------------------------------------------------------------
 const sprintOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare('SELECT * FROM sprints WHERE org_id = ? ORDER BY created_at DESC').all(orgId);
+  getAll: async (orgId = 1) => {
+    const r = await pool.query('SELECT * FROM sprints WHERE org_id = $1 ORDER BY created_at DESC', [orgId]);
+    return r.rows;
   },
 
-  getById: (id) => {
-    return db.prepare('SELECT * FROM sprints WHERE id = ?').get(id);
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM sprints WHERE id = $1', [id]);
+    return r.rows[0] || null;
   },
 
-  getByIdWithMetrics: (id) => {
-    const sprint = db.prepare('SELECT * FROM sprints WHERE id = ?').get(id);
-    
-    if (!sprint) {
-      return null;
+  getByIdWithMetrics: async (id) => {
+    const sprintRes = await pool.query('SELECT * FROM sprints WHERE id = $1', [id]);
+    const sprint = sprintRes.rows[0];
+    if (!sprint) return null;
+
+    const [
+      totalTCRes,
+      autoTCRes,
+      manualTCRes,
+      manualRunsRes,
+      reqRes,
+      defectRes,
+      defectsByStatusRes
+    ] = await Promise.all([
+      pool.query(`SELECT COUNT(DISTINCT tc.id) as count FROM test_cases tc
+        INNER JOIN requirements r ON tc.requirement_id = r.id WHERE r.sprint_id = $1`, [id]),
+      pool.query(`SELECT COUNT(DISTINCT tc.id) as count FROM test_cases tc
+        INNER JOIN requirements r ON tc.requirement_id = r.id WHERE r.sprint_id = $1 AND tc.type = 'Automated'`, [id]),
+      pool.query(`SELECT COUNT(DISTINCT tc.id) as count FROM test_cases tc
+        INNER JOIN requirements r ON tc.requirement_id = r.id WHERE r.sprint_id = $1 AND tc.type = 'Manual'`, [id]),
+      pool.query(`SELECT mtr.status, COUNT(*) as count FROM manual_test_runs mtr
+        INNER JOIN test_cases tc ON mtr.test_case_id = tc.id
+        INNER JOIN requirements r ON tc.requirement_id = r.id
+        WHERE r.sprint_id = $1 GROUP BY mtr.status`, [id]),
+      pool.query(`SELECT COUNT(*) as count FROM requirements WHERE sprint_id = $1`, [id]),
+      pool.query(`SELECT COUNT(*) as count FROM defects WHERE sprint_id = $1`, [id]),
+      pool.query(`SELECT status, COUNT(*) as count FROM defects WHERE sprint_id = $1 GROUP BY status`, [id])
+    ]);
+
+    let automationExecutions = 0;
+    if (sprint.start_date && sprint.end_date) {
+      const execRes = await pool.query(
+        `SELECT COUNT(*) as count FROM executions WHERE created_at >= $1 AND created_at <= $2`,
+        [sprint.start_date, sprint.end_date]
+      );
+      automationExecutions = parseInt(execRes.rows[0].count, 10);
+    } else {
+      const execRes = await pool.query(
+        `SELECT COUNT(DISTINCT e.id) as count FROM executions e
+         INNER JOIN defects d ON e.id = d.linked_execution_id WHERE d.sprint_id = $1`,
+        [id]
+      );
+      automationExecutions = parseInt(execRes.rows[0].count, 10);
     }
 
-    // Get total test cases via requirements
-    const totalTestCasesQuery = db.prepare(`
-      SELECT COUNT(DISTINCT tc.id) as count
-      FROM test_cases tc
-      INNER JOIN requirements r ON tc.requirement_id = r.id
-      WHERE r.sprint_id = ?
-    `);
-    const totalTestCases = totalTestCasesQuery.get(id).count;
-
-    // Get automated test cases count
-    const automatedTestCasesQuery = db.prepare(`
-      SELECT COUNT(DISTINCT tc.id) as count
-      FROM test_cases tc
-      INNER JOIN requirements r ON tc.requirement_id = r.id
-      WHERE r.sprint_id = ? AND tc.type = 'Automated'
-    `);
-    const automatedTestCases = automatedTestCasesQuery.get(id).count;
-
-    // Get manual test cases count
-    const manualTestCasesQuery = db.prepare(`
-      SELECT COUNT(DISTINCT tc.id) as count
-      FROM test_cases tc
-      INNER JOIN requirements r ON tc.requirement_id = r.id
-      WHERE r.sprint_id = ? AND tc.type = 'Manual'
-    `);
-    const manualTestCases = manualTestCasesQuery.get(id).count;
-
-    // Get manual test runs by status
-    const manualTestRunsQuery = db.prepare(`
-      SELECT 
-        mtr.status,
-        COUNT(*) as count
-      FROM manual_test_runs mtr
-      INNER JOIN test_cases tc ON mtr.test_case_id = tc.id
-      INNER JOIN requirements r ON tc.requirement_id = r.id
-      WHERE r.sprint_id = ?
-      GROUP BY mtr.status
-    `);
-    const manualTestRunsRaw = manualTestRunsQuery.all(id);
-    
-    // Convert to object for easier access
-    const manualTestRuns = {
-      passed: 0,
-      failed: 0,
-      blocked: 0,
-      total: 0
-    };
-    
-    manualTestRunsRaw.forEach(row => {
-      const status = row.status.toLowerCase();
-      manualTestRuns[status] = row.count;
-      manualTestRuns.total += row.count;
+    const manualTestRuns = { passed: 0, failed: 0, blocked: 0, total: 0 };
+    manualRunsRes.rows.forEach(row => {
+      const key = row.status.toLowerCase();
+      manualTestRuns[key] = parseInt(row.count, 10);
+      manualTestRuns.total += parseInt(row.count, 10);
     });
 
-    // Get automation executions for this sprint
-    // Count executions that occurred within sprint date range
-    let automationExecutions = 0;
-    
-    if (sprint.start_date && sprint.end_date) {
-      const executionsQuery = db.prepare(`
-        SELECT COUNT(*) as count
-        FROM executions
-        WHERE created_at >= ? AND created_at <= ?
-      `);
-      automationExecutions = executionsQuery.get(sprint.start_date, sprint.end_date).count;
-    } else {
-      // If no dates, count executions linked via defects to this sprint
-      const executionsViaDefectsQuery = db.prepare(`
-        SELECT COUNT(DISTINCT e.id) as count
-        FROM executions e
-        INNER JOIN defects d ON e.id = d.linked_execution_id
-        WHERE d.sprint_id = ?
-      `);
-      automationExecutions = executionsViaDefectsQuery.get(id).count;
-    }
-
-    // Get total requirements count
-    const requirementsQuery = db.prepare(`
-      SELECT COUNT(*) as count
-      FROM requirements
-      WHERE sprint_id = ?
-    `);
-    const totalRequirements = requirementsQuery.get(id).count;
-
-    // Get total defects count
-    const defectsQuery = db.prepare(`
-      SELECT COUNT(*) as count
-      FROM defects
-      WHERE sprint_id = ?
-    `);
-    const totalDefects = defectsQuery.get(id).count;
-
-    // Get defects by status
-    const defectsByStatusQuery = db.prepare(`
-      SELECT 
-        status,
-        COUNT(*) as count
-      FROM defects
-      WHERE sprint_id = ?
-      GROUP BY status
-    `);
-    const defectsByStatusRaw = defectsByStatusQuery.all(id);
-    
-    const defectsByStatus = {
-      open: 0,
-      inProgress: 0,
-      resolved: 0,
-      closed: 0
-    };
-    
-    defectsByStatusRaw.forEach(row => {
-      const key = row.status.replace(' ', '').charAt(0).toLowerCase() + row.status.replace(' ', '').slice(1);
-      defectsByStatus[key] = row.count;
+    const defectsByStatus = { open: 0, inProgress: 0, resolved: 0, closed: 0 };
+    defectsByStatusRes.rows.forEach(row => {
+      const rawKey = row.status.replace(/ /g, '');
+      const key = rawKey.charAt(0).toLowerCase() + rawKey.slice(1);
+      defectsByStatus[key] = parseInt(row.count, 10);
     });
 
     return {
       ...sprint,
       metrics: {
-        totalRequirements,
-        totalTestCases,
-        automatedTestCases,
-        manualTestCases,
-        automationCoverage: totalTestCases > 0 
-          ? Math.round((automatedTestCases / totalTestCases) * 100) 
-          : 0,
+        totalRequirements:  parseInt(reqRes.rows[0].count, 10),
+        totalTestCases:     parseInt(totalTCRes.rows[0].count, 10),
+        automatedTestCases: parseInt(autoTCRes.rows[0].count, 10),
+        manualTestCases:    parseInt(manualTCRes.rows[0].count, 10),
         manualTestRuns,
         automationExecutions,
-        totalDefects,
+        totalDefects:       parseInt(defectRes.rows[0].count, 10),
         defectsByStatus
       }
     };
   },
 
-  create: (sprint, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO sprints (name, goal, start_date, end_date, status, org_id)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      sprint.name,
-      sprint.goal || null,
-      sprint.startDate || null,
-      sprint.endDate || null,
-      sprint.status || 'Planned',
-      orgId
+  create: async ({ name, goal, start_date, end_date, status = 'Planning' }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO sprints (name, goal, start_date, end_date, status, org_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [name, goal || null, start_date || null, end_date || null, status, orgId]
     );
-    return sprintOperations.getById(result.lastInsertRowid);
+    return sprintOperations.getById(r.rows[0].id);
   },
 
-  update: (id, sprint) => {
-    const stmt = db.prepare(`
-      UPDATE sprints 
-      SET name = ?,
-          goal = ?,
-          start_date = ?,
-          end_date = ?,
-          status = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
-    stmt.run(
-      sprint.name,
-      sprint.goal || null,
-      sprint.startDate || null,
-      sprint.endDate || null,
-      sprint.status,
-      id
+  update: async (id, { name, goal, start_date, end_date, status }) => {
+    await pool.query(
+      'UPDATE sprints SET name=$1, goal=$2, start_date=$3, end_date=$4, status=$5, updated_at=NOW() WHERE id=$6',
+      [name, goal || null, start_date || null, end_date || null, status, id]
     );
     return sprintOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM sprints WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM sprints WHERE id = $1', [id]);
   }
 };
 
-// ===== Custom Roles Table =====
-try {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS custom_roles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      permissions TEXT NOT NULL DEFAULT '[]',
-      created_by INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-} catch (error) {
-  console.error('Migration error for custom_roles table:', error);
-}
+// ---------------------------------------------------------------------------
+// Task Operations
+// ---------------------------------------------------------------------------
+const taskOperations = {
+  getAll: async (orgId = 1) => {
+    const r = await pool.query(
+      `SELECT t.*, r.title AS requirement_title, u.username AS assignee_username
+       FROM tasks t
+       LEFT JOIN requirements r ON t.requirement_id = r.id
+       LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE t.org_id = $1 ORDER BY t.created_at DESC`,
+      [orgId]
+    );
+    return r.rows;
+  },
 
-// ===== Users Table (with extended role support) =====
-try {
-  const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
+  getBySprintId: async (sprintId) => {
+    const r = await pool.query(
+      `SELECT t.*, r.title AS requirement_title, u.username AS assignee_username
+       FROM tasks t
+       LEFT JOIN requirements r ON t.requirement_id = r.id
+       LEFT JOIN users u ON t.assignee_id = u.id
+       WHERE t.sprint_id = $1 ORDER BY t.created_at DESC`,
+      [sprintId]
+    );
+    return r.rows;
+  },
 
-  if (!tableExists) {
-    // Fresh install: create with all columns upfront
-    db.exec(`
-      CREATE TABLE users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        salt TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'contributor',
-        custom_role_id INTEGER,
-        created_by INTEGER,
-        is_active INTEGER DEFAULT 1,
-        permissions TEXT DEFAULT NULL,
-        org_id INTEGER NOT NULL DEFAULT 1,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log('Created users table');
-  } else {
-    const columns = db.prepare('PRAGMA table_info(users)').all();
-    const schemaRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
-    const hasRestrictiveCheck = schemaRow && schemaRow.sql && schemaRow.sql.includes("CHECK(role IN ('admin'");
-    const hasCustomRoleId = columns.some(c => c.name === 'custom_role_id');
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM tasks WHERE id = $1', [id]);
+    return r.rows[0] || null;
+  },
 
-    if (hasRestrictiveCheck || !hasCustomRoleId) {
-      // Recreate users table: remove restrictive CHECK, add custom_role_id
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS users_v2 (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          username TEXT NOT NULL UNIQUE,
-          password_hash TEXT NOT NULL,
-          salt TEXT NOT NULL,
-          role TEXT NOT NULL DEFAULT 'contributor',
-          custom_role_id INTEGER,
-          created_by INTEGER,
-          is_active INTEGER DEFAULT 1,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      const colNames = columns.map(c => c.name);
-      db.exec(`INSERT OR IGNORE INTO users_v2 (id, username, password_hash, salt, role, created_by, is_active, created_at) SELECT id, username, password_hash, salt, role, created_by, is_active, created_at FROM users`);
-      db.exec('DROP TABLE users');
-      db.exec('ALTER TABLE users_v2 RENAME TO users');
-      console.log('Migrated users table to support extended roles (super_admin, custom)');
-    }
+  create: async (task, orgId = 1) => {
+    const r = await pool.query(
+      `INSERT INTO tasks (title, description, sprint_id, assignee_id, status, priority, created_by,
+       start_date, end_date, planned_hours, completed_hours, requirement_id, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+      [
+        task.title,
+        task.description || null,
+        task.sprintId || null,
+        task.assigneeId || null,
+        task.status || 'New',
+        task.priority || 'Medium',
+        task.createdBy || null,
+        task.startDate || null,
+        task.endDate || null,
+        task.plannedHours != null ? parseFloat(task.plannedHours) : 0,
+        task.completedHours != null ? parseFloat(task.completedHours) : 0,
+        task.requirementId || null,
+        orgId
+      ]
+    );
+    return taskOperations.getById(r.rows[0].id);
+  },
+
+  update: async (id, task) => {
+    await pool.query(
+      `UPDATE tasks SET title=$1, description=$2, sprint_id=$3, assignee_id=$4, status=$5, priority=$6,
+       start_date=$7, end_date=$8, planned_hours=$9, completed_hours=$10, requirement_id=$11, updated_at=NOW()
+       WHERE id=$12`,
+      [
+        task.title,
+        task.description || null,
+        task.sprintId || null,
+        task.assigneeId || null,
+        task.status,
+        task.priority,
+        task.startDate || null,
+        task.endDate || null,
+        task.plannedHours != null ? parseFloat(task.plannedHours) : 0,
+        task.completedHours != null ? parseFloat(task.completedHours) : 0,
+        task.requirementId || null,
+        id
+      ]
+    );
+    return taskOperations.getById(id);
+  },
+
+  delete: async (id) => {
+    return pool.query('DELETE FROM tasks WHERE id = $1', [id]);
   }
-} catch (error) {
-  console.error('Migration error for users table:', error);
-}
+};
 
-// Add permissions column to users if not present
-try {
-  const cols = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
-  if (!cols.includes('permissions')) {
-    db.exec(`ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT NULL`);
-    console.log('Added permissions column to users table');
-  }
-} catch (error) {
-  console.error('Migration error adding permissions column:', error);
-}
-
-// Seed default admin if no users exist
-try {
-  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
-  if (userCount.count === 0) {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.scryptSync('admin123', salt, 64).toString('hex');
-    db.prepare(`INSERT INTO users (username, password_hash, salt, role) VALUES (?, ?, ?, ?)`)
-      .run('admin', hash, salt, 'admin');
-    console.log('Default admin created — username: admin  password: admin123');
-  }
-} catch (error) {
-  console.error('Error seeding default admin:', error);
-}
-
-// Seed super_admin if none exists
-try {
-  const saCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'super_admin'").get();
-  if (saCount.count === 0) {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.scryptSync('playwright2403', salt, 64).toString('hex');
-    db.prepare(`INSERT INTO users (username, password_hash, salt, role) VALUES (?, ?, ?, ?)`)
-      .run('admin01', hash, salt, 'super_admin');
-    console.log('Default super admin created — username: admin01  password: playwright2403');
-  } else {
-    // Migrate existing super_admin to new credentials if still using old username
-    const existing = db.prepare("SELECT id FROM users WHERE username = 'superadmin' AND role = 'super_admin'").get();
-    if (existing) {
-      const salt = crypto.randomBytes(16).toString('hex');
-      const hash = crypto.scryptSync('playwright2403', salt, 64).toString('hex');
-      db.prepare(`UPDATE users SET username = ?, password_hash = ?, salt = ? WHERE id = ?`)
-        .run('admin01', hash, salt, existing.id);
-      console.log('Super admin credentials updated — username: admin01  password: playwright2403');
-    }
-  }
-} catch (error) {
-  console.error('Error seeding super_admin:', error);
-}
-
-
+// ---------------------------------------------------------------------------
+// User Operations
+// ---------------------------------------------------------------------------
 const userOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare(`
-      SELECT u.id, u.username, u.role, u.custom_role_id, u.is_active, u.created_at, u.permissions,
-             c.username as created_by_username,
-             cr.name as custom_role_name
-      FROM users u
-      LEFT JOIN users c ON u.created_by = c.id
-      LEFT JOIN custom_roles cr ON u.custom_role_id = cr.id
-      WHERE u.org_id = ? AND u.role != 'super_admin'
-      ORDER BY u.created_at ASC
-    `).all(orgId);
+  getAll: async (orgId = 1) => {
+    const r = await pool.query(
+      `SELECT u.id, u.username, u.role, u.custom_role_id, u.is_active, u.created_at, u.permissions,
+              c.username as created_by_username,
+              cr.name as custom_role_name
+       FROM users u
+       LEFT JOIN users c ON u.created_by = c.id
+       LEFT JOIN custom_roles cr ON u.custom_role_id = cr.id
+       WHERE u.org_id = $1 AND u.role != 'super_admin'
+       ORDER BY u.created_at ASC`,
+      [orgId]
+    );
+    return r.rows;
   },
 
-  getById: (id) => {
-    return db.prepare('SELECT id, username, role, custom_role_id, is_active, created_at, org_id, permissions FROM users WHERE id = ?').get(id);
+  getById: async (id) => {
+    const r = await pool.query(
+      'SELECT id, username, role, custom_role_id, is_active, created_at, org_id, permissions FROM users WHERE id = $1',
+      [id]
+    );
+    return r.rows[0] || null;
   },
 
-  getByUsername: (username) => {
-    return db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  getByUsername: async (username) => {
+    const r = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    return r.rows[0] || null;
   },
 
-  create: (user, orgId = 1) => {
+  create: async (user, orgId = 1) => {
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = crypto.scryptSync(user.password, salt, 64).toString('hex');
     const permJson = (user.permissions && user.permissions.length > 0) ? JSON.stringify(user.permissions) : null;
-    const result = db.prepare(`
-      INSERT INTO users (username, password_hash, salt, role, custom_role_id, created_by, org_id, permissions)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(user.username, hash, salt, user.role || 'contributor', user.customRoleId || null, user.createdBy || null, orgId, permJson);
-    return userOperations.getById(result.lastInsertRowid);
+    const r = await pool.query(
+      `INSERT INTO users (username, password_hash, salt, role, custom_role_id, created_by, org_id, permissions)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [user.username, hash, salt, user.role || 'contributor', user.customRoleId || null, user.createdBy || null, orgId, permJson]
+    );
+    return userOperations.getById(r.rows[0].id);
   },
 
   verifyPassword: (plaintext, storedHash, salt) => {
@@ -1631,302 +1146,259 @@ const userOperations = {
     return inputHash === storedHash;
   },
 
-  update: (id, updates) => {
+  update: async (id, updates) => {
     const permJson = updates.permissions !== undefined
       ? ((updates.permissions && updates.permissions.length > 0) ? JSON.stringify(updates.permissions) : null)
       : undefined;
+    const isActive = updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : 1;
+
     if (updates.password) {
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = crypto.scryptSync(updates.password, salt, 64).toString('hex');
       if (permJson !== undefined) {
-        db.prepare(`UPDATE users SET username = ?, password_hash = ?, salt = ?, role = ?, custom_role_id = ?, is_active = ?, permissions = ? WHERE id = ?`)
-          .run(updates.username, hash, salt, updates.role, updates.customRoleId || null, updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : 1, permJson, id);
+        await pool.query(
+          `UPDATE users SET username=$1, password_hash=$2, salt=$3, role=$4, custom_role_id=$5, is_active=$6, permissions=$7 WHERE id=$8`,
+          [updates.username, hash, salt, updates.role, updates.customRoleId || null, isActive, permJson, id]
+        );
       } else {
-        db.prepare(`UPDATE users SET username = ?, password_hash = ?, salt = ?, role = ?, custom_role_id = ?, is_active = ? WHERE id = ?`)
-          .run(updates.username, hash, salt, updates.role, updates.customRoleId || null, updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : 1, id);
+        await pool.query(
+          `UPDATE users SET username=$1, password_hash=$2, salt=$3, role=$4, custom_role_id=$5, is_active=$6 WHERE id=$7`,
+          [updates.username, hash, salt, updates.role, updates.customRoleId || null, isActive, id]
+        );
       }
     } else {
       if (permJson !== undefined) {
-        db.prepare(`UPDATE users SET username = ?, role = ?, custom_role_id = ?, is_active = ?, permissions = ? WHERE id = ?`)
-          .run(updates.username, updates.role, updates.customRoleId || null, updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : 1, permJson, id);
+        await pool.query(
+          `UPDATE users SET username=$1, role=$2, custom_role_id=$3, is_active=$4, permissions=$5 WHERE id=$6`,
+          [updates.username, updates.role, updates.customRoleId || null, isActive, permJson, id]
+        );
       } else {
-        db.prepare(`UPDATE users SET username = ?, role = ?, custom_role_id = ?, is_active = ? WHERE id = ?`)
-          .run(updates.username, updates.role, updates.customRoleId || null, updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : 1, id);
+        await pool.query(
+          `UPDATE users SET username=$1, role=$2, custom_role_id=$3, is_active=$4 WHERE id=$5`,
+          [updates.username, updates.role, updates.customRoleId || null, isActive, id]
+        );
       }
     }
     return userOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM users WHERE id = $1', [id]);
   }
 };
 
+// ---------------------------------------------------------------------------
+// Custom Role Operations
+// ---------------------------------------------------------------------------
 const customRoleOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare(`
-      SELECT cr.*, u.username as created_by_username
-      FROM custom_roles cr
-      LEFT JOIN users u ON cr.created_by = u.id
-      WHERE cr.org_id = ?
-      ORDER BY cr.created_at ASC
-    `).all(orgId);
+  getAll: async (orgId = 1) => {
+    const r = await pool.query(
+      `SELECT cr.*, u.username as created_by_username
+       FROM custom_roles cr
+       LEFT JOIN users u ON cr.created_by = u.id
+       WHERE cr.org_id = $1 ORDER BY cr.created_at ASC`,
+      [orgId]
+    );
+    return r.rows;
   },
 
-  getById: (id) => {
-    return db.prepare('SELECT * FROM custom_roles WHERE id = ?').get(id);
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM custom_roles WHERE id = $1', [id]);
+    return r.rows[0] || null;
   },
 
-  create: ({ name, permissions, createdBy }, orgId = 1) => {
-    const result = db.prepare('INSERT INTO custom_roles (name, permissions, created_by, org_id) VALUES (?, ?, ?, ?)')
-      .run(name, JSON.stringify(permissions || []), createdBy || null, orgId);
-    return customRoleOperations.getById(result.lastInsertRowid);
+  create: async ({ name, permissions, createdBy }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO custom_roles (name, permissions, created_by, org_id) VALUES ($1,$2,$3,$4) RETURNING id',
+      [name, JSON.stringify(permissions || []), createdBy || null, orgId]
+    );
+    return customRoleOperations.getById(r.rows[0].id);
   },
 
-  update: (id, { name, permissions }) => {
-    db.prepare('UPDATE custom_roles SET name = ?, permissions = ? WHERE id = ?')
-      .run(name, JSON.stringify(permissions || []), id);
+  update: async (id, { name, permissions }) => {
+    await pool.query(
+      'UPDATE custom_roles SET name=$1, permissions=$2 WHERE id=$3',
+      [name, JSON.stringify(permissions || []), id]
+    );
     return customRoleOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM custom_roles WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM custom_roles WHERE id = $1', [id]);
   }
 };
 
-// Wiki pages table
-db.exec(`
-  CREATE TABLE IF NOT EXISTS wiki_pages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    content TEXT NOT NULL DEFAULT '',
-    parent_id INTEGER REFERENCES wiki_pages(id) ON DELETE CASCADE,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    created_by TEXT,
-    org_id INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )
-`);
-
+// ---------------------------------------------------------------------------
+// Wiki Operations
+// ---------------------------------------------------------------------------
 const wikiOperations = {
-  getAll: (orgId = 1) => {
-    return db.prepare(`
-      SELECT id, title, parent_id, sort_order, created_by, created_at, updated_at
-      FROM wiki_pages WHERE org_id = ? ORDER BY parent_id ASC, sort_order ASC, title ASC
-    `).all(orgId);
+  getAll: async (orgId = 1) => {
+    const r = await pool.query(
+      `SELECT id, title, parent_id, sort_order, created_by, created_at, updated_at
+       FROM wiki_pages WHERE org_id = $1
+       ORDER BY parent_id ASC NULLS FIRST, sort_order ASC, title ASC`,
+      [orgId]
+    );
+    return r.rows;
   },
 
-  getById: (id) => {
-    return db.prepare('SELECT * FROM wiki_pages WHERE id = ?').get(id);
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM wiki_pages WHERE id = $1', [id]);
+    return r.rows[0] || null;
   },
 
-  create: ({ title, content = '', parentId = null, createdBy = null }, orgId = 1) => {
-    const maxOrder = db.prepare(
-      'SELECT COALESCE(MAX(sort_order),0) as m FROM wiki_pages WHERE parent_id IS ? AND org_id = ?'
-    ).get(parentId, orgId);
-    const result = db.prepare(
+  create: async ({ title, content = '', parentId = null, createdBy = null }, orgId = 1) => {
+    const maxRes = await pool.query(
+      `SELECT COALESCE(MAX(sort_order), 0) as m FROM wiki_pages
+       WHERE ($1::INTEGER IS NULL AND parent_id IS NULL) OR parent_id = $1`,
+      [parentId]
+    );
+    const nextOrder = (parseInt(maxRes.rows[0].m, 10) || 0) + 1;
+    const r = await pool.query(
       `INSERT INTO wiki_pages (title, content, parent_id, sort_order, created_by, org_id)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(title, content, parentId, (maxOrder.m || 0) + 1, createdBy, orgId);
-    return db.prepare('SELECT * FROM wiki_pages WHERE id = ?').get(result.lastInsertRowid);
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [title, content, parentId, nextOrder, createdBy, orgId]
+    );
+    return wikiOperations.getById(r.rows[0].id);
   },
 
-  update: (id, { title, content }) => {
-    db.prepare(
-      `UPDATE wiki_pages SET title = ?, content = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(title, content, id);
-    return db.prepare('SELECT * FROM wiki_pages WHERE id = ?').get(id);
+  update: async (id, { title, content }) => {
+    await pool.query(
+      `UPDATE wiki_pages SET title=$1, content=$2, updated_at=NOW() WHERE id=$3`,
+      [title, content, id]
+    );
+    return wikiOperations.getById(id);
   },
 
-  delete: (id) => {
-    return db.prepare('DELETE FROM wiki_pages WHERE id = ?').run(id);
+  delete: async (id) => {
+    return pool.query('DELETE FROM wiki_pages WHERE id = $1', [id]);
   }
 };
 
-// ===== Settings Table =====
-try {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
-  // Seed default user_limit (0 = unlimited)
-  db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run('user_limit', '0');
-} catch (error) {
-  console.error('Migration error for settings table:', error);
-}
-
+// ---------------------------------------------------------------------------
+// Settings Operations
+// ---------------------------------------------------------------------------
 const settingsOperations = {
-  get: (key) => {
-    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    return row ? row.value : null;
+  get: async (key) => {
+    const r = await pool.query('SELECT value FROM settings WHERE key = $1', [key]);
+    return r.rows[0] ? r.rows[0].value : null;
   },
-  set: (key, value) => {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, String(value));
+
+  set: async (key, value) => {
+    await pool.query(
+      'INSERT INTO settings (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value',
+      [key, String(value)]
+    );
   },
-  getAll: () => {
-    const rows = db.prepare('SELECT key, value FROM settings').all();
-    return Object.fromEntries(rows.map(r => [r.key, r.value]));
+
+  getAll: async () => {
+    const r = await pool.query('SELECT key, value FROM settings');
+    return Object.fromEntries(r.rows.map(row => [row.key, row.value]));
   }
 };
 
-const taskOperations = {
-  getAll: (orgId = 1) => db.prepare(`
-    SELECT t.*, r.title AS requirement_title, u.username AS assignee_username
-    FROM tasks t
-    LEFT JOIN requirements r ON t.requirement_id = r.id
-    LEFT JOIN users u ON t.assignee_id = u.id
-    WHERE t.org_id = ?
-    ORDER BY t.created_at DESC
-  `).all(orgId),
-
-  getBySprintId: (sprintId) => db.prepare(`
-    SELECT t.*, r.title AS requirement_title, u.username AS assignee_username
-    FROM tasks t
-    LEFT JOIN requirements r ON t.requirement_id = r.id
-    LEFT JOIN users u ON t.assignee_id = u.id
-    WHERE t.sprint_id = ?
-    ORDER BY t.created_at DESC
-  `).all(sprintId),
-
-  getById: (id) => db.prepare('SELECT * FROM tasks WHERE id = ?').get(id),
-
-  create: (task, orgId = 1) => {
-    const stmt = db.prepare(`
-      INSERT INTO tasks (title, description, sprint_id, assignee_id, status, priority, created_by, start_date, end_date, planned_hours, completed_hours, requirement_id, org_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      task.title,
-      task.description || null,
-      task.sprintId || null,
-      task.assigneeId || null,
-      task.status || 'New',
-      task.priority || 'Medium',
-      task.createdBy || null,
-      task.startDate || null,
-      task.endDate || null,
-      task.plannedHours != null ? parseFloat(task.plannedHours) : 0,
-      task.completedHours != null ? parseFloat(task.completedHours) : 0,
-      task.requirementId || null,
-      orgId
-    );
-    return taskOperations.getById(result.lastInsertRowid);
-  },
-
-  update: (id, task) => {
-    const stmt = db.prepare(`
-      UPDATE tasks
-      SET title = ?,
-          description = ?,
-          sprint_id = ?,
-          assignee_id = ?,
-          status = ?,
-          priority = ?,
-          start_date = ?,
-          end_date = ?,
-          planned_hours = ?,
-          completed_hours = ?,
-          requirement_id = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
-    stmt.run(
-      task.title,
-      task.description || null,
-      task.sprintId || null,
-      task.assigneeId || null,
-      task.status,
-      task.priority,
-      task.startDate || null,
-      task.endDate || null,
-      task.plannedHours != null ? parseFloat(task.plannedHours) : 0,
-      task.completedHours != null ? parseFloat(task.completedHours) : 0,
-      task.requirementId || null,
-      id
-    );
-    return taskOperations.getById(id);
-  },
-
-  delete: (id) => db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
-};
-
-// ===== Global Variables Table =====
-try {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS global_variables (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      key TEXT NOT NULL UNIQUE,
-      value TEXT NOT NULL DEFAULT '',
-      description TEXT DEFAULT '',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-} catch (error) {
-  console.error('Migration error for global_variables table:', error);
-}
-
+// ---------------------------------------------------------------------------
+// Global Variable Operations
+// ---------------------------------------------------------------------------
 const globalVariableOperations = {
-  getAll: (orgId = 1) => db.prepare('SELECT * FROM global_variables WHERE org_id = ? ORDER BY key ASC').all(orgId),
-
-  getById: (id) => db.prepare('SELECT * FROM global_variables WHERE id = ?').get(id),
-
-  // Returns a plain object { KEY: value, ... } ready to spread into process.env
-  getAllAsEnv: (orgId = 1) => {
-    const rows = db.prepare('SELECT key, value FROM global_variables WHERE org_id = ?').all(orgId);
-    return Object.fromEntries(rows.map(r => [r.key, r.value]));
+  getAll: async (orgId = 1) => {
+    const r = await pool.query('SELECT * FROM global_variables WHERE org_id = $1 ORDER BY key ASC', [orgId]);
+    return r.rows;
   },
 
-  create: ({ key, value, description }, orgId = 1) => {
-    const result = db.prepare(
-      'INSERT INTO global_variables (key, value, description, org_id) VALUES (?, ?, ?, ?)'
-    ).run(key, value ?? '', description ?? '', orgId);
-    return db.prepare('SELECT * FROM global_variables WHERE id = ?').get(result.lastInsertRowid);
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM global_variables WHERE id = $1', [id]);
+    return r.rows[0] || null;
   },
 
-  update: (id, { key, value, description }) => {
-    db.prepare(
-      'UPDATE global_variables SET key = ?, value = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).run(key, value ?? '', description ?? '', id);
-    return db.prepare('SELECT * FROM global_variables WHERE id = ?').get(id);
+  getAllAsEnv: async (orgId = 1) => {
+    const r = await pool.query('SELECT key, value FROM global_variables WHERE org_id = $1', [orgId]);
+    return Object.fromEntries(r.rows.map(row => [row.key, row.value]));
   },
 
-  upsertByKey: (key, value, orgId = 1) => {
-    const existing = db.prepare('SELECT id FROM global_variables WHERE key = ? AND org_id = ?').get(key, orgId);
-    if (existing) {
-      db.prepare('UPDATE global_variables SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(value ?? '', existing.id);
-      return db.prepare('SELECT * FROM global_variables WHERE id = ?').get(existing.id);
+  create: async ({ key, value, description }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO global_variables (key, value, description, org_id) VALUES ($1,$2,$3,$4) RETURNING id',
+      [key, value ?? '', description ?? '', orgId]
+    );
+    return globalVariableOperations.getById(r.rows[0].id);
+  },
+
+  update: async (id, { key, value, description }) => {
+    await pool.query(
+      'UPDATE global_variables SET key=$1, value=$2, description=$3, updated_at=NOW() WHERE id=$4',
+      [key, value ?? '', description ?? '', id]
+    );
+    return globalVariableOperations.getById(id);
+  },
+
+  upsertByKey: async (key, value, orgId = 1) => {
+    const existing = await pool.query(
+      'SELECT id FROM global_variables WHERE key = $1 AND org_id = $2',
+      [key, orgId]
+    );
+    if (existing.rows.length > 0) {
+      await pool.query(
+        'UPDATE global_variables SET value=$1, updated_at=NOW() WHERE id=$2',
+        [value ?? '', existing.rows[0].id]
+      );
+      return globalVariableOperations.getById(existing.rows[0].id);
     }
-    const result = db.prepare('INSERT INTO global_variables (key, value, description, org_id) VALUES (?, ?, ?, ?)').run(key, value ?? '', '', orgId);
-    return db.prepare('SELECT * FROM global_variables WHERE id = ?').get(result.lastInsertRowid);
+    const r = await pool.query(
+      'INSERT INTO global_variables (key, value, description, org_id) VALUES ($1,$2,$3,$4) RETURNING id',
+      [key, value ?? '', '', orgId]
+    );
+    return globalVariableOperations.getById(r.rows[0].id);
   },
 
-  getByKey: (key, orgId = 1) => db.prepare('SELECT * FROM global_variables WHERE key = ? AND org_id = ?').get(key, orgId),
+  getByKey: async (key, orgId = 1) => {
+    const r = await pool.query(
+      'SELECT * FROM global_variables WHERE key = $1 AND org_id = $2',
+      [key, orgId]
+    );
+    return r.rows[0] || null;
+  },
 
-  delete: (id) => db.prepare('DELETE FROM global_variables WHERE id = ?').run(id)
+  delete: async (id) => {
+    return pool.query('DELETE FROM global_variables WHERE id = $1', [id]);
+  }
 };
 
-// Organization operations
+// ---------------------------------------------------------------------------
+// Organization Operations
+// ---------------------------------------------------------------------------
 const organizationOperations = {
-  getAll: () => db.prepare('SELECT * FROM organizations ORDER BY created_at ASC').all(),
-
-  getById: (id) => db.prepare('SELECT * FROM organizations WHERE id = ?').get(id),
-
-  getBySlug: (slug) => db.prepare('SELECT * FROM organizations WHERE LOWER(slug) = LOWER(?)').get(slug),
-
-  create: ({ name, slug, plan = 'free', maxUsers = null, pocName = null, pocEmail = null, aiHealingEnabled = 0, openaiApiKey = null }) => {
-    const result = db.prepare(
-      'INSERT INTO organizations (name, slug, plan, max_users, poc_name, poc_email, ai_healing_enabled, openai_api_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(name, slug, plan, maxUsers || null, pocName || null, pocEmail || null, aiHealingEnabled ? 1 : 0, openaiApiKey || null);
-    return db.prepare('SELECT * FROM organizations WHERE id = ?').get(result.lastInsertRowid);
+  getAll: async () => {
+    const r = await pool.query('SELECT * FROM organizations ORDER BY created_at ASC');
+    return r.rows;
   },
 
-  update: (id, { name, plan, is_active, maxUsers, pocName, pocEmail, aiHealingEnabled, openaiApiKey }) => {
-    db.prepare('UPDATE organizations SET name = ?, plan = ?, is_active = ?, max_users = ?, poc_name = ?, poc_email = ?, ai_healing_enabled = ?, openai_api_key = COALESCE(?, openai_api_key) WHERE id = ?')
-      .run(
+  getById: async (id) => {
+    const r = await pool.query('SELECT * FROM organizations WHERE id = $1', [id]);
+    return r.rows[0] || null;
+  },
+
+  getBySlug: async (slug) => {
+    const r = await pool.query('SELECT * FROM organizations WHERE LOWER(slug) = LOWER($1)', [slug]);
+    return r.rows[0] || null;
+  },
+
+  create: async ({ name, slug, plan = 'free', maxUsers = null, pocName = null, pocEmail = null, aiHealingEnabled = 0, openaiApiKey = null }) => {
+    const r = await pool.query(
+      'INSERT INTO organizations (name, slug, plan, max_users, poc_name, poc_email, ai_healing_enabled, openai_api_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
+      [name, slug, plan, maxUsers || null, pocName || null, pocEmail || null, aiHealingEnabled ? 1 : 0, openaiApiKey || null]
+    );
+    return organizationOperations.getById(r.rows[0].id);
+  },
+
+  update: async (id, { name, plan, is_active, maxUsers, pocName, pocEmail, aiHealingEnabled, openaiApiKey }) => {
+    await pool.query(
+      `UPDATE organizations
+       SET name=$1, plan=$2, is_active=$3, max_users=$4, poc_name=$5, poc_email=$6,
+           ai_healing_enabled=$7,
+           openai_api_key = CASE WHEN $8::TEXT IS NOT NULL THEN $8::TEXT ELSE openai_api_key END
+       WHERE id=$9`,
+      [
         name,
         plan,
         is_active !== undefined ? (is_active ? 1 : 0) : 1,
@@ -1934,15 +1406,27 @@ const organizationOperations = {
         pocName ?? null,
         pocEmail ?? null,
         aiHealingEnabled !== undefined ? (aiHealingEnabled ? 1 : 0) : 0,
-        openaiApiKey !== undefined && openaiApiKey !== null && openaiApiKey !== '' ? openaiApiKey : null,
+        (openaiApiKey !== undefined && openaiApiKey !== null && openaiApiKey !== '') ? openaiApiKey : null,
         id
-      );
-    return db.prepare('SELECT * FROM organizations WHERE id = ?').get(id);
+      ]
+    );
+    return organizationOperations.getById(id);
   }
 };
 
+// ---------------------------------------------------------------------------
+// Initialise on startup
+// ---------------------------------------------------------------------------
+initDB().catch((err) => {
+  console.error('Fatal: database initialisation failed', err.message);
+  process.exit(1);
+});
+
+// ---------------------------------------------------------------------------
+// Exports (pool exposed for direct queries in server.js)
+// ---------------------------------------------------------------------------
 module.exports = {
-  db,
+  pool,
   organizationOperations,
   moduleOperations,
   testFileOperations,

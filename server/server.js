@@ -1,11 +1,11 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const fs = require('fs').promises;
 const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { db, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
 
 const execAsync = promisify(exec);
 const app = express();
@@ -113,10 +113,10 @@ async function copyDirectory(src, dest) {
 // ===== Module Endpoints =====
 
 // GET /modules - Get all modules
-app.get('/modules', (req, res) => {
+app.get('/modules', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
-    const modules = moduleOperations.getAll(orgId);
+    const modules = await moduleOperations.getAll(orgId);
     res.json(modules);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -124,10 +124,10 @@ app.get('/modules', (req, res) => {
 });
 
 // POST /modules - Create a new module
-app.post('/modules', (req, res) => {
+app.post('/modules', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
-    const module = moduleOperations.create(req.body, orgId);
+    const module = await moduleOperations.create(req.body, orgId);
     res.json(module);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -135,9 +135,9 @@ app.post('/modules', (req, res) => {
 });
 
 // GET /modules/:id - Get a module by ID
-app.get('/modules/:id', (req, res) => {
+app.get('/modules/:id', async (req, res) => {
   try {
-    const module = moduleOperations.getById(req.params.id);
+    const module = await moduleOperations.getById(req.params.id);
     if (!module) return res.status(404).json({ error: 'Module not found' });
     res.json(module);
   } catch (error) {
@@ -146,9 +146,9 @@ app.get('/modules/:id', (req, res) => {
 });
 
 // PUT /modules/:id - Update a module (including imports)
-app.put('/modules/:id', (req, res) => {
+app.put('/modules/:id', async (req, res) => {
   try {
-    const module = moduleOperations.update(req.params.id, req.body);
+    const module = await moduleOperations.update(req.params.id, req.body);
     if (!module) return res.status(404).json({ error: 'Module not found' });
     res.json(module);
   } catch (error) {
@@ -157,11 +157,11 @@ app.put('/modules/:id', (req, res) => {
 });
 
 // PATCH /modules/:id/imports - Update only the imports block for a module
-app.patch('/modules/:id/imports', (req, res) => {
+app.patch('/modules/:id/imports', async (req, res) => {
   try {
     const { imports } = req.body;
     if (imports === undefined) return res.status(400).json({ error: 'imports field is required' });
-    const module = moduleOperations.update(req.params.id, { imports });
+    const module = await moduleOperations.update(req.params.id, { imports });
     if (!module) return res.status(404).json({ error: 'Module not found' });
     res.json(module);
   } catch (error) {
@@ -171,7 +171,7 @@ app.patch('/modules/:id/imports', (req, res) => {
 
 // POST /install-package — stream npm install output to the client via SSE so the
 // user sees live logs instead of waiting for the whole install to finish.
-app.post('/install-package', (req, res) => {
+app.post('/install-package', async (req, res) => {
   const { packageName } = req.body;
   if (!packageName || !packageName.trim()) {
     return res.status(400).json({ error: 'packageName is required' });
@@ -223,9 +223,9 @@ app.post('/install-package', (req, res) => {
 });
 
 // DELETE /modules/:id - Delete a module
-app.delete('/modules/:id', (req, res) => {
+app.delete('/modules/:id', async (req, res) => {
   try {
-    moduleOperations.delete(req.params.id);
+    await moduleOperations.delete(req.params.id);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -235,10 +235,10 @@ app.delete('/modules/:id', (req, res) => {
 // ===== Test File Endpoints =====
 
 // GET /test-files - Get all test files across all modules
-app.get('/test-files', (req, res) => {
+app.get('/test-files', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
-    const testFiles = testFileOperations.getAll(orgId);
+    const testFiles = await testFileOperations.getAll(orgId);
     res.json(testFiles);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -246,9 +246,9 @@ app.get('/test-files', (req, res) => {
 });
 
 // GET /modules/:id/test-files - Get all test files for a module
-app.get('/modules/:id/test-files', (req, res) => {
+app.get('/modules/:id/test-files', async (req, res) => {
   try {
-    const testFiles = testFileOperations.getByModuleId(req.params.id);
+    const testFiles = await testFileOperations.getByModuleId(req.params.id);
     res.json(testFiles);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -256,10 +256,10 @@ app.get('/modules/:id/test-files', (req, res) => {
 });
 
 // POST /modules/:id/test-files - Create a new test file
-app.post('/modules/:id/test-files', (req, res) => {
+app.post('/modules/:id/test-files', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
-    const testFile = testFileOperations.create({
+    const testFile = await testFileOperations.create({
       moduleId: req.params.id,
       name: req.body.name,
       content: req.body.content,
@@ -272,7 +272,7 @@ app.post('/modules/:id/test-files', (req, res) => {
 });
 
 // PUT /test-files/:id - Update test file content
-app.put('/test-files/:id', (req, res) => {
+app.put('/test-files/:id', async (req, res) => {
   try {
     const updates = {};
     if (req.body.name !== undefined) {
@@ -287,7 +287,7 @@ app.put('/test-files/:id', (req, res) => {
     
     // Support legacy API (just passing content string)
     const updateData = Object.keys(updates).length > 0 ? updates : req.body.content;
-    const testFile = testFileOperations.update(req.params.id, updateData);
+    const testFile = await testFileOperations.update(req.params.id, updateData);
     res.json(testFile);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -295,9 +295,9 @@ app.put('/test-files/:id', (req, res) => {
 });
 
 // DELETE /test-files/:id - Delete a test file
-app.delete('/test-files/:id', (req, res) => {
+app.delete('/test-files/:id', async (req, res) => {
   try {
-    testFileOperations.delete(req.params.id);
+    await testFileOperations.delete(req.params.id);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -307,9 +307,9 @@ app.delete('/test-files/:id', (req, res) => {
 // ===== Test File Dependency Endpoints =====
 
 // GET /test-files/:id/dependencies - Get all dependencies for a test file
-app.get('/test-files/:id/dependencies', (req, res) => {
+app.get('/test-files/:id/dependencies', async (req, res) => {
   try {
-    const dependencies = testFileDependencyOperations.getByTestFileId(parseInt(req.params.id));
+    const dependencies = await testFileDependencyOperations.getByTestFileId(parseInt(req.params.id));
     res.json(dependencies);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -317,9 +317,9 @@ app.get('/test-files/:id/dependencies', (req, res) => {
 });
 
 // GET /test-files/:id/execution-order - Get execution order for a test file
-app.get('/test-files/:id/execution-order', (req, res) => {
+app.get('/test-files/:id/execution-order', async (req, res) => {
   try {
-    const executionOrder = testFileDependencyOperations.getExecutionOrder(parseInt(req.params.id));
+    const executionOrder = await testFileDependencyOperations.getExecutionOrder(parseInt(req.params.id));
     res.json(executionOrder);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -327,7 +327,7 @@ app.get('/test-files/:id/execution-order', (req, res) => {
 });
 
 // POST /test-files/:id/dependencies - Add a dependency to a test file
-app.post('/test-files/:id/dependencies', (req, res) => {
+app.post('/test-files/:id/dependencies', async (req, res) => {
   try {
     const { dependencyFileId, dependencyType, executionOrder } = req.body;
     
@@ -339,7 +339,7 @@ app.post('/test-files/:id/dependencies', (req, res) => {
       return res.status(400).json({ error: 'dependencyType must be either "before" or "after"' });
     }
     
-    const dependency = testFileDependencyOperations.add({
+    const dependency = await testFileDependencyOperations.add({
       testFileId: parseInt(req.params.id),
       dependencyFileId,
       dependencyType,
@@ -353,7 +353,7 @@ app.post('/test-files/:id/dependencies', (req, res) => {
 });
 
 // DELETE /test-files/:id/dependencies - Remove a specific dependency
-app.delete('/test-files/:id/dependencies', (req, res) => {
+app.delete('/test-files/:id/dependencies', async (req, res) => {
   try {
     const { dependencyFileId, dependencyType } = req.body;
     
@@ -361,7 +361,7 @@ app.delete('/test-files/:id/dependencies', (req, res) => {
       return res.status(400).json({ error: 'dependencyFileId and dependencyType are required' });
     }
     
-    testFileDependencyOperations.remove(
+    await testFileDependencyOperations.remove(
       parseInt(req.params.id),
       dependencyFileId,
       dependencyType
@@ -376,10 +376,10 @@ app.delete('/test-files/:id/dependencies', (req, res) => {
 // ===== Execution Endpoints =====
 
 // GET /executions - Get all executions
-app.get('/executions', (req, res) => {
+app.get('/executions', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
-    const executions = executionOperations.getAll(orgId);
+    const executions = await executionOperations.getAll(orgId);
     res.json(executions);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -387,10 +387,10 @@ app.get('/executions', (req, res) => {
 });
 
 // GET /executions/stats - Get execution statistics
-app.get('/executions/stats', (req, res) => {
+app.get('/executions/stats', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
-    const executions = executionOperations.getAll(orgId);
+    const executions = await executionOperations.getAll(orgId);
     
     const total = executions.length;
     const passed = executions.filter(e => e.status === 'PASS').length;
@@ -409,9 +409,9 @@ app.get('/executions/stats', (req, res) => {
 });
 
 // GET /executions/:id - Get execution by ID
-app.get('/executions/:id', (req, res) => {
+app.get('/executions/:id', async (req, res) => {
   try {
-    const execution = executionOperations.getById(req.params.id);
+    const execution = await executionOperations.getById(req.params.id);
     if (execution) {
       res.json(execution);
     } else {
@@ -423,9 +423,9 @@ app.get('/executions/:id', (req, res) => {
 });
 
 // GET /modules/:id/executions - Get executions for a module
-app.get('/modules/:id/executions', (req, res) => {
+app.get('/modules/:id/executions', async (req, res) => {
   try {
-    const executions = executionOperations.getByModuleId(req.params.id);
+    const executions = await executionOperations.getByModuleId(req.params.id);
     res.json(executions);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -539,10 +539,10 @@ app.post('/run-test', async (req, res) => {
 
   // Load global variables and make them available to tests via process.env
   const orgId = req.session?.orgId || 1;
-  const orgForHeal = organizationOperations.getById(orgId);
+  const orgForHeal = await organizationOperations.getById(orgId);
   const orgAiHealEnabled = orgForHeal?.ai_healing_enabled === 1;
   const orgApiKey = orgForHeal?.openai_api_key || process.env.OPENAI_API_KEY || '';
-  const globalVarsEnv = globalVariableOperations.getAllAsEnv(orgId);
+  const globalVarsEnv = await globalVariableOperations.getAllAsEnv(orgId);
 
   if (!code || typeof code !== 'string') {
     return res.status(400).json({
@@ -568,11 +568,11 @@ app.post('/run-test', async (req, res) => {
 
     if (testFileId) {
       try {
-        const execOrder = testFileDependencyOperations.getExecutionOrder(parseInt(testFileId));
+        const execOrder = await testFileDependencyOperations.getExecutionOrder(parseInt(testFileId));
 
         // Before dependencies
         for (const dep of (execOrder.before || [])) {
-          const depFile = testFileOperations.getById(dep.id);
+          const depFile = await testFileOperations.getById(dep.id);
           if (depFile && depFile.content) {
             filesToRun.push({ label: 'before', name: dep.name, content: depFile.content });
           }
@@ -584,7 +584,7 @@ app.post('/run-test', async (req, res) => {
 
         // After dependencies
         for (const dep of (execOrder.after || [])) {
-          const depFile = testFileOperations.getById(dep.id);
+          const depFile = await testFileOperations.getById(dep.id);
           if (depFile && depFile.content) {
             filesToRun.push({ label: 'after', name: dep.name, content: depFile.content });
           }
@@ -622,7 +622,7 @@ app.post('/run-test', async (req, res) => {
     let moduleImportBlock = '';
     if (moduleId) {
       try {
-        const mod = moduleOperations.getById(moduleId);
+        const mod = await moduleOperations.getById(moduleId);
         if (mod && mod.imports && mod.imports.trim()) {
           moduleImportBlock = '\n' + mod.imports.trim() + '\n';
         }
@@ -785,11 +785,11 @@ export default defineConfig({
     if (moduleId && testFileId) {
       try {
         // Verify module and test file exist before inserting
-        const module = moduleOperations.getById(moduleId);
-        const testFile = testFileOperations.getById(testFileId);
+        const module = await moduleOperations.getById(moduleId);
+        const testFile = await testFileOperations.getById(testFileId);
         
         if (module && testFile) {
-          const execution = executionOperations.create({
+          const execution = await executionOperations.create({
             moduleId,
             testFileId,
             status: 'PASS',
@@ -870,9 +870,9 @@ export default defineConfig({
           let healedExecId = null;
           if (moduleId && testFileId) {
             try {
-              const m = moduleOperations.getById(moduleId), t = testFileOperations.getById(testFileId);
+              const m = await moduleOperations.getById(moduleId), t = await testFileOperations.getById(testFileId);
               if (m && t) {
-                const ex = executionOperations.create({ moduleId, testFileId, status: 'PASS', logs: healedLogs, errorMessage: null, screenshotBase64: hs64, durationMs, reportPath: healedReportPath }, orgId);
+                const ex = await executionOperations.create({ moduleId, testFileId, status: 'PASS', logs: healedLogs, errorMessage: null, screenshotBase64: hs64, durationMs, reportPath: healedReportPath }, orgId);
                 healedExecId = ex.id;
               }
             } catch (dbErr) { console.error('AI heal DB save error:', dbErr.message); }
@@ -920,11 +920,11 @@ export default defineConfig({
         let executionId = null;
         if (moduleId && testFileId) {
           try {
-            const module = moduleOperations.getById(moduleId);
-            const testFile = testFileOperations.getById(testFileId);
+            const module = await moduleOperations.getById(moduleId);
+            const testFile = await testFileOperations.getById(testFileId);
             
             if (module && testFile) {
-              const execution = executionOperations.create({
+              const execution = await executionOperations.create({
                 moduleId,
                 testFileId,
                 status: 'FAIL',
@@ -1012,11 +1012,11 @@ export default defineConfig({
     let executionId = null;
     if (moduleId && testFileId) {
       try {
-        const module = moduleOperations.getById(moduleId);
-        const testFile = testFileOperations.getById(testFileId);
+        const module = await moduleOperations.getById(moduleId);
+        const testFile = await testFileOperations.getById(testFileId);
         
         if (module && testFile) {
-          const execution = executionOperations.create({
+          const execution = await executionOperations.create({
             moduleId,
             testFileId,
             status: 'FAIL',
@@ -1065,7 +1065,7 @@ export default defineConfig({
 });
 
 // POST /stop-debug - Kill the active Playwright debug session
-app.post('/stop-debug', (req, res) => {
+app.post('/stop-debug', async (req, res) => {
   killDebugSession();
   res.json({ success: true });
 });
@@ -1073,7 +1073,7 @@ app.post('/stop-debug', (req, res) => {
 // GET /execution/:id/report - Serve HTML report for execution
 app.get('/execution/:id/report', async (req, res) => {
   try {
-    const execution = executionOperations.getById(req.params.id);
+    const execution = await executionOperations.getById(req.params.id);
     
     if (!execution) {
       return res.status(404).json({ error: 'Execution not found' });
@@ -1102,7 +1102,7 @@ app.get('/execution/:id/report', async (req, res) => {
 app.get('/suite-execution/:id/report', async (req, res) => {
   try {
     const executionId = parseInt(req.params.id);
-    const execution = suiteExecutionOperations.getById(executionId);
+    const execution = await suiteExecutionOperations.getById(executionId);
     
     if (!execution) {
       return res.status(404).json({ error: 'Suite execution not found' });
@@ -1130,14 +1130,14 @@ app.get('/suite-execution/:id/report', async (req, res) => {
 // ===== Test Suite Endpoints =====
 
 // GET /test-suites - Get all test suites
-app.get('/test-suites', (req, res) => {
+app.get('/test-suites', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
-    const suites = testSuiteOperations.getAll(orgId);
+    const suites = await testSuiteOperations.getAll(orgId);
     
     // For each suite, count the number of test files
     const suitesWithCounts = suites.map(suite => {
-      const testFiles = suiteTestFileOperations.getBySuiteId(suite.id);
+      const testFiles = await suiteTestFileOperations.getBySuiteId(suite.id);
       return {
         ...suite,
         test_file_count: testFiles.length
@@ -1151,12 +1151,12 @@ app.get('/test-suites', (req, res) => {
 });
 
 // GET /modules/:id/test-suites - Get test suites for a module
-app.get('/modules/:id/test-suites', (req, res) => {
+app.get('/modules/:id/test-suites', async (req, res) => {
   try {
-    const suites = testSuiteOperations.getByModuleId(req.params.id);
+    const suites = await testSuiteOperations.getByModuleId(req.params.id);
     
     const suitesWithCounts = suites.map(suite => {
-      const testFiles = suiteTestFileOperations.getBySuiteId(suite.id);
+      const testFiles = await suiteTestFileOperations.getBySuiteId(suite.id);
       return {
         ...suite,
         test_file_count: testFiles.length
@@ -1170,13 +1170,13 @@ app.get('/modules/:id/test-suites', (req, res) => {
 });
 
 // POST /test-suites - Create a new test suite
-app.post('/test-suites', (req, res) => {
+app.post('/test-suites', async (req, res) => {
   try {
     const { moduleId, name, testFileIds } = req.body;
     
     // Create the suite
     const orgId = req.session?.orgId || 1;
-    const suite = testSuiteOperations.create({
+    const suite = await testSuiteOperations.create({
       moduleId,
       name
     }, orgId);
@@ -1184,7 +1184,7 @@ app.post('/test-suites', (req, res) => {
     // Add test files to the suite
     if (testFileIds && testFileIds.length > 0) {
       testFileIds.forEach(testFileId => {
-        suiteTestFileOperations.add({
+        await suiteTestFileOperations.add({
           suiteId: suite.id,
           testFileId
         });
@@ -1198,10 +1198,10 @@ app.post('/test-suites', (req, res) => {
 });
 
 // GET /test-suites/:id/test-files - Get test files in a suite
-app.get('/test-suites/:id/test-files', (req, res) => {
+app.get('/test-suites/:id/test-files', async (req, res) => {
   try {
     const suiteId = parseInt(req.params.id);
-    const testFiles = suiteTestFileOperations.getBySuiteId(suiteId);
+    const testFiles = await suiteTestFileOperations.getBySuiteId(suiteId);
     res.json(testFiles);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1209,7 +1209,7 @@ app.get('/test-suites/:id/test-files', (req, res) => {
 });
 
 // POST /test-suites/:id/test-files - Add test files to a suite
-app.post('/test-suites/:id/test-files', (req, res) => {
+app.post('/test-suites/:id/test-files', async (req, res) => {
   try {
     const { testFileIds } = req.body;
     const suiteId = parseInt(req.params.id);
@@ -1221,7 +1221,7 @@ app.post('/test-suites/:id/test-files', (req, res) => {
     // Add each test file to the suite
     const addedFiles = [];
     testFileIds.forEach(testFileId => {
-      const result = suiteTestFileOperations.add({
+      const result = await suiteTestFileOperations.add({
         suiteId,
         testFileId: parseInt(testFileId)
       });
@@ -1235,11 +1235,11 @@ app.post('/test-suites/:id/test-files', (req, res) => {
 });
 
 // DELETE /test-suites/:suiteId/test-files/:testFileId - Remove a test file from a suite
-app.delete('/test-suites/:suiteId/test-files/:testFileId', (req, res) => {
+app.delete('/test-suites/:suiteId/test-files/:testFileId', async (req, res) => {
   try {
     const suiteId = parseInt(req.params.suiteId);
     const testFileId = parseInt(req.params.testFileId);
-    suiteTestFileOperations.removeBySuiteAndTestFile(suiteId, testFileId);
+    await suiteTestFileOperations.removeBySuiteAndTestFile(suiteId, testFileId);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1247,10 +1247,10 @@ app.delete('/test-suites/:suiteId/test-files/:testFileId', (req, res) => {
 });
 
 // DELETE /test-suites/:id - Delete a test suite
-app.delete('/test-suites/:id', (req, res) => {
+app.delete('/test-suites/:id', async (req, res) => {
   try {
     const suiteId = parseInt(req.params.id);
-    testSuiteOperations.delete(suiteId);
+    await testSuiteOperations.delete(suiteId);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1258,10 +1258,10 @@ app.delete('/test-suites/:id', (req, res) => {
 });
 
 // GET /suite-executions/:id - Get suite execution by ID
-app.get('/suite-executions/:id', (req, res) => {
+app.get('/suite-executions/:id', async (req, res) => {
   try {
     const executionId = parseInt(req.params.id);
-    const execution = suiteExecutionOperations.getById(executionId);
+    const execution = await suiteExecutionOperations.getById(executionId);
     if (!execution) {
       return res.status(404).json({ error: 'Suite execution not found' });
     }
@@ -1272,10 +1272,10 @@ app.get('/suite-executions/:id', (req, res) => {
 });
 
 // GET /suite-executions/:id/results - Get test results for a suite execution
-app.get('/suite-executions/:id/results', (req, res) => {
+app.get('/suite-executions/:id/results', async (req, res) => {
   try {
     const executionId = parseInt(req.params.id);
-    const results = suiteTestResultOperations.getBySuiteExecutionId(executionId);
+    const results = await suiteTestResultOperations.getBySuiteExecutionId(executionId);
     res.json(results);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1284,19 +1284,19 @@ app.get('/suite-executions/:id/results', (req, res) => {
 
 // ── Global Variables CRUD ────────────────────────────────────────────────────
 
-app.get('/global-variables', (req, res) => {
+app.get('/global-variables', async (req, res) => {
   try {
-    res.json(globalVariableOperations.getAll(req.session?.orgId || 1));
+    res.json(await globalVariableOperations.getAll(req.session?.orgId || 1));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/global-variables', (req, res) => {
+app.post('/global-variables', async (req, res) => {
   try {
     const { key, value, description } = req.body;
     if (!key || !key.trim()) return res.status(400).json({ error: 'key is required' });
-    const created = globalVariableOperations.create({ key: key.trim(), value: value ?? '', description: description ?? '' }, req.session?.orgId || 1);
+    const created = await globalVariableOperations.create({ key: key.trim(), value: value ?? '', description: description ?? '' }, req.session?.orgId || 1);
     res.status(201).json(created);
   } catch (err) {
     if (err.message && err.message.includes('UNIQUE')) {
@@ -1306,11 +1306,11 @@ app.post('/global-variables', (req, res) => {
   }
 });
 
-app.put('/global-variables/:id', (req, res) => {
+app.put('/global-variables/:id', async (req, res) => {
   try {
     const { key, value, description } = req.body;
     if (!key || !key.trim()) return res.status(400).json({ error: 'key is required' });
-    const updated = globalVariableOperations.update(parseInt(req.params.id), { key: key.trim(), value: value ?? '', description: description ?? '' });
+    const updated = await globalVariableOperations.update(parseInt(req.params.id), { key: key.trim(), value: value ?? '', description: description ?? '' });
     if (!updated) return res.status(404).json({ error: 'Variable not found' });
     res.json(updated);
   } catch (err) {
@@ -1321,9 +1321,9 @@ app.put('/global-variables/:id', (req, res) => {
   }
 });
 
-app.delete('/global-variables/:id', (req, res) => {
+app.delete('/global-variables/:id', async (req, res) => {
   try {
-    globalVariableOperations.delete(parseInt(req.params.id));
+    await globalVariableOperations.delete(parseInt(req.params.id));
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1331,11 +1331,11 @@ app.delete('/global-variables/:id', (req, res) => {
 });
 
 // GET /global-variables/by-key/:key — read a variable by key name at runtime.
-app.get('/global-variables/by-key/:key', (req, res) => {
+app.get('/global-variables/by-key/:key', async (req, res) => {
   try {
     const key = req.params.key;
     const orgId = req.session?.orgId || 1;
-    const existing = globalVariableOperations.getAll(orgId).find(v => v.key === key);
+    const existing = await globalVariableOperations.getAll(orgId).find(v => v.key === key);
     if (!existing) return res.status(404).json({ error: `Variable "${key}" not found` });
     res.json(existing);
   } catch (err) {
@@ -1346,22 +1346,22 @@ app.get('/global-variables/by-key/:key', (req, res) => {
 // PATCH /global-variables/by-key/:key — upsert a variable by key name.
 // Tests can call this at runtime to write back values (e.g. auth tokens,
 // generated IDs) so later tests can read them as process.env.KEY.
-app.patch('/global-variables/by-key/:key', (req, res) => {
+app.patch('/global-variables/by-key/:key', async (req, res) => {
   try {
     const key = req.params.key;
     const { value, description } = req.body;
     const orgId = req.session?.orgId || 1;
     if (value === undefined) return res.status(400).json({ error: 'value is required' });
-    const existing = globalVariableOperations.getAll(orgId).find(v => v.key === key);
+    const existing = await globalVariableOperations.getAll(orgId).find(v => v.key === key);
     if (existing) {
-      const updated = globalVariableOperations.update(existing.id, {
+      const updated = await globalVariableOperations.update(existing.id, {
         key,
         value: String(value),
         description: description !== undefined ? description : existing.description,
       });
       return res.json(updated);
     }
-    const created = globalVariableOperations.create({ key, value: String(value), description: description ?? '' }, orgId);
+    const created = await globalVariableOperations.create({ key, value: String(value), description: description ?? '' }, orgId);
     res.status(201).json(created);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1369,11 +1369,11 @@ app.patch('/global-variables/by-key/:key', (req, res) => {
 });
 
 // DELETE /executions/all — wipe all execution history (single runs + suite runs)
-app.delete('/executions/all', (req, res) => {
+app.delete('/executions/all', async (req, res) => {
   try {
-    db.prepare('DELETE FROM suite_test_results').run();
-    db.prepare('DELETE FROM suite_executions').run();
-    db.prepare('DELETE FROM executions').run();
+    await pool.query('DELETE FROM suite_test_results');
+    await pool.query('DELETE FROM suite_executions');
+    await pool.query('DELETE FROM executions');
     res.json({ success: true, message: 'All execution data cleared.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1381,9 +1381,9 @@ app.delete('/executions/all', (req, res) => {
 });
 
 // GET /analytics/test-health — per-test health: consistently failing, flaky, slowest
-app.get('/analytics/test-health', (req, res) => {
+app.get('/analytics/test-health', async (req, res) => {
   try {
-    const rows = db.prepare(`
+    const { rows } = await pool.query(`
       SELECT
         str.test_file_id,
         tf.name        AS test_name,
@@ -1396,7 +1396,7 @@ app.get('/analytics/test-health', (req, res) => {
       JOIN suite_executions se ON str.suite_execution_id = se.id
       JOIN test_suites      ts ON se.suite_id            = ts.id
       ORDER BY se.created_at DESC
-    `).all();
+    `);
 
     // Group by test_file_id, runs already sorted desc (newest first)
     const byTest = {};
@@ -1454,10 +1454,10 @@ app.get('/analytics/test-health', (req, res) => {
 });
 
 // GET /test-suites/:suiteId/executions - Get execution history for a suite (last 30)
-app.get('/test-suites/:suiteId/executions', (req, res) => {
+app.get('/test-suites/:suiteId/executions', async (req, res) => {
   try {
     const suiteId = parseInt(req.params.suiteId);
-    const executions = suiteExecutionOperations.getBySuiteId(suiteId, 30);
+    const executions = await suiteExecutionOperations.getBySuiteId(suiteId, 30);
     res.json(executions);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1465,7 +1465,7 @@ app.get('/test-suites/:suiteId/executions', (req, res) => {
 });
 
 // GET /suite-executions/:id/logs/stream — SSE real-time log stream for CI runs
-app.get('/suite-executions/:id/logs/stream', (req, res) => {
+app.get('/suite-executions/:id/logs/stream', async (req, res) => {
   const executionId = parseInt(req.params.id);
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -1506,13 +1506,13 @@ app.post('/run-suite/:suiteId', async (req, res) => {
 
   try {
     // 1. Fetch suite by ID
-    const suite = testSuiteOperations.getById(suiteId);
+    const suite = await testSuiteOperations.getById(suiteId);
     if (!suite) {
       return res.status(404).json({ error: 'Suite not found' });
     }
 
     // 2. Fetch all associated test files
-    const suiteTestFiles = suiteTestFileOperations.getBySuiteId(suiteId);
+    const suiteTestFiles = await suiteTestFileOperations.getBySuiteId(suiteId);
     if (!suiteTestFiles || suiteTestFiles.length === 0) {
       return res.json({
         suite_id: parseInt(suiteId),
@@ -1526,7 +1526,7 @@ app.post('/run-suite/:suiteId', async (req, res) => {
 
     // 3. Create execution record immediately — gives the frontend an ID right away
     //    so the user can navigate to the detail page before tests finish.
-    const suiteExecution = suiteExecutionOperations.create({
+    const suiteExecution = await suiteExecutionOperations.create({
       suiteId: parseInt(suiteId),
       status: 'running',
       totalTests: suiteTestFiles.length,
@@ -1567,7 +1567,7 @@ app.post('/run-suite/:suiteId', async (req, res) => {
     // Fetch module-level imports for this suite's module
     let suiteModuleImportBlock = '';
     try {
-      const suiteModule = moduleOperations.getById(suite.module_id);
+      const suiteModule = await moduleOperations.getById(suite.module_id);
       if (suiteModule && suiteModule.imports && suiteModule.imports.trim()) {
         suiteModuleImportBlock = '\n' + suiteModule.imports.trim() + '\n';
       }
@@ -1610,10 +1610,10 @@ ${userCode}
     const suiteScreenshotMode = (req.body && req.body.screenshotMode) || 'only-on-failure';
     // Load global variables and inject them into each test process via env
     const suiteRunOrgId = req.session?.orgId || 1;
-    const suiteOrgForHeal = organizationOperations.getById(suiteRunOrgId);
+    const suiteOrgForHeal = await organizationOperations.getById(suiteRunOrgId);
     const suiteAiHeal = suiteOrgForHeal?.ai_healing_enabled === 1;
     const suiteAiApiKey = suiteOrgForHeal?.openai_api_key || process.env.OPENAI_API_KEY || '';
-    const suiteGlobalVarsEnv = globalVariableOperations.getAllAsEnv(suiteRunOrgId);
+    const suiteGlobalVarsEnv = await globalVariableOperations.getAllAsEnv(suiteRunOrgId);
 
     // Create playwright.config.ts — headless for Docker, headed for local
     const configContent = useDocker
@@ -1864,7 +1864,7 @@ export default defineConfig({
     try {
       const overallStatus = failed === 0 ? 'PASS' : 'FAIL';
 
-      suiteExecutionOperations.update(suiteExecutionId, {
+      await suiteExecutionOperations.update(suiteExecutionId, {
         status: overallStatus,
         totalTests: totalTests,
         passed: passed,
@@ -1880,7 +1880,7 @@ export default defineConfig({
         const testFileId = suiteTestFiles[index]?.test_file_id || null;
 
         if (testFileId) {
-          suiteTestResultOperations.create({
+          await suiteTestResultOperations.create({
             suiteExecutionId: suiteExecutionId,
             testFileId: testFileId,
             status: testResult.status,
@@ -1901,7 +1901,7 @@ export default defineConfig({
   } catch (bgError) {
     console.error('Suite background execution error:', bgError);
     try {
-      suiteExecutionOperations.update(suiteExecutionId, {
+      await suiteExecutionOperations.update(suiteExecutionId, {
         status: 'FAIL',
         totalTests: suiteTestFiles.length,
         passed: 0,
@@ -1942,9 +1942,9 @@ export default defineConfig({
 // ===== Features Endpoints =====
 
 // GET /features - Get all features
-app.get('/features', (req, res) => {
+app.get('/features', async (req, res) => {
   try {
-    const features = featureOperations.getAll(req.session?.orgId || 1);
+    const features = await featureOperations.getAll(req.session?.orgId || 1);
     res.json(features);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1952,9 +1952,9 @@ app.get('/features', (req, res) => {
 });
 
 // GET /features/:id - Get a single feature
-app.get('/features/:id', (req, res) => {
+app.get('/features/:id', async (req, res) => {
   try {
-    const feature = featureOperations.getById(parseInt(req.params.id));
+    const feature = await featureOperations.getById(parseInt(req.params.id));
     if (!feature) {
       return res.status(404).json({ error: 'Feature not found' });
     }
@@ -1965,9 +1965,9 @@ app.get('/features/:id', (req, res) => {
 });
 
 // GET /features/:id/requirements - Get all requirements for a feature
-app.get('/features/:id/requirements', (req, res) => {
+app.get('/features/:id/requirements', async (req, res) => {
   try {
-    const requirements = requirementOperations.getByFeatureId(parseInt(req.params.id));
+    const requirements = await requirementOperations.getByFeatureId(parseInt(req.params.id));
     res.json(requirements);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1975,7 +1975,7 @@ app.get('/features/:id/requirements', (req, res) => {
 });
 
 // POST /features - Create a new feature
-app.post('/features', (req, res) => {
+app.post('/features', async (req, res) => {
   try {
     const { name, description, priority } = req.body;
     
@@ -1988,7 +1988,7 @@ app.post('/features', (req, res) => {
       return res.status(400).json({ error: 'Invalid priority. Must be Low, Medium, or High' });
     }
     
-    const feature = featureOperations.create({
+    const feature = await featureOperations.create({
       name,
       description,
       priority: priority || 'Medium'
@@ -2001,13 +2001,13 @@ app.post('/features', (req, res) => {
 });
 
 // PUT /features/:id - Update a feature
-app.put('/features/:id', (req, res) => {
+app.put('/features/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { name, description, priority } = req.body;
     
     // Check if feature exists
-    const existing = featureOperations.getById(id);
+    const existing = await featureOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Feature not found' });
     }
@@ -2021,7 +2021,7 @@ app.put('/features/:id', (req, res) => {
       return res.status(400).json({ error: 'Invalid priority. Must be Low, Medium, or High' });
     }
     
-    const feature = featureOperations.update(id, {
+    const feature = await featureOperations.update(id, {
       name,
       description,
       priority
@@ -2034,17 +2034,17 @@ app.put('/features/:id', (req, res) => {
 });
 
 // DELETE /features/:id - Delete a feature
-app.delete('/features/:id', (req, res) => {
+app.delete('/features/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     
     // Check if feature exists
-    const existing = featureOperations.getById(id);
+    const existing = await featureOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Feature not found' });
     }
     
-    featureOperations.delete(id);
+    await featureOperations.delete(id);
     res.json({ message: 'Feature deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2054,9 +2054,9 @@ app.delete('/features/:id', (req, res) => {
 // ===== Requirements Endpoints =====
 
 // GET /requirements - Get all requirements
-app.get('/requirements', (req, res) => {
+app.get('/requirements', async (req, res) => {
   try {
-    const requirements = requirementOperations.getAll(req.session?.orgId || 1);
+    const requirements = await requirementOperations.getAll(req.session?.orgId || 1);
     res.json(requirements);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2064,9 +2064,9 @@ app.get('/requirements', (req, res) => {
 });
 
 // GET /requirements/:id - Get a single requirement
-app.get('/requirements/:id', (req, res) => {
+app.get('/requirements/:id', async (req, res) => {
   try {
-    const requirement = requirementOperations.getById(parseInt(req.params.id));
+    const requirement = await requirementOperations.getById(parseInt(req.params.id));
     if (!requirement) {
       return res.status(404).json({ error: 'Requirement not found' });
     }
@@ -2077,7 +2077,7 @@ app.get('/requirements/:id', (req, res) => {
 });
 
 // POST /requirements - Create a new requirement
-app.post('/requirements', (req, res) => {
+app.post('/requirements', async (req, res) => {
   try {
     const { featureId, organizationId, sprintId, title, description, status, priority } = req.body;
     
@@ -2090,14 +2090,14 @@ app.post('/requirements', (req, res) => {
     }
     
     // Validate feature exists
-    const feature = featureOperations.getById(featureId);
+    const feature = await featureOperations.getById(featureId);
     if (!feature) {
       return res.status(400).json({ error: 'Feature not found' });
     }
     
     // Validate sprint exists if provided
     if (sprintId) {
-      const sprint = sprintOperations.getById(sprintId);
+      const sprint = await sprintOperations.getById(sprintId);
       if (!sprint) {
         return res.status(400).json({ error: 'Sprint not found' });
       }
@@ -2113,7 +2113,7 @@ app.post('/requirements', (req, res) => {
       return res.status(400).json({ error: 'Invalid priority. Must be Low, Medium, or High' });
     }
     
-    const requirement = requirementOperations.create({
+    const requirement = await requirementOperations.create({
       featureId,
       organizationId,
       sprintId,
@@ -2130,13 +2130,13 @@ app.post('/requirements', (req, res) => {
 });
 
 // PUT /requirements/:id - Update a requirement
-app.put('/requirements/:id', (req, res) => {
+app.put('/requirements/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { featureId, organizationId, sprintId, title, description, status, priority } = req.body;
     
     // Check if requirement exists
-    const existing = requirementOperations.getById(id);
+    const existing = await requirementOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Requirement not found' });
     }
@@ -2150,14 +2150,14 @@ app.put('/requirements/:id', (req, res) => {
     }
     
     // Validate feature exists
-    const feature = featureOperations.getById(featureId);
+    const feature = await featureOperations.getById(featureId);
     if (!feature) {
       return res.status(400).json({ error: 'Feature not found' });
     }
     
     // Validate sprint exists if provided
     if (sprintId) {
-      const sprint = sprintOperations.getById(sprintId);
+      const sprint = await sprintOperations.getById(sprintId);
       if (!sprint) {
         return res.status(400).json({ error: 'Sprint not found' });
       }
@@ -2173,7 +2173,7 @@ app.put('/requirements/:id', (req, res) => {
       return res.status(400).json({ error: 'Invalid priority. Must be Low, Medium, or High' });
     }
     
-    const requirement = requirementOperations.update(id, {
+    const requirement = await requirementOperations.update(id, {
       featureId,
       organizationId,
       sprintId,
@@ -2190,17 +2190,17 @@ app.put('/requirements/:id', (req, res) => {
 });
 
 // DELETE /requirements/:id - Delete a requirement
-app.delete('/requirements/:id', (req, res) => {
+app.delete('/requirements/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     
     // Check if requirement exists
-    const existing = requirementOperations.getById(id);
+    const existing = await requirementOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Requirement not found' });
     }
     
-    requirementOperations.delete(id);
+    await requirementOperations.delete(id);
     res.json({ message: 'Requirement deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2210,9 +2210,9 @@ app.delete('/requirements/:id', (req, res) => {
 // ===== Test Cases Endpoints =====
 
 // GET /test-cases - Get all test cases
-app.get('/test-cases', (req, res) => {
+app.get('/test-cases', async (req, res) => {
   try {
-    const testCases = testCaseOperations.getAll(req.session?.orgId || 1);
+    const testCases = await testCaseOperations.getAll(req.session?.orgId || 1);
     res.json(testCases);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2220,9 +2220,9 @@ app.get('/test-cases', (req, res) => {
 });
 
 // GET /test-cases/:id - Get a single test case
-app.get('/test-cases/:id', (req, res) => {
+app.get('/test-cases/:id', async (req, res) => {
   try {
-    const testCase = testCaseOperations.getById(parseInt(req.params.id));
+    const testCase = await testCaseOperations.getById(parseInt(req.params.id));
     if (!testCase) {
       return res.status(404).json({ error: 'Test case not found' });
     }
@@ -2233,9 +2233,9 @@ app.get('/test-cases/:id', (req, res) => {
 });
 
 // GET /requirements/:id/test-cases - Get test cases for a requirement
-app.get('/requirements/:id/test-cases', (req, res) => {
+app.get('/requirements/:id/test-cases', async (req, res) => {
   try {
-    const testCases = testCaseOperations.getByRequirementId(parseInt(req.params.id));
+    const testCases = await testCaseOperations.getByRequirementId(parseInt(req.params.id));
     res.json(testCases);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2243,9 +2243,9 @@ app.get('/requirements/:id/test-cases', (req, res) => {
 });
 
 // GET /requirements/:id/test-files - Get automation test files for a requirement
-app.get('/requirements/:id/test-files', (req, res) => {
+app.get('/requirements/:id/test-files', async (req, res) => {
   try {
-    const testFiles = testFileOperations.getByRequirementId(parseInt(req.params.id));
+    const testFiles = await testFileOperations.getByRequirementId(parseInt(req.params.id));
     res.json(testFiles);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2253,7 +2253,7 @@ app.get('/requirements/:id/test-files', (req, res) => {
 });
 
 // POST /test-cases - Create a new test case
-app.post('/test-cases', (req, res) => {
+app.post('/test-cases', async (req, res) => {
   try {
     const { requirementId, title, description, preconditions, testSteps, expectedResult, type, priority, status, testFileId } = req.body;
     
@@ -2276,7 +2276,7 @@ app.post('/test-cases', (req, res) => {
       return res.status(400).json({ error: 'Invalid status. Must be Draft, Ready, or Deprecated' });
     }
     
-    const testCase = testCaseOperations.create({
+    const testCase = await testCaseOperations.create({
       requirementId,
       title,
       description,
@@ -2296,13 +2296,13 @@ app.post('/test-cases', (req, res) => {
 });
 
 // PUT /test-cases/:id - Update a test case
-app.put('/test-cases/:id', (req, res) => {
+app.put('/test-cases/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { requirementId, title, description, preconditions, testSteps, expectedResult, type, priority, status, testFileId } = req.body;
     
     // Check if test case exists
-    const existing = testCaseOperations.getById(id);
+    const existing = await testCaseOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Test case not found' });
     }
@@ -2326,7 +2326,7 @@ app.put('/test-cases/:id', (req, res) => {
       return res.status(400).json({ error: 'Invalid status. Must be Draft, Ready, or Deprecated' });
     }
     
-    const testCase = testCaseOperations.update(id, {
+    const testCase = await testCaseOperations.update(id, {
       requirementId,
       title,
       description,
@@ -2346,17 +2346,17 @@ app.put('/test-cases/:id', (req, res) => {
 });
 
 // DELETE /test-cases/:id - Delete a test case
-app.delete('/test-cases/:id', (req, res) => {
+app.delete('/test-cases/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     
     // Check if test case exists
-    const existing = testCaseOperations.getById(id);
+    const existing = await testCaseOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Test case not found' });
     }
     
-    testCaseOperations.delete(id);
+    await testCaseOperations.delete(id);
     res.json({ message: 'Test case deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2366,9 +2366,9 @@ app.delete('/test-cases/:id', (req, res) => {
 // ===== Manual Test Runs Endpoints =====
 
 // GET /manual-test-runs - Get all manual test runs
-app.get('/manual-test-runs', (req, res) => {
+app.get('/manual-test-runs', async (req, res) => {
   try {
-    const testRuns = manualTestRunOperations.getAll(req.session?.orgId || 1);
+    const testRuns = await manualTestRunOperations.getAll(req.session?.orgId || 1);
     res.json(testRuns);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2376,9 +2376,9 @@ app.get('/manual-test-runs', (req, res) => {
 });
 
 // GET /manual-test-runs/:id - Get a single manual test run
-app.get('/manual-test-runs/:id', (req, res) => {
+app.get('/manual-test-runs/:id', async (req, res) => {
   try {
-    const testRun = manualTestRunOperations.getById(parseInt(req.params.id));
+    const testRun = await manualTestRunOperations.getById(parseInt(req.params.id));
     if (!testRun) {
       return res.status(404).json({ error: 'Manual test run not found' });
     }
@@ -2389,9 +2389,9 @@ app.get('/manual-test-runs/:id', (req, res) => {
 });
 
 // GET /test-cases/:id/manual-test-runs - Get manual test runs for a test case
-app.get('/test-cases/:id/manual-test-runs', (req, res) => {
+app.get('/test-cases/:id/manual-test-runs', async (req, res) => {
   try {
-    const testRuns = manualTestRunOperations.getByTestCaseId(parseInt(req.params.id));
+    const testRuns = await manualTestRunOperations.getByTestCaseId(parseInt(req.params.id));
     res.json(testRuns);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2399,7 +2399,7 @@ app.get('/test-cases/:id/manual-test-runs', (req, res) => {
 });
 
 // POST /manual-test-runs - Create a new manual test run
-app.post('/manual-test-runs', (req, res) => {
+app.post('/manual-test-runs', async (req, res) => {
   try {
     const { testCaseId, status, executedBy, executionNotes } = req.body;
     
@@ -2413,12 +2413,12 @@ app.post('/manual-test-runs', (req, res) => {
     }
     
     // Check if test case exists
-    const testCase = testCaseOperations.getById(testCaseId);
+    const testCase = await testCaseOperations.getById(testCaseId);
     if (!testCase) {
       return res.status(404).json({ error: 'Test case not found' });
     }
     
-    const testRun = manualTestRunOperations.create({
+    const testRun = await manualTestRunOperations.create({
       testCaseId,
       status: status || 'Passed',
       executedBy,
@@ -2432,13 +2432,13 @@ app.post('/manual-test-runs', (req, res) => {
 });
 
 // PUT /manual-test-runs/:id - Update a manual test run
-app.put('/manual-test-runs/:id', (req, res) => {
+app.put('/manual-test-runs/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { status, executedBy, executionNotes } = req.body;
     
     // Check if test run exists
-    const existing = manualTestRunOperations.getById(id);
+    const existing = await manualTestRunOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Manual test run not found' });
     }
@@ -2452,7 +2452,7 @@ app.put('/manual-test-runs/:id', (req, res) => {
       return res.status(400).json({ error: 'Invalid status. Must be Passed, Failed, or Blocked' });
     }
     
-    const testRun = manualTestRunOperations.update(id, {
+    const testRun = await manualTestRunOperations.update(id, {
       status,
       executedBy,
       executionNotes
@@ -2465,17 +2465,17 @@ app.put('/manual-test-runs/:id', (req, res) => {
 });
 
 // DELETE /manual-test-runs/:id - Delete a manual test run
-app.delete('/manual-test-runs/:id', (req, res) => {
+app.delete('/manual-test-runs/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     
     // Check if test run exists
-    const existing = manualTestRunOperations.getById(id);
+    const existing = await manualTestRunOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Manual test run not found' });
     }
     
-    manualTestRunOperations.delete(id);
+    await manualTestRunOperations.delete(id);
     res.json({ message: 'Manual test run deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2485,9 +2485,9 @@ app.delete('/manual-test-runs/:id', (req, res) => {
 // =============== DEFECTS ENDPOINTS ===============
 
 // Get all defects
-app.get('/defects', (req, res) => {
+app.get('/defects', async (req, res) => {
   try {
-    const defects = defectOperations.getAll(req.session?.orgId || 1);
+    const defects = await defectOperations.getAll(req.session?.orgId || 1);
     res.json(defects);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2495,10 +2495,10 @@ app.get('/defects', (req, res) => {
 });
 
 // Get defect by id
-app.get('/defects/:id', (req, res) => {
+app.get('/defects/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const defect = defectOperations.getById(id);
+    const defect = await defectOperations.getById(id);
     
     if (!defect) {
       return res.status(404).json({ error: 'Defect not found' });
@@ -2511,7 +2511,7 @@ app.get('/defects/:id', (req, res) => {
 });
 
 // Create new defect
-app.post('/defects', (req, res) => {
+app.post('/defects', async (req, res) => {
   try {
     const { title, description, severity, status, linkedTestCaseId, linkedExecutionId, sprintId, screenshot } = req.body;
     
@@ -2532,13 +2532,13 @@ app.post('/defects', (req, res) => {
     
     // Validate sprint exists if provided
     if (sprintId) {
-      const sprint = sprintOperations.getById(sprintId);
+      const sprint = await sprintOperations.getById(sprintId);
       if (!sprint) {
         return res.status(400).json({ error: 'Sprint not found' });
       }
     }
     
-    const defect = defectOperations.create({
+    const defect = await defectOperations.create({
       title,
       description,
       severity,
@@ -2556,13 +2556,13 @@ app.post('/defects', (req, res) => {
 });
 
 // Update defect
-app.put('/defects/:id', (req, res) => {
+app.put('/defects/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { title, description, severity, status, linkedTestCaseId, linkedExecutionId, sprintId, screenshot } = req.body;
     
     // Check if defect exists
-    const existing = defectOperations.getById(id);
+    const existing = await defectOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Defect not found' });
     }
@@ -2584,13 +2584,13 @@ app.put('/defects/:id', (req, res) => {
     
     // Validate sprint exists if provided
     if (sprintId) {
-      const sprint = sprintOperations.getById(sprintId);
+      const sprint = await sprintOperations.getById(sprintId);
       if (!sprint) {
         return res.status(400).json({ error: 'Sprint not found' });
       }
     }
     
-    const defect = defectOperations.update(id, {
+    const defect = await defectOperations.update(id, {
       title,
       description,
       severity,
@@ -2608,17 +2608,17 @@ app.put('/defects/:id', (req, res) => {
 });
 
 // Delete defect
-app.delete('/defects/:id', (req, res) => {
+app.delete('/defects/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     
     // Check if defect exists
-    const existing = defectOperations.getById(id);
+    const existing = await defectOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Defect not found' });
     }
     
-    defectOperations.delete(id);
+    await defectOperations.delete(id);
     res.json({ message: 'Defect deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2628,9 +2628,9 @@ app.delete('/defects/:id', (req, res) => {
 // =============== SPRINTS ENDPOINTS ===============
 
 // Get all sprints
-app.get('/sprints', (req, res) => {
+app.get('/sprints', async (req, res) => {
   try {
-    const sprints = sprintOperations.getAll(req.session?.orgId || 1);
+    const sprints = await sprintOperations.getAll(req.session?.orgId || 1);
     res.json(sprints);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2638,10 +2638,10 @@ app.get('/sprints', (req, res) => {
 });
 
 // Get sprint by id
-app.get('/sprints/:id', (req, res) => {
+app.get('/sprints/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const sprint = sprintOperations.getByIdWithMetrics(id);
+    const sprint = await sprintOperations.getByIdWithMetrics(id);
     
     if (!sprint) {
       return res.status(404).json({ error: 'Sprint not found' });
@@ -2654,7 +2654,7 @@ app.get('/sprints/:id', (req, res) => {
 });
 
 // Create new sprint
-app.post('/sprints', (req, res) => {
+app.post('/sprints', async (req, res) => {
   try {
     const { name, goal, startDate, endDate, status } = req.body;
     
@@ -2668,7 +2668,7 @@ app.post('/sprints', (req, res) => {
       return res.status(400).json({ error: 'Status must be one of: Planned, Active, Completed' });
     }
     
-    const sprint = sprintOperations.create({
+    const sprint = await sprintOperations.create({
       name,
       goal,
       startDate,
@@ -2683,13 +2683,13 @@ app.post('/sprints', (req, res) => {
 });
 
 // Update sprint
-app.put('/sprints/:id', (req, res) => {
+app.put('/sprints/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { name, goal, startDate, endDate, status } = req.body;
     
     // Check if sprint exists
-    const existing = sprintOperations.getById(id);
+    const existing = await sprintOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Sprint not found' });
     }
@@ -2704,7 +2704,7 @@ app.put('/sprints/:id', (req, res) => {
       return res.status(400).json({ error: 'Status must be one of: Planned, Active, Completed' });
     }
     
-    const sprint = sprintOperations.update(id, {
+    const sprint = await sprintOperations.update(id, {
       name,
       goal,
       startDate,
@@ -2719,17 +2719,17 @@ app.put('/sprints/:id', (req, res) => {
 });
 
 // Delete sprint
-app.delete('/sprints/:id', (req, res) => {
+app.delete('/sprints/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     
     // Check if sprint exists
-    const existing = sprintOperations.getById(id);
+    const existing = await sprintOperations.getById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Sprint not found' });
     }
     
-    sprintOperations.delete(id);
+    await sprintOperations.delete(id);
     res.json({ message: 'Sprint deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2740,49 +2740,49 @@ app.delete('/sprints/:id', (req, res) => {
 const sessions = new Map(); // token -> { userId, username, role, loggedInAt }
 
 // ===== Task Routes =====
-app.get('/tasks', (req, res) => {
+app.get('/tasks', async (req, res) => {
   try {
     const { sprintId } = req.query;
     const orgId = req.session?.orgId || 1;
-    const tasks = sprintId ? taskOperations.getBySprintId(parseInt(sprintId)) : taskOperations.getAll(orgId);
+    const tasks = sprintId ? await taskOperations.getBySprintId(parseInt(sprintId)) : await taskOperations.getAll(orgId);
     res.json(tasks);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.post('/tasks', (req, res) => {
+app.post('/tasks', async (req, res) => {
   try {
     const { title, description, sprintId, assigneeId, status, priority, createdBy, startDate, endDate, plannedHours, completedHours, requirementId } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
-    const task = taskOperations.create({ title, description, sprintId, assigneeId, status, priority, createdBy, startDate, endDate, plannedHours, completedHours, requirementId }, req.session?.orgId || 1);
+    const task = await taskOperations.create({ title, description, sprintId, assigneeId, status, priority, createdBy, startDate, endDate, plannedHours, completedHours, requirementId }, req.session?.orgId || 1);
     res.status(201).json(task);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.put('/tasks/:id', (req, res) => {
+app.put('/tasks/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    if (!taskOperations.getById(id)) return res.status(404).json({ error: 'Task not found' });
+    if (!await taskOperations.getById(id)) return res.status(404).json({ error: 'Task not found' });
     const { title, description, sprintId, assigneeId, status, priority, startDate, endDate, plannedHours, completedHours, requirementId } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
-    const task = taskOperations.update(id, { title, description, sprintId, assigneeId, status, priority, startDate, endDate, plannedHours, completedHours, requirementId });
+    const task = await taskOperations.update(id, { title, description, sprintId, assigneeId, status, priority, startDate, endDate, plannedHours, completedHours, requirementId });
     res.json(task);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.delete('/tasks/:id', (req, res) => {
+app.delete('/tasks/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    if (!taskOperations.getById(id)) return res.status(404).json({ error: 'Task not found' });
-    taskOperations.delete(id);
+    if (!await taskOperations.getById(id)) return res.status(404).json({ error: 'Task not found' });
+    await taskOperations.delete(id);
     res.json({ message: 'Task deleted successfully' });
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 // Basic user list for assignee pickers (no auth required — returns id+username only)
-app.get('/users/list', (req, res) => {
+app.get('/users/list', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
-    const users = userOperations.getAll(orgId).map(u => ({ id: u.id, username: u.username, role: u.role }));
+    const users = await userOperations.getAll(orgId).map(u => ({ id: u.id, username: u.username, role: u.role }));
     res.json(users);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
@@ -2818,7 +2818,7 @@ function requireSuperAdmin(req, res, next) {
 
 // POST /auth/register-org  — create a new organization + its first admin user
 // This is a public endpoint (no auth needed) for SaaS onboarding.
-app.post('/auth/register-org', (req, res) => {
+app.post('/auth/register-org', async (req, res) => {
   try {
     const { orgName, orgSlug, adminUsername, adminPassword, plan, maxUsers, pocName, pocEmail } = req.body;
     if (!orgName || !orgSlug || !adminUsername || !adminPassword) {
@@ -2826,16 +2826,16 @@ app.post('/auth/register-org', (req, res) => {
     }
     // Ensure slug is URL-safe
     const slug = orgSlug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-    if (organizationOperations.getBySlug(slug)) {
+    if (await organizationOperations.getBySlug(slug)) {
       return res.status(409).json({ error: 'An organization with that slug already exists' });
     }
-    if (userOperations.getByUsername(adminUsername)) {
+    if (await userOperations.getByUsername(adminUsername)) {
       return res.status(409).json({ error: 'Username already exists' });
     }
     const { aiHealingEnabled, openaiApiKey } = req.body;
     const parsedMaxUsers = maxUsers ? parseInt(maxUsers) : null;
-    const org = organizationOperations.create({ name: orgName, slug, plan: plan || 'free', maxUsers: parsedMaxUsers, pocName: pocName || null, pocEmail: pocEmail || null, aiHealingEnabled: aiHealingEnabled ? 1 : 0, openaiApiKey: openaiApiKey || null });
-    const adminUser = userOperations.create({
+    const org = await organizationOperations.create({ name: orgName, slug, plan: plan || 'free', maxUsers: parsedMaxUsers, pocName: pocName || null, pocEmail: pocEmail || null, aiHealingEnabled: aiHealingEnabled ? 1 : 0, openaiApiKey: openaiApiKey || null });
+    const adminUser = await userOperations.create({
       username: adminUsername,
       password: adminPassword,
       role: 'admin',
@@ -2851,9 +2851,9 @@ app.post('/auth/register-org', (req, res) => {
 });
 
 // ─── Public org endpoint (no auth needed) ───────────────────────────────────
-app.get('/public/org/:slug', (req, res) => {
+app.get('/public/org/:slug', async (req, res) => {
   try {
-    const org = organizationOperations.getBySlug(req.params.slug.toLowerCase());
+    const org = await organizationOperations.getBySlug(req.params.slug.toLowerCase());
     if (!org) return res.status(404).json({ error: 'Organization not found' });
     res.json({ id: org.id, name: org.name, slug: org.slug, plan: org.plan });
   } catch (error) {
@@ -2864,17 +2864,17 @@ app.get('/public/org/:slug', (req, res) => {
 // ─── Organization management (super_admin only) ──────────────────────────────
 
 // GET /orgs  — list all organizations
-app.get('/orgs', requireAuth, (req, res) => {
+app.get('/orgs', requireAuth, async (req, res) => {
   if (req.session.role !== 'super_admin') {
     return res.status(403).json({ error: 'Super admin access required' });
   }
   try {
-    const orgs = organizationOperations.getAll();
+    const orgs = await organizationOperations.getAll();
     // Attach user count per org
-    const orgsWithCounts = orgs.map(org => {
-      const count = db.prepare('SELECT COUNT(*) as count FROM users WHERE org_id = ?').get(org.id);
-      return { ...org, user_count: count?.count || 0 };
-    });
+    const orgsWithCounts = await Promise.all(orgs.map(async org => {
+      const { rows } = await pool.query('SELECT COUNT(*) as count FROM users WHERE org_id = $1', [org.id]);
+      return { ...org, user_count: parseInt(rows[0]?.count, 10) || 0 };
+    }));
     res.json(orgsWithCounts);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2882,14 +2882,14 @@ app.get('/orgs', requireAuth, (req, res) => {
 });
 
 // PUT /orgs/:id  — update org name, plan, is_active, or max_users
-app.put('/orgs/:id', requireAuth, (req, res) => {
+app.put('/orgs/:id', requireAuth, async (req, res) => {
   if (req.session.role !== 'super_admin') {
     return res.status(403).json({ error: 'Super admin access required' });
   }
   try {
     const { name, plan, is_active, maxUsers, pocName, pocEmail, aiHealingEnabled, openaiApiKey } = req.body;
     const parsedMaxUsers = (maxUsers !== null && maxUsers !== undefined && maxUsers !== '') ? parseInt(maxUsers, 10) : null;
-    const updated = organizationOperations.update(req.params.id, {
+    const updated = await organizationOperations.update(req.params.id, {
       name, plan, is_active,
       maxUsers: parsedMaxUsers,
       pocName: pocName ?? null,
@@ -2905,15 +2905,15 @@ app.put('/orgs/:id', requireAuth, (req, res) => {
 });
 
 // GET /orgs/:orgId/users — super_admin only
-app.get('/orgs/:orgId/users', requireAuth, (req, res) => {
+app.get('/orgs/:orgId/users', requireAuth, async (req, res) => {
   if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Super admin access required' });
   try {
-    res.json(userOperations.getAll(parseInt(req.params.orgId)));
+    res.json(await userOperations.getAll(parseInt(req.params.orgId)));
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 // POST /orgs/:orgId/users — super_admin only (create user in a specific org)
-app.post('/orgs/:orgId/users', requireAuth, (req, res) => {
+app.post('/orgs/:orgId/users', requireAuth, async (req, res) => {
   if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Super admin access required' });
   try {
     const orgId = parseInt(req.params.orgId);
@@ -2922,32 +2922,32 @@ app.post('/orgs/:orgId/users', requireAuth, (req, res) => {
     if (!role || !role.trim()) return res.status(400).json({ error: 'Role is required' });
     if (role === 'super_admin') return res.status(403).json({ error: 'Cannot create super admin accounts' });
     // Enforce user limit if set
-    const org = organizationOperations.getById(orgId);
+    const org = await organizationOperations.getById(orgId);
     if (org && org.max_users) {
-      const currentCount = db.prepare('SELECT COUNT(*) as count FROM users WHERE org_id = ?').get(orgId);
-      if (currentCount.count >= org.max_users) {
+      const { rows: countRows } = await pool.query('SELECT COUNT(*) as count FROM users WHERE org_id = $1', [orgId]);
+      if (parseInt(countRows[0].count, 10) >= org.max_users) {
         return res.status(403).json({ error: `User limit reached. This organization allows a maximum of ${org.max_users} user${org.max_users !== 1 ? 's' : ''}.` });
       }
     }
-    const existing = userOperations.getByUsername(username);
+    const existing = await userOperations.getByUsername(username);
     if (existing) return res.status(409).json({ error: 'Username already exists' });
-    const user = userOperations.create({ username, password, role, customRoleId: null, createdBy: req.session.userId,
+    const user = await userOperations.create({ username, password, role, customRoleId: null, createdBy: req.session.userId,
       permissions: Array.isArray(permissions) ? permissions : null }, orgId);
     res.status(201).json(user);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 // PUT /orgs/:orgId/users/:userId — super_admin only (edit a user in a specific org)
-app.put('/orgs/:orgId/users/:userId', requireAuth, (req, res) => {
+app.put('/orgs/:orgId/users/:userId', requireAuth, async (req, res) => {
   if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Super admin access required' });
   try {
     const id = parseInt(req.params.userId);
     const { username, password, role, is_active, permissions } = req.body;
-    const targetUser = userOperations.getById(id);
+    const targetUser = await userOperations.getById(id);
     if (!targetUser) return res.status(404).json({ error: 'User not found' });
     if (targetUser.role === 'super_admin') return res.status(403).json({ error: 'Cannot modify super admin accounts' });
     if (role === 'super_admin') return res.status(403).json({ error: 'Cannot assign super admin role' });
-    const updated = userOperations.update(id, { username, password, role, customRoleId: null, is_active,
+    const updated = await userOperations.update(id, { username, password, role, customRoleId: null, is_active,
       permissions: Array.isArray(permissions) ? permissions : null });
     if (!is_active || password) {
       for (const [token, sess] of sessions.entries()) {
@@ -2959,43 +2959,43 @@ app.put('/orgs/:orgId/users/:userId', requireAuth, (req, res) => {
 });
 
 // DELETE /orgs/:orgId/users/:userId — super_admin only
-app.delete('/orgs/:orgId/users/:userId', requireAuth, (req, res) => {
+app.delete('/orgs/:orgId/users/:userId', requireAuth, async (req, res) => {
   if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Super admin access required' });
   try {
     const id = parseInt(req.params.userId);
-    const targetUser = userOperations.getById(id);
+    const targetUser = await userOperations.getById(id);
     if (!targetUser) return res.status(404).json({ error: 'User not found' });
     if (targetUser.role === 'super_admin') return res.status(403).json({ error: 'Super admin accounts cannot be deleted' });
     for (const [token, sess] of sessions.entries()) {
       if (sess.userId === id) sessions.delete(token);
     }
-    userOperations.delete(id);
+    await userOperations.delete(id);
     res.json({ message: 'User deleted' });
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 // POST /auth/login
-app.post('/auth/login', (req, res) => {
+app.post('/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password required' });
     }
-    const user = userOperations.getByUsername(username);
+    const user = await userOperations.getByUsername(username);
     if (!user) {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
     if (!user.is_active) {
       return res.status(401).json({ error: 'Account is disabled' });
     }
-    const valid = userOperations.verifyPassword(password, user.password_hash, user.salt);
+    const valid = await userOperations.verifyPassword(password, user.password_hash, user.salt);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
     let permissions = null;
     let customRoleName = null;
     if (user.role === 'custom' && user.custom_role_id) {
-      const cr = customRoleOperations.getById(user.custom_role_id);
+      const cr = await customRoleOperations.getById(user.custom_role_id);
       if (cr) {
         permissions = JSON.parse(cr.permissions || '[]');
         customRoleName = cr.name;
@@ -3021,14 +3021,14 @@ app.post('/auth/login', (req, res) => {
 });
 
 // POST /auth/logout
-app.post('/auth/logout', (req, res) => {
+app.post('/auth/logout', async (req, res) => {
   const token = req.headers['x-auth-token'];
   if (token) sessions.delete(token);
   res.json({ message: 'Logged out' });
 });
 
 // GET /auth/me  — validate stored token
-app.get('/auth/me', (req, res) => {
+app.get('/auth/me', async (req, res) => {
   const token = req.headers['x-auth-token'];
   if (!token || !sessions.has(token)) {
     return res.status(401).json({ error: 'Not authenticated' });
@@ -3040,9 +3040,9 @@ app.get('/auth/me', (req, res) => {
 });
 
 // GET /auth/team — any authenticated user can see the team list
-app.get('/auth/team', requireAuth, (req, res) => {
+app.get('/auth/team', requireAuth, async (req, res) => {
   try {
-    const users = userOperations.getAll(req.session.orgId).map(u => ({
+    const users = await userOperations.getAll(req.session.orgId).map(u => ({
       id: u.id,
       username: u.username,
       role: u.role,
@@ -3056,16 +3056,16 @@ app.get('/auth/team', requireAuth, (req, res) => {
 });
 
 // GET /auth/users (admin only)
-app.get('/auth/users', requireAdmin, (req, res) => {
+app.get('/auth/users', requireAdmin, async (req, res) => {
   try {
-    res.json(userOperations.getAll(req.session.orgId));
+    res.json(await userOperations.getAll(req.session.orgId));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // POST /auth/users (admin only)
-app.post('/auth/users', requireAdmin, (req, res) => {
+app.post('/auth/users', requireAdmin, async (req, res) => {
   try {
     const { username, password, role, customRoleId } = req.body;
     if (!username || !password) {
@@ -3086,20 +3086,20 @@ app.post('/auth/users', requireAdmin, (req, res) => {
       return res.status(400).json({ error: 'Custom role ID required for custom role users' });
     }
     // Enforce user seat limit
-    const limitVal = settingsOperations.get('user_limit');
+    const limitVal = await settingsOperations.get('user_limit');
     const limit = parseInt(limitVal || '0');
     if (limit > 0) {
-      const currentCount = userOperations.getAll(req.session.orgId).filter(u => u.role !== 'super_admin').length;
+      const currentCount = await userOperations.getAll(req.session.orgId).filter(u => u.role !== 'super_admin').length;
       if (currentCount >= limit) {
         return res.status(403).json({ error: `User limit of ${limit} reached. Increase the seat limit to add more users.` });
       }
     }
     // Check existing
-    const existing = userOperations.getByUsername(username);
+    const existing = await userOperations.getByUsername(username);
     if (existing) {
       return res.status(409).json({ error: 'Username already exists' });
     }
-    const user = userOperations.create({ username, password, role, customRoleId: customRoleId || null, createdBy: req.session.userId }, req.session.orgId);
+    const user = await userOperations.create({ username, password, role, customRoleId: customRoleId || null, createdBy: req.session.userId }, req.session.orgId);
     res.status(201).json(user);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -3107,13 +3107,13 @@ app.post('/auth/users', requireAdmin, (req, res) => {
 });
 
 // PUT /auth/users/:id (admin only)
-app.put('/auth/users/:id', requireAdmin, (req, res) => {
+app.put('/auth/users/:id', requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { username, password, role, customRoleId, is_active } = req.body;
     const callerRole = req.session.role;
     // Prevent changing a super_admin's role
-    const targetUser = userOperations.getById(id);
+    const targetUser = await userOperations.getById(id);
     if (targetUser && targetUser.role === 'super_admin' && callerRole !== 'super_admin') {
       return res.status(403).json({ error: 'Cannot modify super admin accounts' });
     }
@@ -3124,7 +3124,7 @@ app.put('/auth/users/:id', requireAdmin, (req, res) => {
     if (id === req.session.userId && is_active === false) {
       return res.status(400).json({ error: 'You cannot disable your own account' });
     }
-    const updated = userOperations.update(id, { username, password, role, customRoleId: customRoleId || null, is_active });
+    const updated = await userOperations.update(id, { username, password, role, customRoleId: customRoleId || null, is_active });
     // Invalidate sessions for this user if deactivated or password changed
     if (!is_active || password) {
       for (const [token, sess] of sessions.entries()) {
@@ -3138,14 +3138,14 @@ app.put('/auth/users/:id', requireAdmin, (req, res) => {
 });
 
 // DELETE /auth/users/:id (admin only)
-app.delete('/auth/users/:id', requireAdmin, (req, res) => {
+app.delete('/auth/users/:id', requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (id === req.session.userId) {
       return res.status(400).json({ error: 'You cannot delete your own account' });
     }
     // Block deletion of super_admin accounts from the frontend
-    const targetUser = userOperations.getById(id);
+    const targetUser = await userOperations.getById(id);
     if (targetUser && targetUser.role === 'super_admin') {
       return res.status(403).json({ error: 'Super admin accounts cannot be deleted from the frontend' });
     }
@@ -3153,7 +3153,7 @@ app.delete('/auth/users/:id', requireAdmin, (req, res) => {
     for (const [token, sess] of sessions.entries()) {
       if (sess.userId === id) sessions.delete(token);
     }
-    userOperations.delete(id);
+    await userOperations.delete(id);
     res.json({ message: 'User deleted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -3163,22 +3163,22 @@ app.delete('/auth/users/:id', requireAdmin, (req, res) => {
 // ─── Custom Roles endpoints (super_admin only for write, requireAdmin for read) ─
 
 // GET /auth/roles
-app.get('/auth/roles', requireAdmin, (req, res) => {
+app.get('/auth/roles', requireAdmin, async (req, res) => {
   try {
-    res.json(customRoleOperations.getAll(req.session.orgId));
+    res.json(await customRoleOperations.getAll(req.session.orgId));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // POST /auth/roles
-app.post('/auth/roles', requireSuperAdmin, (req, res) => {
+app.post('/auth/roles', requireSuperAdmin, async (req, res) => {
   try {
     const { name, permissions } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Role name is required' });
     }
-    const role = customRoleOperations.create({ name: name.trim(), permissions: permissions || [], createdBy: req.session.userId }, req.session.orgId);
+    const role = await customRoleOperations.create({ name: name.trim(), permissions: permissions || [], createdBy: req.session.userId }, req.session.orgId);
     res.status(201).json(role);
   } catch (error) {
     if (error.message && error.message.includes('UNIQUE')) {
@@ -3189,16 +3189,16 @@ app.post('/auth/roles', requireSuperAdmin, (req, res) => {
 });
 
 // PUT /auth/roles/:id
-app.put('/auth/roles/:id', requireSuperAdmin, (req, res) => {
+app.put('/auth/roles/:id', requireSuperAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { name, permissions } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Role name is required' });
     }
-    const existing = customRoleOperations.getById(id);
+    const existing = await customRoleOperations.getById(id);
     if (!existing) return res.status(404).json({ error: 'Role not found' });
-    const updated = customRoleOperations.update(id, { name: name.trim(), permissions: permissions || [] });
+    const updated = await customRoleOperations.update(id, { name: name.trim(), permissions: permissions || [] });
     res.json(updated);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -3206,12 +3206,12 @@ app.put('/auth/roles/:id', requireSuperAdmin, (req, res) => {
 });
 
 // DELETE /auth/roles/:id
-app.delete('/auth/roles/:id', requireSuperAdmin, (req, res) => {
+app.delete('/auth/roles/:id', requireSuperAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const existing = customRoleOperations.getById(id);
+    const existing = await customRoleOperations.getById(id);
     if (!existing) return res.status(404).json({ error: 'Role not found' });
-    customRoleOperations.delete(id);
+    await customRoleOperations.delete(id);
     res.json({ message: 'Role deleted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -3221,12 +3221,12 @@ app.delete('/auth/roles/:id', requireSuperAdmin, (req, res) => {
 // ─── Settings endpoints ───────────────────────────────────────────────────
 
 // GET /auth/settings  – any admin/super_admin can read
-app.get('/auth/settings', requireAdmin, (req, res) => {
+app.get('/auth/settings', requireAdmin, async (req, res) => {
   try {
-    const settings = settingsOperations.getAll();
+    const settings = await settingsOperations.getAll();
     // Override user_limit with the org's max_users (per-org limit takes precedence)
     const orgId = req.session?.orgId || 1;
-    const org = organizationOperations.getById(orgId);
+    const org = await organizationOperations.getById(orgId);
     if (org && org.max_users != null) {
       settings.user_limit = String(org.max_users);
     }
@@ -3237,7 +3237,7 @@ app.get('/auth/settings', requireAdmin, (req, res) => {
 });
 
 // PUT /auth/settings  – super_admin only
-app.put('/auth/settings', requireSuperAdmin, (req, res) => {
+app.put('/auth/settings', requireSuperAdmin, async (req, res) => {
   try {
     const { user_limit } = req.body;
     if (user_limit !== undefined) {
@@ -3245,12 +3245,12 @@ app.put('/auth/settings', requireSuperAdmin, (req, res) => {
       if (isNaN(val) || val < 0) {
         return res.status(400).json({ error: 'user_limit must be a non-negative integer (0 = unlimited)' });
       }
-      settingsOperations.set('user_limit', val);
+      await settingsOperations.set('user_limit', val);
       // Also update the org's max_users so it stays in sync
       const orgId = req.session?.orgId || 1;
-      const org = organizationOperations.getById(orgId);
+      const org = await organizationOperations.getById(orgId);
       if (org) {
-        organizationOperations.update(orgId, {
+        await organizationOperations.update(orgId, {
           name: org.name, plan: org.plan, is_active: org.is_active,
           maxUsers: val === 0 ? null : val,
           pocName: org.poc_name, pocEmail: org.poc_email,
@@ -3259,9 +3259,9 @@ app.put('/auth/settings', requireSuperAdmin, (req, res) => {
       }
     }
     // Return with org-specific user_limit
-    const settings = settingsOperations.getAll();
+    const settings = await settingsOperations.getAll();
     const orgId = req.session?.orgId || 1;
-    const org = organizationOperations.getById(orgId);
+    const org = await organizationOperations.getById(orgId);
     if (org && org.max_users != null) {
       settings.user_limit = String(org.max_users);
     }
@@ -3274,18 +3274,18 @@ app.put('/auth/settings', requireSuperAdmin, (req, res) => {
 // ─── Wiki endpoints (all require auth) ────────────────────────────────────
 
 // GET /wiki/pages  – list all pages (no content, just metadata)
-app.get('/wiki/pages', requireAuth, (req, res) => {
+app.get('/wiki/pages', requireAuth, async (req, res) => {
   try {
-    res.json(wikiOperations.getAll(req.session.orgId));
+    res.json(await wikiOperations.getAll(req.session.orgId));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // GET /wiki/pages/:id  – get single page with full content
-app.get('/wiki/pages/:id', requireAuth, (req, res) => {
+app.get('/wiki/pages/:id', requireAuth, async (req, res) => {
   try {
-    const page = wikiOperations.getById(parseInt(req.params.id));
+    const page = await wikiOperations.getById(parseInt(req.params.id));
     if (!page) return res.status(404).json({ error: 'Page not found' });
     res.json(page);
   } catch (err) {
@@ -3294,11 +3294,11 @@ app.get('/wiki/pages/:id', requireAuth, (req, res) => {
 });
 
 // POST /wiki/pages  – create page
-app.post('/wiki/pages', requireAuth, (req, res) => {
+app.post('/wiki/pages', requireAuth, async (req, res) => {
   try {
     const { title, content, parentId } = req.body;
     if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
-    const page = wikiOperations.create({
+    const page = await wikiOperations.create({
       title: title.trim(),
       content: content || '',
       parentId: parentId || null,
@@ -3311,13 +3311,13 @@ app.post('/wiki/pages', requireAuth, (req, res) => {
 });
 
 // PUT /wiki/pages/:id  – update page
-app.put('/wiki/pages/:id', requireAuth, (req, res) => {
+app.put('/wiki/pages/:id', requireAuth, async (req, res) => {
   try {
     const { title, content } = req.body;
     if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
-    const existing = wikiOperations.getById(parseInt(req.params.id));
+    const existing = await wikiOperations.getById(parseInt(req.params.id));
     if (!existing) return res.status(404).json({ error: 'Page not found' });
-    const page = wikiOperations.update(parseInt(req.params.id), {
+    const page = await wikiOperations.update(parseInt(req.params.id), {
       title: title.trim(),
       content: content !== undefined ? content : existing.content
     });
@@ -3328,11 +3328,11 @@ app.put('/wiki/pages/:id', requireAuth, (req, res) => {
 });
 
 // DELETE /wiki/pages/:id  – delete page (cascades to children)
-app.delete('/wiki/pages/:id', requireAuth, (req, res) => {
+app.delete('/wiki/pages/:id', requireAuth, async (req, res) => {
   try {
-    const existing = wikiOperations.getById(parseInt(req.params.id));
+    const existing = await wikiOperations.getById(parseInt(req.params.id));
     if (!existing) return res.status(404).json({ error: 'Page not found' });
-    wikiOperations.delete(parseInt(req.params.id));
+    await wikiOperations.delete(parseInt(req.params.id));
     res.json({ message: 'Page deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3340,7 +3340,7 @@ app.delete('/wiki/pages/:id', requireAuth, (req, res) => {
 });
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
   res.json({ status: 'ok' });
 });
 
