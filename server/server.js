@@ -3223,7 +3223,14 @@ app.delete('/auth/roles/:id', requireSuperAdmin, (req, res) => {
 // GET /auth/settings  – any admin/super_admin can read
 app.get('/auth/settings', requireAdmin, (req, res) => {
   try {
-    res.json(settingsOperations.getAll());
+    const settings = settingsOperations.getAll();
+    // Override user_limit with the org's max_users (per-org limit takes precedence)
+    const orgId = req.session?.orgId || 1;
+    const org = organizationOperations.getById(orgId);
+    if (org && org.max_users != null) {
+      settings.user_limit = String(org.max_users);
+    }
+    res.json(settings);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3239,8 +3246,26 @@ app.put('/auth/settings', requireSuperAdmin, (req, res) => {
         return res.status(400).json({ error: 'user_limit must be a non-negative integer (0 = unlimited)' });
       }
       settingsOperations.set('user_limit', val);
+      // Also update the org's max_users so it stays in sync
+      const orgId = req.session?.orgId || 1;
+      const org = organizationOperations.getById(orgId);
+      if (org) {
+        organizationOperations.update(orgId, {
+          name: org.name, plan: org.plan, is_active: org.is_active,
+          maxUsers: val === 0 ? null : val,
+          pocName: org.poc_name, pocEmail: org.poc_email,
+          aiHealingEnabled: org.ai_healing_enabled, openaiApiKey: null
+        });
+      }
     }
-    res.json(settingsOperations.getAll());
+    // Return with org-specific user_limit
+    const settings = settingsOperations.getAll();
+    const orgId = req.session?.orgId || 1;
+    const org = organizationOperations.getById(orgId);
+    if (org && org.max_users != null) {
+      settings.user_limit = String(org.max_users);
+    }
+    res.json(settings);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
