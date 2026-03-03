@@ -671,7 +671,7 @@ function App({ orgSlug = 'default' }) {
         status: 'trace',
         message: data.logs || 'Trace run completed.',
         trace_url: data.trace_path
-          ? `https://trace.playwright.dev/?trace=${API_URL || window.location.origin}/reports/${data.trace_path}`
+          ? `https://trace.playwright.dev/?trace=${(API_URL && API_URL.startsWith('http') ? API_URL : window.location.origin)}/reports/${data.trace_path}`
           : null,
         screenshot: null,
       });
