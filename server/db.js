@@ -1,9 +1,14 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
+
+// Use DATA_DIR env var if set (Railway Volume mount point), otherwise co-locate with server
+const dataDir = process.env.DATA_DIR || __dirname;
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 // Initialize database
-const db = new Database(path.join(__dirname, 'playwright-cloud.db'));
+const db = new Database(path.join(dataDir, 'playwright-cloud.db'));
 
 // ─── Organizations (tenants) ──────────────────────────────────────────────────
 db.exec(`

@@ -58,7 +58,9 @@ function killDebugSession() {
 }
 
 // Create reports directory if it doesn't exist
-const reportsDir = path.join(__dirname, 'reports');
+// Use DATA_DIR env var if set (Railway Volume), otherwise co-locate with server
+const dataDir = process.env.DATA_DIR || __dirname;
+const reportsDir = path.join(dataDir, 'reports');
 fs.mkdir(reportsDir, { recursive: true }).catch(console.error);
 
 app.use(cors());
@@ -549,7 +551,7 @@ app.post('/run-test', async (req, res) => {
     });
   }
 
-  const tempDir = path.join(__dirname, 'temp', `test-${Date.now()}`);
+  const tempDir = path.join(dataDir, 'temp', `test-${Date.now()}`);
   const startTime = Date.now();
   let dependencyHeader = '';
   // Hoisted so the AI healer block in catch() can access them
@@ -1558,7 +1560,7 @@ app.post('/run-suite/:suiteId', async (req, res) => {
       let tempDir = null;
       try {
         // Create temp directory
-        tempDir = path.join(__dirname, 'temp', `suite-${Date.now()}`);
+        tempDir = path.join(dataDir, 'temp', `suite-${Date.now()}`);
         await fs.mkdir(tempDir, { recursive: true });
         pushLog(suiteExecutionId, `⚙  Suite execution #${suiteExecutionId} started — ${suiteTestFiles.length} test file(s)`);
 
