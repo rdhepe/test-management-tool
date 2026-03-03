@@ -377,6 +377,8 @@ const TENANT_TABLES = [
 ];
 try {
   for (const table of TENANT_TABLES) {
+    const exists = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(table);
+    if (!exists) continue; // table not created yet; its CREATE TABLE already includes org_id
     const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
     if (!cols.includes('org_id')) {
       // SQLite doesn't allow ADD COLUMN with REFERENCES + NOT NULL + DEFAULT in one step,
@@ -1484,15 +1486,12 @@ try {
 
 // ===== Users Table (with extended role support) =====
 try {
-  const columns = db.prepare('PRAGMA table_info(users)').all();
-  const schemaRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
-  const hasRestrictiveCheck = schemaRow && schemaRow.sql && schemaRow.sql.includes("CHECK(role IN ('admin'");
-  const hasCustomRoleId = columns.some(c => c.name === 'custom_role_id');
+  const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
 
-  if (hasRestrictiveCheck || !hasCustomRoleId) {
-    // Recreate users table: remove restrictive CHECK, add custom_role_id
+  if (!tableExists) {
+    // Fresh install: create with all columns upfront
     db.exec(`
-      CREATE TABLE IF NOT EXISTS users_v2 (
+      CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
@@ -1501,19 +1500,39 @@ try {
         custom_role_id INTEGER,
         created_by INTEGER,
         is_active INTEGER DEFAULT 1,
+        permissions TEXT DEFAULT NULL,
+        org_id INTEGER NOT NULL DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    const colNames = columns.map(c => c.name);
-    const selectCols = colNames.includes('custom_role_id')
-      ? colNames.join(', ')
-      : colNames.map(c => c === 'created_at' ? 'created_at' : c).join(', ') + ', NULL as custom_role_id_placeholder';
-    // Simple copy: existing columns + NULL for custom_role_id
-    const existingCols = colNames.join(', ');
-    db.exec(`INSERT OR IGNORE INTO users_v2 (id, username, password_hash, salt, role, created_by, is_active, created_at) SELECT id, username, password_hash, salt, role, created_by, is_active, created_at FROM users`);
-    db.exec('DROP TABLE users');
-    db.exec('ALTER TABLE users_v2 RENAME TO users');
-    console.log('Migrated users table to support extended roles (super_admin, custom)');
+    console.log('Created users table');
+  } else {
+    const columns = db.prepare('PRAGMA table_info(users)').all();
+    const schemaRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
+    const hasRestrictiveCheck = schemaRow && schemaRow.sql && schemaRow.sql.includes("CHECK(role IN ('admin'");
+    const hasCustomRoleId = columns.some(c => c.name === 'custom_role_id');
+
+    if (hasRestrictiveCheck || !hasCustomRoleId) {
+      // Recreate users table: remove restrictive CHECK, add custom_role_id
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS users_v2 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          salt TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'contributor',
+          custom_role_id INTEGER,
+          created_by INTEGER,
+          is_active INTEGER DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      const colNames = columns.map(c => c.name);
+      db.exec(`INSERT OR IGNORE INTO users_v2 (id, username, password_hash, salt, role, created_by, is_active, created_at) SELECT id, username, password_hash, salt, role, created_by, is_active, created_at FROM users`);
+      db.exec('DROP TABLE users');
+      db.exec('ALTER TABLE users_v2 RENAME TO users');
+      console.log('Migrated users table to support extended roles (super_admin, custom)');
+    }
   }
 } catch (error) {
   console.error('Migration error for users table:', error);
@@ -1679,6 +1698,7 @@ db.exec(`
     parent_id INTEGER REFERENCES wiki_pages(id) ON DELETE CASCADE,
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_by TEXT,
+    org_id INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
