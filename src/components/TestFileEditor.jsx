@@ -233,47 +233,34 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
             )}
           </button>
 
-          {/* Debug / Stop Debug Button */}
-          {debugActive ? (
-            <button
-              onClick={handleStopDebug}
-              className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center space-x-2 bg-red-600 text-white hover:bg-red-500"
-              title="Kill the Playwright Inspector and stop the debug session"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              <span>Stop Debug</span>
-            </button>
-          ) : (
-            <button
-              onClick={handleDebug}
-              disabled={executionStatus === 'running'}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center space-x-2 ${
-                executionStatus === 'running'
-                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                  : 'bg-amber-600 text-white hover:bg-amber-500'
-              }`}
-              title="Open Playwright Inspector for step-by-step debugging"
-            >
-              {executionStatus === 'running' ? (
-                <>
-                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span>Launching...</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>Debug</span>
-                </>
-              )}
-            </button>
-          )}
+          {/* Trace Run Button */}
+          <button
+            onClick={handleDebug}
+            disabled={executionStatus === 'running'}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center space-x-2 ${
+              executionStatus === 'running'
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                : 'bg-amber-600 text-white hover:bg-amber-500'
+            }`}
+            title="Run test with full Playwright trace recording — view step-by-step in the browser"
+          >
+            {executionStatus === 'running' ? (
+              <>
+                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Tracing...</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <span>Trace</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
 
@@ -411,12 +398,27 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
                 ) : executionStatus === 'completed' && executionResult ? (
                   <div>
                     {/* Status Header */}
-                    {executionResult.status?.toLowerCase() === 'debug' ? (
-                      <div className="flex items-center space-x-2 mb-3 text-blue-400">
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span className="font-semibold">Debug Session Active</span>
+                    {executionResult.status?.toLowerCase() === 'trace' ? (
+                      <div className="mb-3 space-y-2">
+                        <div className="flex items-center space-x-2 text-amber-400">
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                          <span className="font-semibold">Trace Recorded</span>
+                        </div>
+                        {executionResult.trace_url && (
+                          <a
+                            href={executionResult.trace_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center space-x-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium rounded-lg transition-colors"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                            <span>View Trace in Browser</span>
+                          </a>
+                        )}
                       </div>
                     ) : (
                       <div className={`flex items-center space-x-2 mb-3 ${executionResult.status?.toLowerCase() === 'pass' ? 'text-green-400' : 'text-red-400'}`}>
@@ -486,8 +488,8 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
                     {/* Console / Error Output */}
                     {(executionResult.message || executionResult.console_output) && (
                       <pre className={`whitespace-pre-wrap ${
-                        executionResult.status?.toLowerCase() === 'debug'
-                          ? 'text-blue-300'
+                        executionResult.status?.toLowerCase() === 'trace'
+                          ? 'text-amber-300'
                           : executionResult.status?.toLowerCase() === 'pass'
                           ? 'text-slate-300'
                           : 'text-red-300'

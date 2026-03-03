@@ -625,8 +625,6 @@ function App({ orgSlug = 'default' }) {
   const handleDebug = async () => {
     if (!selectedTestFile || !selectedModule) return;
 
-    // Lock UI immediately so the user can't click again while the Inspector is launching
-    setDebugActive(true);
     setExecutionStatus('running');
     setExecutionResult(null);
 
@@ -668,15 +666,16 @@ function App({ orgSlug = 'default' }) {
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
       const data = await response.json();
-      // Keep debugActive=true — UI stays locked until user clicks Stop Debug
       setExecutionStatus('completed');
       setExecutionResult({
-        status: 'debug',
-        message: data.logs || 'Debug session started.',
+        status: 'trace',
+        message: data.logs || 'Trace run completed.',
+        trace_url: data.trace_path
+          ? `https://trace.playwright.dev/?trace=${API_URL}/reports/${data.trace_path}`
+          : null,
         screenshot: null,
       });
     } catch (error) {
-      setDebugActive(false);
       setExecutionStatus('completed');
       setExecutionResult({
         status: 'fail',
@@ -686,12 +685,8 @@ function App({ orgSlug = 'default' }) {
   };
 
   const handleStopDebug = async () => {
-    try {
-      await fetch(`${API_URL}/stop-debug`, { method: 'POST' });
-    } catch {}
+    // No-op: trace mode runs synchronously, no process to kill
     setDebugActive(false);
-    setExecutionStatus(null);
-    setExecutionResult(null);
   };
 
   const canAccess = (view) => {

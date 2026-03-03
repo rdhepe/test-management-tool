@@ -672,6 +672,7 @@ export default defineConfig({
     headless: ${FORCE_HEADLESS},
     slowMo: ${FORCE_HEADLESS ? 0 : 500},
     screenshot: '${screenshotMode}',
+    trace: '${debug ? 'on' : 'off'}',
   },
   reporter: [
     ['list'],
@@ -692,36 +693,51 @@ export default defineConfig({
     const configFilePath = path.join(tempDir, 'playwright.config.ts');
     await fs.writeFile(configFilePath, configContent, 'utf8');
 
-    // Debug mode: launch Playwright Inspector (fire-and-forget – user drives step-by-step)
+    // Trace mode: run headless with full Playwright trace recording
     if (debug) {
-      // Kill any lingering debug session (full process tree on Windows)
-      killDebugSession();
+      let traceStdout = '', traceStderr = '';
+      try {
+        const traceResult = await execAsync('npx playwright test', {
+          cwd: tempDir,
+          timeout: 120000,
+          env: { ...process.env, ...globalVarsEnv, NODE_PATH: nodePathEnv },
+        });
+        traceStdout = traceResult.stdout || '';
+        traceStderr = traceResult.stderr || '';
+      } catch (traceErr) {
+        // Test may fail — still capture output and collect trace
+        traceStdout = traceErr.stdout || '';
+        traceStderr = traceErr.stderr || '';
+      }
 
-      // shell:true is required on Windows for npx; windowsHide:true suppresses the cmd console
-      // flash without breaking the Playwright Inspector / browser GUI windows.
-      const debugProc = spawn('npx', ['playwright', 'test', '--debug', '--headed', '--timeout', '0'], {
-        cwd: tempDir,
-        shell: true,
-        stdio: 'ignore',
-        windowsHide: true,
-        env: { ...process.env, ...globalVarsEnv, PWDEBUG: '1', NODE_PATH: nodePathEnv },
-      });
-      debugProc.on('close', () => { activeDebugProcess = null; });
-      debugProc.on('error', () => { activeDebugProcess = null; });
-      activeDebugProcess = debugProc;
+      const traceLogs = [traceStdout, traceStderr].filter(s => s && s.trim()).join('\n').trim()
+        || 'Trace run completed.';
+
+      // Find trace.zip produced by Playwright and copy to persistent reports directory
+      let tracePath = null;
+      try {
+        const testResultsDir = path.join(tempDir, 'test-results');
+        await fs.access(testResultsDir);
+        const dirs = await fs.readdir(testResultsDir);
+        for (const d of dirs) {
+          const candidate = path.join(testResultsDir, d, 'trace.zip');
+          try {
+            await fs.access(candidate);
+            const traceFolderName = `trace-${Date.now()}`;
+            const traceDestDir = path.join(reportsDir, traceFolderName);
+            await fs.mkdir(traceDestDir, { recursive: true });
+            await fs.copyFile(candidate, path.join(traceDestDir, 'trace.zip'));
+            tracePath = `${traceFolderName}/trace.zip`;
+            break;
+          } catch {}
+        }
+      } catch {}
 
       return res.json({
         success: true,
-        debug: true,
-        logs:
-          '🐛 Debug session started.\n\n' +
-          'The Playwright Inspector is opening alongside the browser.\n\n' +
-          'Use the Inspector window to:\n' +
-          '  • Step through each action one by one\n' +
-          '  • Pause / Resume execution\n' +
-          '  • Inspect locators and DOM elements\n' +
-          '  • View the action log in real time\n\n' +
-          'Close the Inspector or the browser window to end the debug session.',
+        trace: true,
+        logs: traceLogs,
+        trace_path: tracePath,
       });
     }
 
