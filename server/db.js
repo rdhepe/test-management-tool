@@ -1915,7 +1915,7 @@ const organizationOperations = {
 
   getById: (id) => db.prepare('SELECT * FROM organizations WHERE id = ?').get(id),
 
-  getBySlug: (slug) => db.prepare('SELECT * FROM organizations WHERE slug = ?').get(slug),
+  getBySlug: (slug) => db.prepare('SELECT * FROM organizations WHERE LOWER(slug) = LOWER(?)').get(slug),
 
   create: ({ name, slug, plan = 'free', maxUsers = null, pocName = null, pocEmail = null, aiHealingEnabled = 0, openaiApiKey = null }) => {
     const result = db.prepare(

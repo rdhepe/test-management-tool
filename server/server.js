@@ -2853,7 +2853,7 @@ app.post('/auth/register-org', (req, res) => {
 // ─── Public org endpoint (no auth needed) ───────────────────────────────────
 app.get('/public/org/:slug', (req, res) => {
   try {
-    const org = organizationOperations.getBySlug(req.params.slug);
+    const org = organizationOperations.getBySlug(req.params.slug.toLowerCase());
     if (!org) return res.status(404).json({ error: 'Organization not found' });
     res.json({ id: org.id, name: org.name, slug: org.slug, plan: org.plan });
   } catch (error) {

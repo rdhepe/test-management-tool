@@ -9,8 +9,9 @@ import './index.css'
 function OrgEntry() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
+  const lowerSlug = slug?.toLowerCase();
   if (searchParams.get('view') === 'sprint') return <SprintDetailPage />;
-  return <App orgSlug={slug} />;
+  return <App orgSlug={lowerSlug} />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
