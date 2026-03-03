@@ -15,6 +15,4 @@ RUN npm rebuild better-sqlite3 --prefix server
 COPY . .
 RUN npm run build
 
-EXPOSE 3001
-
 CMD ["node", "server/server.js"]
