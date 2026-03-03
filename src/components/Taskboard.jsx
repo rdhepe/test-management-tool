@@ -189,7 +189,8 @@ export default function Taskboard({ currentUser }) {
         body: JSON.stringify({ content: commentText.trim() }),
       });
       if (res.ok) {
-        setTaskComments(prev => [...prev, await res.json()]);
+        const newComment = await res.json();
+        setTaskComments(prev => [...prev, newComment]);
         setCommentText('');
       }
     } finally { setSubmittingComment(false); }
