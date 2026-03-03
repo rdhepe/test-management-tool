@@ -11,6 +11,7 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
   const [copied, setCopied] = useState(false);
   const [isEditRequirementModalOpen, setIsEditRequirementModalOpen] = useState(false);
   const panelRef = useRef(null);
+  const editorRef = useRef(null);
   
   // Configure Monaco Editor to disable TypeScript errors
   useEffect(() => {
@@ -280,9 +281,11 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
       <div className="flex-1 overflow-hidden" style={{ height: isPanelOpen ? `calc(100% - ${panelHeight}px - 52px)` : 'calc(100% - 52px)' }}>
         <Editor
           height="100%"
+          key={testFile.id}
           defaultLanguage="javascript"
           defaultValue={testFile.content || ''}
           theme="vs-dark"
+          onMount={(editor) => { editorRef.current = editor; }}
           options={{
             minimap: { enabled: false },
             fontSize: 14,
@@ -461,7 +464,13 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
                           )}
                           {executionResult.fixedCode && onContentChange && (
                             <button
-                              onClick={() => onContentChange(testFile.id, executionResult.fixedCode)}
+                              onClick={() => {
+                                if (editorRef.current) {
+                                  editorRef.current.setValue(executionResult.fixedCode);
+                                }
+                                onContentChange(testFile.id, executionResult.fixedCode);
+                                setHasUnsavedChanges(true);
+                              }}
                               className="flex items-center gap-1.5 text-xs px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded font-medium transition-colors"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
