@@ -6,10 +6,8 @@ RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
-
 COPY server/package*.json ./server/
-RUN npm install --prefix server --omit=dev
+RUN npm ci
 
 # Copy everything and build the Vite frontend
 COPY . .
