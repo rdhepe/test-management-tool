@@ -259,7 +259,7 @@ function Requirements({ currentUser }) {
         headers: { 'Content-Type': 'application/json', ...(token ? { 'x-auth-token': token } : {}) },
         body: JSON.stringify({ content: commentText.trim() }),
       });
-      if (res.ok) { setReqComments(prev => [...prev, await res.json()]); setCommentText(''); }
+      if (res.ok) { const newComment = await res.json(); setReqComments(prev => [...prev, newComment]); setCommentText(''); }
     } finally { setSubmittingComment(false); }
   };
 
