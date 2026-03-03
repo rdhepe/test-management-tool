@@ -1136,13 +1136,13 @@ app.get('/test-suites', async (req, res) => {
     const suites = await testSuiteOperations.getAll(orgId);
     
     // For each suite, count the number of test files
-    const suitesWithCounts = suites.map(suite => {
+    const suitesWithCounts = await Promise.all(suites.map(async suite => {
       const testFiles = await suiteTestFileOperations.getBySuiteId(suite.id);
       return {
         ...suite,
         test_file_count: testFiles.length
       };
-    });
+    }));
     
     res.json(suitesWithCounts);
   } catch (error) {
@@ -1155,13 +1155,13 @@ app.get('/modules/:id/test-suites', async (req, res) => {
   try {
     const suites = await testSuiteOperations.getByModuleId(req.params.id);
     
-    const suitesWithCounts = suites.map(suite => {
+    const suitesWithCounts = await Promise.all(suites.map(async suite => {
       const testFiles = await suiteTestFileOperations.getBySuiteId(suite.id);
       return {
         ...suite,
         test_file_count: testFiles.length
       };
-    });
+    }));
     
     res.json(suitesWithCounts);
   } catch (error) {
@@ -1183,12 +1183,12 @@ app.post('/test-suites', async (req, res) => {
     
     // Add test files to the suite
     if (testFileIds && testFileIds.length > 0) {
-      testFileIds.forEach(testFileId => {
+      for (const testFileId of testFileIds) {
         await suiteTestFileOperations.add({
           suiteId: suite.id,
           testFileId
         });
-      });
+      }
     }
     
     res.json(suite);
@@ -1220,13 +1220,13 @@ app.post('/test-suites/:id/test-files', async (req, res) => {
     
     // Add each test file to the suite
     const addedFiles = [];
-    testFileIds.forEach(testFileId => {
+    for (const testFileId of testFileIds) {
       const result = await suiteTestFileOperations.add({
         suiteId,
         testFileId: parseInt(testFileId)
       });
       addedFiles.push(result);
-    });
+    }
     
     res.json({ success: true, added: addedFiles.length });
   } catch (error) {
@@ -1875,7 +1875,8 @@ export default defineConfig({
       console.log('✓ Suite execution updated in database, ID:', suiteExecutionId);
 
       // Save individual test results
-      testResults.forEach((testResult, index) => {
+      for (let index = 0; index < testResults.length; index++) {
+        const testResult = testResults[index];
         // Find the corresponding test file ID from the original suiteTestFiles array
         const testFileId = suiteTestFiles[index]?.test_file_id || null;
 
@@ -1890,7 +1891,7 @@ export default defineConfig({
             screenshotBase64: testResult.screenshot_base64 || null
           });
         }
-      });
+      }
 
       console.log('✓ Saved', testResults.length, 'test results to database');
       pushLog(suiteExecutionId, `\n🏁  Done — ${passed} passed, ${failed} failed`);
