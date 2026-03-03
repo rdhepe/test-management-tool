@@ -2664,8 +2664,8 @@ app.post('/sprints', async (req, res) => {
     }
     
     // Validate status if provided
-    if (status && !['Planned', 'Active', 'Completed'].includes(status)) {
-      return res.status(400).json({ error: 'Status must be one of: Planned, Active, Completed' });
+    if (status && !['Planned', 'Active', 'Completed', 'Cancelled'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be one of: Planned, Active, Completed, Cancelled' });
     }
     
     const sprint = await sprintOperations.create({
@@ -2700,8 +2700,8 @@ app.put('/sprints/:id', async (req, res) => {
     }
     
     // Validate status
-    if (status && !['Planned', 'Active', 'Completed'].includes(status)) {
-      return res.status(400).json({ error: 'Status must be one of: Planned, Active, Completed' });
+    if (status && !['Planned', 'Active', 'Completed', 'Cancelled'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be one of: Planned, Active, Completed, Cancelled' });
     }
     
     const sprint = await sprintOperations.update(id, {

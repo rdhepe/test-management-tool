@@ -157,7 +157,7 @@ async function initDB() {
       goal       TEXT,
       start_date TEXT,
       end_date   TEXT,
-      status     TEXT NOT NULL DEFAULT 'Planning' CHECK (status IN ('Planning','Active','Completed','Cancelled')),
+      status     TEXT NOT NULL DEFAULT 'Planned' CHECK (status IN ('Planned','Active','Completed','Cancelled')),
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW(),
       org_id     INTEGER NOT NULL DEFAULT 1
@@ -172,7 +172,7 @@ async function initDB() {
       sprint_id       INTEGER REFERENCES sprints(id) ON DELETE SET NULL,
       title           TEXT NOT NULL,
       description     TEXT,
-      status          TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft','Review','Approved','Rejected')),
+      status          TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft','Approved','Implemented')),
       priority        TEXT NOT NULL DEFAULT 'Medium' CHECK (priority IN ('Low','Medium','High','Critical')),
       created_at      TIMESTAMPTZ DEFAULT NOW(),
       updated_at      TIMESTAMPTZ DEFAULT NOW(),
@@ -314,6 +314,18 @@ async function initDB() {
       UNIQUE (key, org_id)
     )
   `);
+
+  // ── Schema migrations for existing tables ──────────────────────────────
+  // Fix sprints status CHECK: was ('Planning',...) but app uses 'Planned'
+  await pool.query(`ALTER TABLE sprints DROP CONSTRAINT IF EXISTS sprints_status_check`);
+  await pool.query(`ALTER TABLE sprints ALTER COLUMN status SET DEFAULT 'Planned'`);
+  await pool.query(`ALTER TABLE sprints ADD CONSTRAINT sprints_status_check CHECK (status IN ('Planned','Active','Completed','Cancelled'))`);
+  await pool.query(`UPDATE sprints SET status = 'Planned' WHERE status = 'Planning'`);
+
+  // Fix requirements status CHECK: was ('Draft','Review','Approved','Rejected') but app uses 'Implemented'
+  await pool.query(`ALTER TABLE requirements DROP CONSTRAINT IF EXISTS requirements_status_check`);
+  await pool.query(`ALTER TABLE requirements ADD CONSTRAINT requirements_status_check CHECK (status IN ('Draft','Approved','Implemented'))`);
+  await pool.query(`UPDATE requirements SET status = 'Draft' WHERE status NOT IN ('Draft','Approved','Implemented')`);
 
   await seedDefaultOrg();
   await seedDefaultUsers();
@@ -991,7 +1003,7 @@ const sprintOperations = {
     };
   },
 
-  create: async ({ name, goal, start_date, end_date, status = 'Planning' }, orgId = 1) => {
+  create: async ({ name, goal, start_date, end_date, status = 'Planned' }, orgId = 1) => {
     const r = await pool.query(
       'INSERT INTO sprints (name, goal, start_date, end_date, status, org_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
       [name, goal || null, start_date || null, end_date || null, status, orgId]
