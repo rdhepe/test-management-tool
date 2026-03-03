@@ -612,8 +612,14 @@ function TestCases({ currentUser }) {
     return grouped;
   }, [testCases, requirements]);
 
+  // Test cases not linked to any requirement
+  const unassignedTestCases = useMemo(() => {
+    const assignedIds = new Set(requirements.map(r => r.id));
+    return testCases.filter(tc => !tc.requirement_id || !assignedIds.has(tc.requirement_id));
+  }, [testCases, requirements]);
+
   const totalFilteredTestCases = useMemo(() => {
-    return requirements.reduce((total, req) => {
+    const reqCount = requirements.reduce((total, req) => {
       const reqTCs = testCasesByRequirement[req.id] || [];
       return total + reqTCs.filter(tc => {
         const matchesSearch = !searchQuery ||
@@ -625,7 +631,16 @@ function TestCases({ currentUser }) {
         return matchesSearch && matchesSprint && matchesPriority && matchesStatus;
       }).length;
     }, 0);
-  }, [requirements, testCasesByRequirement, searchQuery, sprintFilter, priorityFilter, statusFilter]);
+    const unassignedCount = unassignedTestCases.filter(tc => {
+      const matchesSearch = !searchQuery ||
+        tc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        tc.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesPriority = !priorityFilter || tc.priority === priorityFilter;
+      const matchesStatus = !statusFilter || tc.status === statusFilter;
+      return matchesSearch && matchesPriority && matchesStatus;
+    }).length;
+    return reqCount + unassignedCount;
+  }, [requirements, testCasesByRequirement, unassignedTestCases, searchQuery, sprintFilter, priorityFilter, statusFilter]);
 
   // Latest run per test case (for Execution Status tab)
   const latestRunByTestCase = useMemo(() => {
@@ -1305,6 +1320,99 @@ function TestCases({ currentUser }) {
             );
           })
         )}
+        {/* ── Unassigned Test Cases Group ── */}
+        {(() => {
+          const filteredUnassigned = unassignedTestCases.filter(tc => {
+            const matchesSearch = !searchQuery ||
+              tc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              tc.description?.toLowerCase().includes(searchQuery.toLowerCase());
+            const matchesPriority = !priorityFilter || tc.priority === priorityFilter;
+            const matchesStatus = !statusFilter || tc.status === statusFilter;
+            return matchesSearch && matchesPriority && matchesStatus;
+          });
+          const isFiltering = !!(searchQuery || priorityFilter || statusFilter);
+          if (filteredUnassigned.length === 0 && (isFiltering || unassignedTestCases.length === 0)) return null;
+          const isExpanded = expandedRequirements['__unassigned__'] !== false;
+          return (
+            <div className="bg-slate-800 rounded-lg overflow-hidden border border-slate-600 border-dashed">
+              <div
+                className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-750 transition-colors"
+                onClick={() => setExpandedRequirements(prev => ({ ...prev, '__unassigned__': !isExpanded }))}
+              >
+                <div className="flex items-center gap-4 flex-1">
+                  <button className="p-1 rounded transition-transform duration-200 text-slate-400" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  </button>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-lg font-semibold text-slate-400">Unassigned</h3>
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-slate-700 text-slate-300">
+                        {unassignedTestCases.length} {unassignedTestCases.length === 1 ? 'Test Case' : 'Test Cases'}
+                      </span>
+                    </div>
+                    <p className="text-sm mt-1 text-slate-500">Test cases not linked to any requirement</p>
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleCreateNew(); }}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  Add
+                </button>
+              </div>
+              {isExpanded && (
+                <div className="border-t border-slate-700">
+                  {filteredUnassigned.length === 0 ? (
+                    <div className="p-8 text-center text-slate-500 text-sm">No test cases match the current filters</div>
+                  ) : (
+                    <table className="w-full">
+                      <thead className="bg-slate-900 border-b border-slate-700">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">ID</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Title</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Type</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Priority</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Steps</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700">
+                        {filteredUnassigned.map(tc => (
+                          <tr key={tc.id} className="hover:bg-slate-700/40 transition-colors">
+                            <td className="px-4 py-3"><span className="text-xs font-mono px-2 py-1 rounded bg-slate-900 text-slate-400">#{tc.id}</span></td>
+                            <td className="px-4 py-3">
+                              <div className="text-sm font-medium text-white">{tc.title}</div>
+                              {tc.description && <div className="text-xs text-slate-400 truncate max-w-xs mt-0.5">{tc.description}</div>}
+                            </td>
+                            <td className="px-4 py-3"><span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getTypeBadgeColor(tc.type)}`}>{tc.type}</span></td>
+                            <td className="px-4 py-3"><span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getPriorityBadgeColor(tc.priority)}`}>{tc.priority}</span></td>
+                            <td className="px-4 py-3"><span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getStatusBadgeColor(tc.status)}`}>{tc.status}</span></td>
+                            <td className="px-4 py-3"><span className="text-xs text-indigo-400">{getStepCount(tc.test_steps)} steps</span></td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => handleViewDetails(tc)} className="p-2 rounded-lg hover:bg-blue-500/10 text-blue-400 transition-colors" title="View">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                </button>
+                                <button onClick={() => handleEdit(tc)} className="p-2 rounded-lg hover:bg-indigo-500/10 text-indigo-400 transition-colors" title="Edit">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                </button>
+                                <button onClick={() => handleDelete(tc.id)} className="p-2 rounded-lg hover:bg-red-500/10 text-red-400 transition-colors" title="Delete">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
       )}
       </div>
