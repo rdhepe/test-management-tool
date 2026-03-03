@@ -778,6 +778,8 @@ const featureOperations = {
   },
 
   delete: async (id) => {
+    // Delete requirements (and their test cases via ON DELETE CASCADE) before deleting the feature
+    await pool.query('DELETE FROM requirements WHERE feature_id = $1', [id]);
     return pool.query('DELETE FROM features WHERE id = $1', [id]);
   }
 };
