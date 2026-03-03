@@ -237,7 +237,11 @@ function App({ orgSlug = 'default' }) {
   useEffect(() => {
     const loadModules = async () => {
       try {
-        const response = await fetch(`${API_URL}/modules`);
+        const authToken = localStorage.getItem('auth_token');
+        if (!authToken) return;
+        const response = await fetch(`${API_URL}/modules`, {
+          headers: { 'x-auth-token': authToken }
+        });
         const modulesData = await response.json();
         
         // Load test files for each module
@@ -273,7 +277,7 @@ function App({ orgSlug = 'default' }) {
     };
     
     loadModules();
-  }, []);
+  }, [currentUser?.id]);
 
   // Load executions from database
   useEffect(() => {
@@ -307,9 +311,10 @@ function App({ orgSlug = 'default' }) {
 
   const handleCreateModule = async (moduleData) => {
     try {
+      const authToken = localStorage.getItem('auth_token');
       const response = await fetch(`${API_URL}/modules`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { 'x-auth-token': authToken } : {}) },
         body: JSON.stringify(moduleData),
       });
       const newModule = await response.json();
@@ -345,9 +350,10 @@ function App({ orgSlug = 'default' }) {
     if (!selectedModule) return;
 
     try {
+      const authToken = localStorage.getItem('auth_token');
       const response = await fetch(`${API_URL}/modules/${selectedModule.id}/test-files`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { 'x-auth-token': authToken } : {}) },
         body: JSON.stringify(testFileData),
       });
       const newTestFile = await response.json();

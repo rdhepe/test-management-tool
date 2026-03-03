@@ -496,10 +496,19 @@ const testFileOperations = {
     return testFileOperations.getById(r.rows[0].id);
   },
 
-  update: async (id, { name, content, requirement_id }) => {
+  update: async (id, fields) => {
+    const setClauses = [];
+    const values = [];
+    let idx = 1;
+    if (fields.name !== undefined)           { setClauses.push(`name=$${idx++}`);           values.push(fields.name); }
+    if (fields.content !== undefined)        { setClauses.push(`content=$${idx++}`);        values.push(fields.content); }
+    if (fields.requirement_id !== undefined) { setClauses.push(`requirement_id=$${idx++}`); values.push(fields.requirement_id || null); }
+    if (setClauses.length === 0) return testFileOperations.getById(id);
+    setClauses.push(`updated_at=NOW()`);
+    values.push(id);
     await pool.query(
-      'UPDATE test_files SET name=$1, content=$2, requirement_id=$3, updated_at=NOW() WHERE id=$4',
-      [name, content, requirement_id || null, id]
+      `UPDATE test_files SET ${setClauses.join(', ')} WHERE id=$${idx}`,
+      values
     );
     return testFileOperations.getById(id);
   },
