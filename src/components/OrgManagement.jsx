@@ -49,14 +49,14 @@ function OrgManagement({ currentUser }) {
 
   // ── Create org modal ──
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ orgName: '', orgSlug: '', adminUsername: '', adminPassword: '', plan: 'free', maxUsers: '', pocName: '', pocEmail: '' });
+  const [form, setForm] = useState({ orgName: '', orgSlug: '', adminUsername: '', adminPassword: '', plan: 'free', maxUsers: '', pocName: '', pocEmail: '', aiHealingEnabled: false, openaiApiKey: '' });
   const [formError, setFormError] = useState('');
   const [formLoading, setFormLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
   // ── Edit org modal ──
   const [editingOrg, setEditingOrg] = useState(null);
-  const [editForm, setEditForm] = useState({ name: '', plan: 'free', is_active: 1, maxUsers: '', pocName: '', pocEmail: '' });
+  const [editForm, setEditForm] = useState({ name: '', plan: 'free', is_active: 1, maxUsers: '', pocName: '', pocEmail: '', aiHealingEnabled: false, openaiApiKey: '' });
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState('');
 
@@ -146,13 +146,13 @@ function OrgManagement({ currentUser }) {
     try {
       const res = await fetch(`${API_URL}/auth/register-org`, {
         method: 'POST', headers,
-        body: JSON.stringify({ orgName: form.orgName.trim(), orgSlug: form.orgSlug.trim(), adminUsername: form.adminUsername.trim(), adminPassword: form.adminPassword, plan: form.plan, maxUsers: form.maxUsers ? parseInt(form.maxUsers) : null, pocName: form.pocName.trim() || null, pocEmail: form.pocEmail.trim() || null })
+        body: JSON.stringify({ orgName: form.orgName.trim(), orgSlug: form.orgSlug.trim(), adminUsername: form.adminUsername.trim(), adminPassword: form.adminPassword, plan: form.plan, maxUsers: form.maxUsers ? parseInt(form.maxUsers) : null, pocName: form.pocName.trim() || null, pocEmail: form.pocEmail.trim() || null, aiHealingEnabled: form.aiHealingEnabled, openaiApiKey: form.openaiApiKey || null })
       });
       const data = await res.json();
       if (!res.ok) return setFormError(data.error || 'Failed to create organization');
       setSuccessMsg(`Organization "${data.org.name}" created successfully with admin user "${data.user.username}".`);
       setShowCreate(false);
-      setForm({ orgName: '', orgSlug: '', adminUsername: '', adminPassword: '', plan: 'free', maxUsers: '', pocName: '', pocEmail: '' });
+      setForm({ orgName: '', orgSlug: '', adminUsername: '', adminPassword: '', plan: 'free', maxUsers: '', pocName: '', pocEmail: '', aiHealingEnabled: false, openaiApiKey: '' });
       fetchOrgs();
       setTimeout(() => setSuccessMsg(''), 5000);
     } catch (e) { setFormError(e.message); }
@@ -163,7 +163,7 @@ function OrgManagement({ currentUser }) {
   const openEdit = (org, e) => {
     e?.stopPropagation();
     setEditingOrg(org);
-    setEditForm({ name: org.name, plan: org.plan, is_active: org.is_active, maxUsers: org.max_users ?? '', pocName: org.poc_name ?? '', pocEmail: org.poc_email ?? '' });
+    setEditForm({ name: org.name, plan: org.plan, is_active: org.is_active, maxUsers: org.max_users ?? '', pocName: org.poc_name ?? '', pocEmail: org.poc_email ?? '', aiHealingEnabled: !!org.ai_healing_enabled, openaiApiKey: '' });
     setEditError('');
   };
 
@@ -174,7 +174,7 @@ function OrgManagement({ currentUser }) {
     try {
       const res = await fetch(`${API_URL}/orgs/${editingOrg.id}`, {
         method: 'PUT', headers,
-        body: JSON.stringify({ name: editForm.name.trim(), plan: editForm.plan, is_active: editForm.is_active, maxUsers: editForm.maxUsers ? parseInt(editForm.maxUsers) : null, pocName: editForm.pocName.trim() || null, pocEmail: editForm.pocEmail.trim() || null })
+        body: JSON.stringify({ name: editForm.name.trim(), plan: editForm.plan, is_active: editForm.is_active, maxUsers: editForm.maxUsers ? parseInt(editForm.maxUsers) : null, pocName: editForm.pocName.trim() || null, pocEmail: editForm.pocEmail.trim() || null, aiHealingEnabled: editForm.aiHealingEnabled, openaiApiKey: editForm.openaiApiKey || null })
       });
       const data = await res.json();
       if (!res.ok) return setEditError(data.error || 'Failed to update organization');
@@ -189,7 +189,7 @@ function OrgManagement({ currentUser }) {
     try {
       await fetch(`${API_URL}/orgs/${org.id}`, {
         method: 'PUT', headers,
-        body: JSON.stringify({ name: org.name, plan: org.plan, is_active: org.is_active ? 0 : 1, maxUsers: org.max_users, pocName: org.poc_name, pocEmail: org.poc_email })
+        body: JSON.stringify({ name: org.name, plan: org.plan, is_active: org.is_active ? 0 : 1, maxUsers: org.max_users, pocName: org.poc_name, pocEmail: org.poc_email, aiHealingEnabled: !!org.ai_healing_enabled })
       });
       fetchOrgs();
     } catch (_) {}
@@ -1028,6 +1028,25 @@ function OrgManagement({ currentUser }) {
                   />
                 </div>
               </div>
+              {/* AI Healing */}
+              <div className="border border-slate-700/50 rounded-xl p-4 space-y-3 bg-slate-800/30">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-white">AI Test Healing</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Auto-fix failing tests via GPT-4o</div>
+                  </div>
+                  <button type="button" onClick={() => setForm(f => ({ ...f, aiHealingEnabled: !f.aiHealingEnabled }))}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${form.aiHealingEnabled ? 'bg-purple-600' : 'bg-slate-600'}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${form.aiHealingEnabled ? 'translate-x-5' : ''}`} />
+                  </button>
+                </div>
+                {form.aiHealingEnabled && (
+                  <input type="password" placeholder="OpenAI API key (sk-...)" value={form.openaiApiKey}
+                    onChange={e => setForm(f => ({ ...f, openaiApiKey: e.target.value }))}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500 placeholder-slate-500"
+                  />
+                )}
+              </div>
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors">Cancel</button>
                 <button type="submit" disabled={formLoading}
@@ -1100,6 +1119,25 @@ function OrgManagement({ currentUser }) {
                     className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500 placeholder-slate-500"
                   />
                 </div>
+              </div>
+              {/* AI Healing */}
+              <div className="border border-slate-700/50 rounded-xl p-4 space-y-3 bg-slate-800/30">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-white">AI Test Healing</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Auto-fix failing tests via GPT-4o</div>
+                  </div>
+                  <button type="button" onClick={() => setEditForm(f => ({ ...f, aiHealingEnabled: !f.aiHealingEnabled }))}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${editForm.aiHealingEnabled ? 'bg-purple-600' : 'bg-slate-600'}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${editForm.aiHealingEnabled ? 'translate-x-5' : ''}`} />
+                  </button>
+                </div>
+                {editForm.aiHealingEnabled && (
+                  <input type="password" placeholder="New OpenAI API key (leave blank to keep existing)" value={editForm.openaiApiKey}
+                    onChange={e => setEditForm(f => ({ ...f, openaiApiKey: e.target.value }))}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500 placeholder-slate-500"
+                  />
+                )}
               </div>
               {editingOrg.id !== 1 && (
                 <div className="flex items-center justify-between p-3 bg-slate-800/50 border border-slate-700/50 rounded-lg">

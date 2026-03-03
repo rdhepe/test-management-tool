@@ -82,6 +82,7 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/settings') || p.startsWith('/global-variables') || p.startsWith('/roles') ||
       p.startsWith('/run-test') || p.startsWith('/run-suite') || p.startsWith('/stop-debug') ||
       p.startsWith('/install-package') || p.startsWith('/execution') || p.startsWith('/suite-execution') ||
+
       p.startsWith('/analytics') || p.startsWith('/test-suites') || p.startsWith('/test-files') ||
       p.startsWith('/test-file-dependencies')
     ) return next();
@@ -432,12 +433,114 @@ app.get('/modules/:id/executions', (req, res) => {
 
 // ===== Test Execution Endpoint =====
 
+// ── AI Test Healer helpers ───────────────────────────────────────────────────
+async function healTestWithAI(specContent, errorOutput, apiKey) {
+  if (!apiKey) {
+    throw new Error('No OpenAI API key configured for this organization.');
+  }
+
+  const prompt = `You are an expert Playwright test engineer. A test has failed. Analyze the failure and provide a fix.
+
+## Original Playwright Spec:
+\`\`\`typescript
+${specContent.slice(0, 3500)}
+\`\`\`
+
+## Failure Output:
+\`\`\`
+${errorOutput.slice(0, 3000)}
+\`\`\`
+
+Respond with ONLY valid JSON — no markdown fences, no extra text:
+{
+  "analysis": "Concise explanation of what was failing and the root cause",
+  "changes": [
+    { "line": <1-based line number in spec>, "original": "<original line>", "fixed": "<fixed line>", "reason": "<why>" }
+  ],
+  "fixedTestBody": "<complete fixed code that goes INSIDE the test() callback, 2-space indented, valid TypeScript>"
+}
+Rules:
+- fixedTestBody = code INSIDE async ({ page, ... }) => { ... } only, not the wrapper or imports
+- Do not change test intent; only fix what is broken
+- Use idiomatic Playwright: getByRole, getByLabel, getByText, getByPlaceholder, locator, etc.
+- If element not found, use a more resilient selector or add explicit waits
+- fixedTestBody must be syntactically valid TypeScript`;
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      max_tokens: 4000,
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenAI API error ${response.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content?.trim() || '';
+  let parsed;
+  try {
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON object found in response');
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    throw new Error(`Could not parse AI response as JSON: ${e.message}`);
+  }
+
+  return {
+    analysis: String(parsed.analysis || 'No analysis provided'),
+    changes: Array.isArray(parsed.changes) ? parsed.changes : [],
+    fixedTestBody: String(parsed.fixedTestBody || ''),
+  };
+}
+
+function buildFixedSpec(originalSpec, fixedTestBody) {
+  const testCallIdx = originalSpec.indexOf('\ntest(');
+  const importSection = testCallIdx >= 0 ? originalSpec.slice(0, testCallIdx) : '';
+  const nameMatch = originalSpec.match(/\ntest\(([^,\n]+),/);
+  const nameToken = nameMatch ? nameMatch[1] : '"Test"';
+  return `${importSection}\ntest(${nameToken}, async ({ page, request, browser, context, browserName }) => {\n${fixedTestBody}\n});\n`;
+}
+
+function formatHealLog(healResult, succeeded) {
+  const bar = '\u2550'.repeat(58);
+  const lines = ['', bar, '\uD83E\uDD16  AI TEST HEALER', bar, ''];
+  lines.push(`\uD83D\uDCCB  Analysis: ${healResult.analysis}`);
+  lines.push('');
+  if (healResult.changes && healResult.changes.length > 0) {
+    lines.push('\uD83D\uDCDD  Changes Made:');
+    for (const c of healResult.changes) {
+      lines.push(`  Line ${c.line}:`);
+      lines.push(`    \u274C Before : ${String(c.original || '').trim()}`);
+      lines.push(`    \u2705 After  : ${String(c.fixed || '').trim()}`);
+      lines.push(`    \u2139\uFE0F  Reason : ${String(c.reason || '').trim()}`);
+      lines.push('');
+    }
+  }
+  if (succeeded === true)  lines.push('\u2705  Healed run PASSED!');
+  if (succeeded === false) lines.push('\u274C  Test still failing after AI fix.');
+  lines.push(bar);
+  return lines.join('\n');
+}
+
 // POST /run-test endpoint
 app.post('/run-test', async (req, res) => {
   const { code, moduleId, testFileId, browser = 'chromium', debug = false, workers = 1, fullyParallel = false, screenshotMode = 'only-on-failure' } = req.body;
 
   // Load global variables and make them available to tests via process.env
   const orgId = req.session?.orgId || 1;
+  const orgForHeal = organizationOperations.getById(orgId);
+  const orgAiHealEnabled = orgForHeal?.ai_healing_enabled === 1;
+  const orgApiKey = orgForHeal?.openai_api_key || process.env.OPENAI_API_KEY || '';
   const globalVarsEnv = globalVariableOperations.getAllAsEnv(orgId);
 
   if (!code || typeof code !== 'string') {
@@ -450,6 +553,10 @@ app.post('/run-test', async (req, res) => {
   const tempDir = path.join(__dirname, 'temp', `test-${Date.now()}`);
   const startTime = Date.now();
   let dependencyHeader = '';
+  // Hoisted so the AI healer block in catch() can access them
+  let specContent = '';
+  let specPath = '';
+  let combinedTestName = '';
 
   try {
     // Create temp directory
@@ -508,7 +615,7 @@ app.post('/run-test', async (req, res) => {
       })
       .join('\n\n');
 
-    const combinedTestName = filesToRun.map(f => f.name).join(' → ');
+    combinedTestName = filesToRun.map(f => f.name).join(' → ');
 
     // Fetch module-level imports (extra libraries the user configured for this module)
     let moduleImportBlock = '';
@@ -521,12 +628,12 @@ app.post('/run-test', async (req, res) => {
       } catch (_) {}
     }
 
-    const specContent = `import { test, expect } from '@playwright/test';${moduleImportBlock}
+    specContent = `import { test, expect } from '@playwright/test';${moduleImportBlock}
 test(${JSON.stringify(combinedTestName)}, async ({ page, request, browser, context, browserName }) => {
 ${combinedSteps}
 });
 `;
-    const specPath = path.join(tempDir, 'combined.spec.ts');
+    specPath = path.join(tempDir, 'combined.spec.ts');
     await fs.writeFile(specPath, specContent, 'utf8');
 
     // Create package.json for the temp directory
@@ -717,8 +824,67 @@ export default defineConfig({
   } catch (error) {
     // Failure - non-zero exit code or execution error
     const combinedError = [error.stderr, error.stdout].filter(s => s && s.trim()).join('\n').trim();
-    const errorLogs = dependencyHeader + (combinedError || error.message || 'Test failed');
+    let errorLogs = dependencyHeader + (combinedError || error.message || 'Test failed');
     const durationMs = Date.now() - startTime;
+
+    // ── AI Healer ──────────────────────────────────────────────────────
+    let aiHealAttempted = false, aiHealSucceeded = false, aiFixedCode = null, aiAnalysis = null, aiChanges = null;
+    if (orgAiHealEnabled && !debug && specContent && specPath) {
+      aiHealAttempted = true;
+      try {
+        const healResult = await healTestWithAI(specContent, combinedError || error.message || '', orgApiKey);
+        aiAnalysis  = healResult.analysis;
+        aiChanges   = healResult.changes;
+        aiFixedCode = healResult.fixedTestBody;
+        const fixedSpec = buildFixedSpec(specContent, healResult.fixedTestBody);
+        await fs.writeFile(specPath, fixedSpec, 'utf8');
+        try {
+          const { stdout: hs, stderr: he } = await execAsync('npx playwright test', {
+            cwd: tempDir, timeout: 60000,
+            env: { ...process.env, ...globalVarsEnv, NODE_PATH: nodePathEnv },
+          });
+          aiHealSucceeded = true;
+          const healLog = formatHealLog(healResult, true);
+          const healedLogs = errorLogs + '\n' + healLog + '\n' + [hs, he].filter(s => s && s.trim()).join('\n');
+          let hs64 = null;
+          try {
+            const trd = path.join(tempDir, 'test-results');
+            await fs.access(trd);
+            for (const d of await fs.readdir(trd)) {
+              const dp = path.join(trd, d);
+              if ((await fs.stat(dp)).isDirectory()) {
+                const sf = (await fs.readdir(dp)).find(f => f.endsWith('.png'));
+                if (sf) { hs64 = (await fs.readFile(path.join(dp, sf))).toString('base64'); break; }
+              }
+            }
+          } catch {}
+          let healedReportPath = null;
+          try {
+            const hrDir = path.join(tempDir, 'playwright-report');
+            await fs.access(hrDir);
+            const rfn = `report-${Date.now()}`;
+            await copyDirectory(hrDir, path.join(reportsDir, rfn));
+            healedReportPath = rfn;
+          } catch {}
+          let healedExecId = null;
+          if (moduleId && testFileId) {
+            try {
+              const m = moduleOperations.getById(moduleId), t = testFileOperations.getById(testFileId);
+              if (m && t) {
+                const ex = executionOperations.create({ moduleId, testFileId, status: 'PASS', logs: healedLogs, errorMessage: null, screenshotBase64: hs64, durationMs, reportPath: healedReportPath }, orgId);
+                healedExecId = ex.id;
+              }
+            } catch (dbErr) { console.error('AI heal DB save error:', dbErr.message); }
+          }
+          return res.json({ success: true, ai_healed: true, ai_heal_succeeded: true, fixed_code: aiFixedCode, heal_analysis: aiAnalysis, heal_changes: aiChanges, logs: healedLogs, screenshot: hs64, execution_id: healedExecId });
+        } catch (rerunErr) {
+          const rerunOut = [rerunErr.stderr, rerunErr.stdout].filter(s => s && s.trim()).join('\n').trim();
+          errorLogs = errorLogs + '\n' + formatHealLog(healResult, false) + (rerunOut ? '\n' + rerunOut : '');
+        }
+      } catch (healErr) {
+        errorLogs = errorLogs + `\n\n\u26A0\uFE0F  AI Healer error: ${healErr.message}`;
+      }
+    }
     
     // Try to find and read screenshot if test failed
     let screenshotBase64 = null;
@@ -785,6 +951,11 @@ export default defineConfig({
         
         return res.json({
           success: false,
+          ai_healed: aiHealAttempted,
+          ai_heal_succeeded: aiHealSucceeded,
+          fixed_code: aiFixedCode,
+          heal_analysis: aiAnalysis,
+          heal_changes: aiChanges,
           logs: errorLogs,
           screenshot: null,
           execution_id: executionId,
@@ -872,6 +1043,11 @@ export default defineConfig({
     
     return res.json({
       success: false,
+      ai_healed: aiHealAttempted,
+      ai_heal_succeeded: aiHealSucceeded,
+      fixed_code: aiFixedCode,
+      heal_analysis: aiAnalysis,
+      heal_changes: aiChanges,
       logs: errorLogs,
       screenshot: screenshotBase64,
       execution_id: executionId,
@@ -1431,9 +1607,11 @@ ${userCode}
     const suiteWorkers = (req.body && req.body.workers) ? req.body.workers : 1;
     const suiteFullyParallel = req.body && req.body.fullyParallel === true;
     const suiteScreenshotMode = (req.body && req.body.screenshotMode) || 'only-on-failure';
-
     // Load global variables and inject them into each test process via env
     const suiteRunOrgId = req.session?.orgId || 1;
+    const suiteOrgForHeal = organizationOperations.getById(suiteRunOrgId);
+    const suiteAiHeal = suiteOrgForHeal?.ai_healing_enabled === 1;
+    const suiteAiApiKey = suiteOrgForHeal?.openai_api_key || process.env.OPENAI_API_KEY || '';
     const suiteGlobalVarsEnv = globalVariableOperations.getAllAsEnv(suiteRunOrgId);
 
     // Create playwright.config.ts — headless for Docker, headed for local
@@ -1612,6 +1790,55 @@ export default defineConfig({
         duration_ms: 0,
         error_message: exitCode !== 0 ? 'Test execution failed' : null
       }));
+    }
+
+    // ── AI Suite Healer ────────────────────────────────────────────────────
+    if (suiteAiHeal && failed > 0) {
+      pushLog(suiteExecutionId, `\n\uD83E\uDD16  AI Healer: ${failed} failing test(s) detected — attempting to fix...`);
+      let healedCount = 0;
+      for (let ri = 0; ri < testResults.length; ri++) {
+        const tr = testResults[ri];
+        if (tr.status !== 'FAIL' && tr.status !== 'TIMEOUT') continue;
+        const fileInfo = testFileNames.find(fn => fn.testName === tr.test_name);
+        if (!fileInfo) continue;
+        const specFilePath = path.join(tempDir, fileInfo.fileName);
+        let specText = '';
+        try { specText = await fs.readFile(specFilePath, 'utf8'); } catch { continue; }
+        pushLog(suiteExecutionId, `  \uD83D\uDD0D Analyzing "${tr.test_name}"...`);
+        try {
+          const healResult = await healTestWithAI(specText, tr.error_message || 'Test failed', suiteAiApiKey);
+          pushLog(suiteExecutionId, `  \uD83D\uDCCB ${healResult.analysis}`);
+          for (const c of (healResult.changes || [])) {
+            pushLog(suiteExecutionId, `     Line ${c.line}: ${c.reason}`);
+          }
+          const fixedSpec = buildFixedSpec(specText, healResult.fixedTestBody);
+          await fs.writeFile(specFilePath, fixedSpec, 'utf8');
+          let rerunExit = 0;
+          await new Promise((resolve) => {
+            const p = spawn(`"${playwrightBin}" test "${fileInfo.fileName}"`, [], {
+              cwd: tempDir, shell: true,
+              env: { ...process.env, ...suiteGlobalVarsEnv, NODE_PATH: nodePathEnv }
+            });
+            p.stdout.on('data', c => c.toString().split('\n').forEach(l => { if (l.trim()) pushLog(suiteExecutionId, `    ${l}`); }));
+            p.stderr.on('data', c => c.toString().split('\n').forEach(l => { if (l.trim()) pushLog(suiteExecutionId, `    ${l}`); }));
+            p.on('close', code => { rerunExit = code || 0; resolve(); });
+            p.on('error', () => { rerunExit = 1; resolve(); });
+          });
+          if (rerunExit === 0) {
+            pushLog(suiteExecutionId, `  \u2705 "${tr.test_name}" healed and passing!`);
+            testResults[ri] = { ...tr, status: 'PASS', ai_healed: true, ai_heal_succeeded: true, fixed_code: healResult.fixedTestBody, heal_analysis: healResult.analysis, heal_changes: healResult.changes };
+            passed++; failed--; healedCount++;
+          } else {
+            pushLog(suiteExecutionId, `  \u274C "${tr.test_name}" still failing after AI fix.`);
+            testResults[ri] = { ...tr, ai_healed: true, ai_heal_succeeded: false, fixed_code: healResult.fixedTestBody };
+          }
+        } catch (healErr) {
+          pushLog(suiteExecutionId, `  \u26A0\uFE0F  Heal error for "${tr.test_name}": ${healErr.message}`);
+        }
+      }
+      if (healedCount > 0) {
+        pushLog(suiteExecutionId, `\n\uD83E\uDD16  AI Healer: fixed ${healedCount} test(s) — passed: ${passed}, failed: ${failed}`);
+      }
     }
 
     const durationMs = Date.now() - startTime;
@@ -2604,8 +2831,9 @@ app.post('/auth/register-org', (req, res) => {
     if (userOperations.getByUsername(adminUsername)) {
       return res.status(409).json({ error: 'Username already exists' });
     }
+    const { aiHealingEnabled, openaiApiKey } = req.body;
     const parsedMaxUsers = maxUsers ? parseInt(maxUsers) : null;
-    const org = organizationOperations.create({ name: orgName, slug, plan: plan || 'free', maxUsers: parsedMaxUsers, pocName: pocName || null, pocEmail: pocEmail || null });
+    const org = organizationOperations.create({ name: orgName, slug, plan: plan || 'free', maxUsers: parsedMaxUsers, pocName: pocName || null, pocEmail: pocEmail || null, aiHealingEnabled: aiHealingEnabled ? 1 : 0, openaiApiKey: openaiApiKey || null });
     const adminUser = userOperations.create({
       username: adminUsername,
       password: adminPassword,
@@ -2658,13 +2886,15 @@ app.put('/orgs/:id', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'Super admin access required' });
   }
   try {
-    const { name, plan, is_active, maxUsers, pocName, pocEmail } = req.body;
+    const { name, plan, is_active, maxUsers, pocName, pocEmail, aiHealingEnabled, openaiApiKey } = req.body;
     const parsedMaxUsers = (maxUsers !== null && maxUsers !== undefined && maxUsers !== '') ? parseInt(maxUsers, 10) : null;
     const updated = organizationOperations.update(req.params.id, {
       name, plan, is_active,
       maxUsers: parsedMaxUsers,
       pocName: pocName ?? null,
-      pocEmail: pocEmail ?? null
+      pocEmail: pocEmail ?? null,
+      aiHealingEnabled: aiHealingEnabled !== undefined ? (aiHealingEnabled ? 1 : 0) : undefined,
+      openaiApiKey: openaiApiKey !== undefined ? (openaiApiKey || null) : undefined,
     });
     if (!updated) return res.status(404).json({ error: 'Organization not found' });
     res.json(updated);

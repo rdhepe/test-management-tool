@@ -41,6 +41,14 @@ try {
     db.exec('ALTER TABLE organizations ADD COLUMN poc_email TEXT DEFAULT NULL');
     console.log('Added poc_email column to organizations table');
   }
+  if (!orgCols.includes('ai_healing_enabled')) {
+    db.exec('ALTER TABLE organizations ADD COLUMN ai_healing_enabled INTEGER DEFAULT 0');
+    console.log('Added ai_healing_enabled column to organizations table');
+  }
+  if (!orgCols.includes('openai_api_key')) {
+    db.exec('ALTER TABLE organizations ADD COLUMN openai_api_key TEXT DEFAULT NULL');
+    console.log('Added openai_api_key column to organizations table');
+  }
 } catch (e) { console.error('Migration error adding org columns:', e.message); }
 
 // Enable foreign keys
@@ -1884,15 +1892,15 @@ const organizationOperations = {
 
   getBySlug: (slug) => db.prepare('SELECT * FROM organizations WHERE slug = ?').get(slug),
 
-  create: ({ name, slug, plan = 'free', maxUsers = null, pocName = null, pocEmail = null }) => {
+  create: ({ name, slug, plan = 'free', maxUsers = null, pocName = null, pocEmail = null, aiHealingEnabled = 0, openaiApiKey = null }) => {
     const result = db.prepare(
-      'INSERT INTO organizations (name, slug, plan, max_users, poc_name, poc_email) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(name, slug, plan, maxUsers || null, pocName || null, pocEmail || null);
+      'INSERT INTO organizations (name, slug, plan, max_users, poc_name, poc_email, ai_healing_enabled, openai_api_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(name, slug, plan, maxUsers || null, pocName || null, pocEmail || null, aiHealingEnabled ? 1 : 0, openaiApiKey || null);
     return db.prepare('SELECT * FROM organizations WHERE id = ?').get(result.lastInsertRowid);
   },
 
-  update: (id, { name, plan, is_active, maxUsers, pocName, pocEmail }) => {
-    db.prepare('UPDATE organizations SET name = ?, plan = ?, is_active = ?, max_users = ?, poc_name = ?, poc_email = ? WHERE id = ?')
+  update: (id, { name, plan, is_active, maxUsers, pocName, pocEmail, aiHealingEnabled, openaiApiKey }) => {
+    db.prepare('UPDATE organizations SET name = ?, plan = ?, is_active = ?, max_users = ?, poc_name = ?, poc_email = ?, ai_healing_enabled = ?, openai_api_key = COALESCE(?, openai_api_key) WHERE id = ?')
       .run(
         name,
         plan,
@@ -1900,6 +1908,8 @@ const organizationOperations = {
         maxUsers ?? null,
         pocName ?? null,
         pocEmail ?? null,
+        aiHealingEnabled !== undefined ? (aiHealingEnabled ? 1 : 0) : 0,
+        openaiApiKey !== undefined && openaiApiKey !== null && openaiApiKey !== '' ? openaiApiKey : null,
         id
       );
     return db.prepare('SELECT * FROM organizations WHERE id = ?').get(id);

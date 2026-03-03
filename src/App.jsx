@@ -604,6 +604,11 @@ function App({ orgSlug = 'default' }) {
         status: data.success ? 'pass' : 'fail',
         message: data.logs || (data.success ? 'Test completed successfully' : 'Test execution failed'),
         screenshot: data.screenshot || null,
+        aiHealed: data.ai_healed || false,
+        aiHealSucceeded: data.ai_heal_succeeded || false,
+        fixedCode: data.fixed_code || null,
+        healAnalysis: data.heal_analysis || null,
+        healChanges: data.heal_changes || null,
       });
 
       // Refresh executions list

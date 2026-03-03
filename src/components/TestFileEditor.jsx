@@ -430,6 +430,50 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
                       </div>
                     )}
 
+                    {/* AI Heal Banner */}
+                    {executionResult.aiHealed && (
+                      <div className={`flex items-start gap-3 p-3 mb-3 rounded-lg border ${
+                        executionResult.aiHealSucceeded
+                          ? 'bg-purple-500/10 border-purple-500/30'
+                          : 'bg-orange-500/10 border-orange-500/30'
+                      }`}>
+                        <span className="text-xl mt-0.5">🤖</span>
+                        <div className="flex-1 min-w-0">
+                          <div className={`text-sm font-semibold mb-1 ${
+                            executionResult.aiHealSucceeded ? 'text-purple-300' : 'text-orange-300'
+                          }`}>
+                            {executionResult.aiHealSucceeded
+                              ? 'AI Healer — Fixed & Passing ✅'
+                              : 'AI Healer — Fix Applied (Still Failing) ❌'}
+                          </div>
+                          {executionResult.healAnalysis && (
+                            <div className="text-xs text-slate-400 mb-2">{executionResult.healAnalysis}</div>
+                          )}
+                          {executionResult.healChanges && executionResult.healChanges.length > 0 && (
+                            <div className="text-xs space-y-1 mb-2">
+                              {executionResult.healChanges.map((c, i) => (
+                                <div key={i} className="bg-slate-900 rounded px-2 py-1 font-mono">
+                                  <span className="text-slate-500">Line {c.line}: </span>
+                                  <span className="text-slate-300">{c.reason}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {executionResult.fixedCode && onContentChange && (
+                            <button
+                              onClick={() => onContentChange(testFile.id, executionResult.fixedCode)}
+                              className="flex items-center gap-1.5 text-xs px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded font-medium transition-colors"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                              </svg>
+                              Apply AI Fix to Editor
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Console / Error Output */}
                     {(executionResult.message || executionResult.console_output) && (
                       <pre className={`whitespace-pre-wrap ${
