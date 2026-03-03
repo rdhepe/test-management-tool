@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
+import { authFetch } from '../utils/api';
 
 import API_URL from '../apiUrl';
 
@@ -40,7 +41,7 @@ function Requirements() {
 
   const loadFeatures = async () => {
     try {
-      const response = await fetch(`${API_URL}/features`);
+      const response = await authFetch(`${API_URL}/features`);
       if (!response.ok) throw new Error('Failed to fetch features');
       const data = await response.json();
       setFeatures(data);
@@ -57,7 +58,7 @@ function Requirements() {
 
   const loadSprints = async () => {
     try {
-      const response = await fetch(`${API_URL}/sprints`);
+      const response = await authFetch(`${API_URL}/sprints`);
       if (!response.ok) throw new Error('Failed to fetch sprints');
       const data = await response.json();
       setSprints(data);
@@ -70,7 +71,7 @@ function Requirements() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`${API_URL}/requirements`);
+      const response = await authFetch(`${API_URL}/requirements`);
       if (!response.ok) throw new Error('Failed to fetch requirements');
       const data = await response.json();
       setRequirements(data);
@@ -156,7 +157,7 @@ function Requirements() {
       
       const method = editingRequirement ? 'PUT' : 'POST';
       
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') },
         body: JSON.stringify(formData),
@@ -181,7 +182,7 @@ function Requirements() {
     }
 
     try {
-      const response = await fetch(`${API_URL}/requirements/${id}`, {
+      const response = await authFetch(`${API_URL}/requirements/${id}`, {
         method: 'DELETE',
       });
 
@@ -204,7 +205,7 @@ function Requirements() {
     
     // Fetch test cases
     try {
-      const response = await fetch(`${API_URL}/test-cases`);
+      const response = await authFetch(`${API_URL}/test-cases`);
       if (response.ok) {
         const allTestCases = await response.json();
         // Filter test cases for this requirement
@@ -220,7 +221,7 @@ function Requirements() {
     
     // Fetch automation test files
     try {
-      const response = await fetch(`${API_URL}/requirements/${requirement.id}/test-files`);
+      const response = await authFetch(`${API_URL}/requirements/${requirement.id}/test-files`);
       if (response.ok) {
         const testFiles = await response.json();
         setRequirementTestFiles(testFiles);

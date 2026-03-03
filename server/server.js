@@ -71,6 +71,13 @@ fs.mkdir(reportsDir, { recursive: true }).catch(console.error);
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// Resolve session from token for every request (non-enforcing)
+app.use((req, res, next) => {
+  const token = req.headers['x-auth-token'];
+  if (token && sessions.has(token)) req.session = sessions.get(token);
+  next();
+});
+
 // Serve reports directory statically
 app.use('/reports', express.static(reportsDir));
 
@@ -2024,8 +2031,6 @@ app.get('/features/:id/requirements', async (req, res) => {
 // POST /features - Create a new feature
 app.post('/features', async (req, res) => {
   try {
-    const token = req.headers['x-auth-token'];
-    if (token && sessions.has(token)) req.session = sessions.get(token);
     const { name, description, priority } = req.body;
     
     if (!name) {
@@ -2129,8 +2134,6 @@ app.get('/requirements/:id', async (req, res) => {
 // POST /requirements - Create a new requirement
 app.post('/requirements', async (req, res) => {
   try {
-    const token = req.headers['x-auth-token'];
-    if (token && sessions.has(token)) req.session = sessions.get(token);
     const { featureId, organizationId, sprintId, title, description, status, priority } = req.body;
     
     if (!title) {
@@ -2306,8 +2309,6 @@ app.get('/requirements/:id/test-files', async (req, res) => {
 // POST /test-cases - Create a new test case
 app.post('/test-cases', async (req, res) => {
   try {
-    const token = req.headers['x-auth-token'];
-    if (token && sessions.has(token)) req.session = sessions.get(token);
     const { requirementId, title, description, preconditions, testSteps, expectedResult, type, priority, status, testFileId } = req.body;
     
     if (!title) {

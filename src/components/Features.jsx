@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
+import { authFetch } from '../utils/api';
 
 import API_URL from '../apiUrl';
 
@@ -29,7 +30,7 @@ function Features() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`${API_URL}/features`);
+      const response = await authFetch(`${API_URL}/features`);
       if (!response.ok) throw new Error('Failed to fetch features');
       const data = await response.json();
       setFeatures(data);
@@ -86,7 +87,7 @@ function Features() {
       
       const method = editingFeature ? 'PUT' : 'POST';
       
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') },
         body: JSON.stringify(formData),
@@ -111,7 +112,7 @@ function Features() {
     }
 
     try {
-      const response = await fetch(`${API_URL}/features/${id}`, {
+      const response = await authFetch(`${API_URL}/features/${id}`, {
         method: 'DELETE',
       });
 
@@ -130,7 +131,7 @@ function Features() {
   const handleViewDetails = async (feature) => {
     setViewingFeature(feature);
     try {
-      const response = await fetch(`${API_URL}/features/${feature.id}/requirements`);
+      const response = await authFetch(`${API_URL}/features/${feature.id}/requirements`);
       if (response.ok) {
         const data = await response.json();
         setFeatureRequirements(data);
