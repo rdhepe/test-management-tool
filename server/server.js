@@ -261,10 +261,10 @@ app.post('/modules/:id/test-files', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
     const testFile = await testFileOperations.create({
-      moduleId: req.params.id,
+      module_id: req.params.id,
       name: req.body.name,
       content: req.body.content,
-      requirementId: req.body.requirementId || null
+      requirement_id: req.body.requirementId || null
     }, orgId);
     res.json(testFile);
   } catch (error) {
@@ -283,7 +283,7 @@ app.put('/test-files/:id', async (req, res) => {
       updates.content = req.body.content;
     }
     if (req.body.requirementId !== undefined) {
-      updates.requirementId = req.body.requirementId;
+      updates.requirement_id = req.body.requirementId;
     }
     
     // Support legacy API (just passing content string)
@@ -791,14 +791,14 @@ export default defineConfig({
         
         if (module && testFile) {
           const execution = await executionOperations.create({
-            moduleId,
-            testFileId,
+            module_id: moduleId,
+            test_file_id: testFileId,
             status: 'PASS',
             logs,
-            errorMessage: null,
-            screenshotBase64,
-            durationMs,
-            reportPath
+            error_message: null,
+            screenshot_base64: screenshotBase64,
+            duration_ms: durationMs,
+            report_path: reportPath
           }, orgId);
           executionId = execution.id;
           console.log('✓ Execution saved to database with ID:', executionId);
@@ -873,7 +873,7 @@ export default defineConfig({
             try {
               const m = await moduleOperations.getById(moduleId), t = await testFileOperations.getById(testFileId);
               if (m && t) {
-                const ex = await executionOperations.create({ moduleId, testFileId, status: 'PASS', logs: healedLogs, errorMessage: null, screenshotBase64: hs64, durationMs, reportPath: healedReportPath }, orgId);
+                const ex = await executionOperations.create({ module_id: moduleId, test_file_id: testFileId, status: 'PASS', logs: healedLogs, error_message: null, screenshot_base64: hs64, duration_ms: durationMs, report_path: healedReportPath }, orgId);
                 healedExecId = ex.id;
               }
             } catch (dbErr) { console.error('AI heal DB save error:', dbErr.message); }
@@ -926,14 +926,14 @@ export default defineConfig({
             
             if (module && testFile) {
               const execution = await executionOperations.create({
-                moduleId,
-                testFileId,
+                module_id: moduleId,
+                test_file_id: testFileId,
                 status: 'FAIL',
                 logs: errorLogs,
-                errorMessage: error.message || null,
-                screenshotBase64: null,
-                durationMs,
-                reportPath
+                error_message: error.message || null,
+                screenshot_base64: null,
+                duration_ms: durationMs,
+                report_path: reportPath
               }, orgId);
               executionId = execution.id;
               console.log('✓ Execution saved to database with ID:', executionId);
@@ -1018,14 +1018,14 @@ export default defineConfig({
         
         if (module && testFile) {
           const execution = await executionOperations.create({
-            moduleId,
-            testFileId,
+            module_id: moduleId,
+            test_file_id: testFileId,
             status: 'FAIL',
             logs: errorLogs,
-            errorMessage: error.message || null,
-            screenshotBase64,
-            durationMs,
-            reportPath
+            error_message: error.message || null,
+            screenshot_base64: screenshotBase64,
+            duration_ms: durationMs,
+            report_path: reportPath
           }, orgId);
           executionId = execution.id;
           console.log('✓ Execution saved to database with ID:', executionId);
@@ -1528,13 +1528,13 @@ app.post('/run-suite/:suiteId', async (req, res) => {
     // 3. Create execution record immediately — gives the frontend an ID right away
     //    so the user can navigate to the detail page before tests finish.
     const suiteExecution = await suiteExecutionOperations.create({
-      suiteId: parseInt(suiteId),
+      suite_id: parseInt(suiteId),
       status: 'running',
-      totalTests: suiteTestFiles.length,
+      total_tests: suiteTestFiles.length,
       passed: 0,
       failed: 0,
-      durationMs: 0,
-      reportPath: null
+      duration_ms: 0,
+      report_path: null
     }, req.session?.orgId || 1);
     const suiteExecutionId = suiteExecution.id;
 
@@ -1867,11 +1867,11 @@ export default defineConfig({
 
       await suiteExecutionOperations.update(suiteExecutionId, {
         status: overallStatus,
-        totalTests: totalTests,
+        total_tests: totalTests,
         passed: passed,
         failed: failed,
-        durationMs: durationMs,
-        reportPath: reportPath
+        duration_ms: durationMs,
+        report_path: reportPath
       });
       console.log('✓ Suite execution updated in database, ID:', suiteExecutionId);
 
@@ -1883,13 +1883,13 @@ export default defineConfig({
 
         if (testFileId) {
           await suiteTestResultOperations.create({
-            suiteExecutionId: suiteExecutionId,
-            testFileId: testFileId,
+            suite_execution_id: suiteExecutionId,
+            test_file_id: testFileId,
             status: testResult.status,
-            durationMs: testResult.duration_ms,
-            errorMessage: testResult.error_message,
+            duration_ms: testResult.duration_ms,
+            error_message: testResult.error_message,
             logs: stdout || stderr || null,
-            screenshotBase64: testResult.screenshot_base64 || null
+            screenshot_base64: testResult.screenshot_base64 || null
           });
         }
       }
@@ -1905,11 +1905,11 @@ export default defineConfig({
     try {
       await suiteExecutionOperations.update(suiteExecutionId, {
         status: 'FAIL',
-        totalTests: suiteTestFiles.length,
+        total_tests: suiteTestFiles.length,
         passed: 0,
         failed: suiteTestFiles.length,
-        durationMs: Date.now() - startTime,
-        reportPath: null
+        duration_ms: Date.now() - startTime,
+        report_path: null
       });
     } catch (_) {}
   } finally {
@@ -2116,9 +2116,8 @@ app.post('/requirements', async (req, res) => {
     }
     
     const requirement = await requirementOperations.create({
-      featureId,
-      organizationId,
-      sprintId,
+      feature_id: featureId,
+      sprint_id: sprintId,
       title,
       description,
       status: status || 'Draft',
@@ -2176,9 +2175,8 @@ app.put('/requirements/:id', async (req, res) => {
     }
     
     const requirement = await requirementOperations.update(id, {
-      featureId,
-      organizationId,
-      sprintId,
+      feature_id: featureId,
+      sprint_id: sprintId,
       title,
       description,
       status,
@@ -2421,10 +2419,10 @@ app.post('/manual-test-runs', async (req, res) => {
     }
     
     const testRun = await manualTestRunOperations.create({
-      testCaseId,
+      test_case_id: testCaseId,
       status: status || 'Passed',
-      executedBy,
-      executionNotes
+      executed_by: executedBy,
+      execution_notes: executionNotes
     }, req.session?.orgId || 1);
     
     res.status(201).json(testRun);
@@ -2456,8 +2454,8 @@ app.put('/manual-test-runs/:id', async (req, res) => {
     
     const testRun = await manualTestRunOperations.update(id, {
       status,
-      executedBy,
-      executionNotes
+      executed_by: executedBy,
+      execution_notes: executionNotes
     });
     
     res.json(testRun);
@@ -2545,9 +2543,9 @@ app.post('/defects', async (req, res) => {
       description,
       severity,
       status,
-      linkedTestCaseId,
-      linkedExecutionId,
-      sprintId,
+      linked_test_case_id: linkedTestCaseId,
+      linked_execution_id: linkedExecutionId,
+      sprint_id: sprintId,
       screenshot: screenshot || null
     }, req.session?.orgId || 1);
     
@@ -2597,9 +2595,9 @@ app.put('/defects/:id', async (req, res) => {
       description,
       severity,
       status,
-      linkedTestCaseId,
-      linkedExecutionId,
-      sprintId,
+      linked_test_case_id: linkedTestCaseId,
+      linked_execution_id: linkedExecutionId,
+      sprint_id: sprintId,
       screenshot: screenshot !== undefined ? screenshot : existing.screenshot
     });
     
@@ -2673,8 +2671,8 @@ app.post('/sprints', async (req, res) => {
     const sprint = await sprintOperations.create({
       name,
       goal,
-      startDate,
-      endDate,
+      start_date: startDate,
+      end_date: endDate,
       status
     }, req.session?.orgId || 1);
     
@@ -2709,8 +2707,8 @@ app.put('/sprints/:id', async (req, res) => {
     const sprint = await sprintOperations.update(id, {
       name,
       goal,
-      startDate,
-      endDate,
+      start_date: startDate,
+      end_date: endDate,
       status
     });
     
