@@ -1,9 +1,17 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { authFetch } from '../utils/api';
-
 import API_URL from '../apiUrl';
 
-function Requirements() {
+function Avatar({ username }) {
+  if (!username) return null;
+  return (
+    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-700 text-white text-xs font-bold shrink-0">
+      {username.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+function Requirements({ currentUser }) {
   const [requirements, setRequirements] = useState([]);
   const [features, setFeatures] = useState([]);
   const [sprints, setSprints] = useState([]);
@@ -21,7 +29,13 @@ function Requirements() {
   const [requirementTestFiles, setRequirementTestFiles] = useState([]);
   const [loadingTestCases, setLoadingTestCases] = useState(false);
   const [loadingTestFiles, setLoadingTestFiles] = useState(false);
-  
+  // Comments / history
+  const [reqComments, setReqComments] = useState([]);
+  const [reqHistory, setReqHistory] = useState([]);
+  const [viewTab, setViewTab] = useState('details');
+  const [commentText, setCommentText] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
+
   // Form state
   const [formData, setFormData] = useState({
     featureId: '',
@@ -200,44 +214,61 @@ function Requirements() {
 
   const handleViewRequirement = async (requirement) => {
     setViewingRequirement(requirement);
+    setViewTab('details');
     setLoadingTestCases(true);
     setLoadingTestFiles(true);
-    
+    setReqComments([]);
+    setReqHistory([]);
+    setCommentText('');
+
     // Fetch test cases
     try {
       const response = await authFetch(`${API_URL}/test-cases`);
       if (response.ok) {
         const allTestCases = await response.json();
-        // Filter test cases for this requirement
-        const filteredTestCases = allTestCases.filter(tc => tc.requirement_id === requirement.id);
-        setRequirementTestCases(filteredTestCases);
+        setRequirementTestCases(allTestCases.filter(tc => tc.requirement_id === requirement.id));
       }
-    } catch (error) {
-      console.error('Failed to load test cases:', error);
-      setRequirementTestCases([]);
-    } finally {
-      setLoadingTestCases(false);
-    }
-    
+    } catch { setRequirementTestCases([]); } finally { setLoadingTestCases(false); }
+
     // Fetch automation test files
     try {
       const response = await authFetch(`${API_URL}/requirements/${requirement.id}/test-files`);
-      if (response.ok) {
-        const testFiles = await response.json();
-        setRequirementTestFiles(testFiles);
-      }
-    } catch (error) {
-      console.error('Failed to load test files:', error);
-      setRequirementTestFiles([]);
-    } finally {
-      setLoadingTestFiles(false);
-    }
+      if (response.ok) setRequirementTestFiles(await response.json());
+    } catch { setRequirementTestFiles([]); } finally { setLoadingTestFiles(false); }
+
+    // Fetch comments + history
+    try {
+      const token = localStorage.getItem('auth_token');
+      const headers = token ? { 'x-auth-token': token } : {};
+      const [commRes, histRes] = await Promise.all([
+        fetch(`${API_URL}/requirements/${requirement.id}/comments`, { headers }),
+        fetch(`${API_URL}/requirements/${requirement.id}/history`, { headers }),
+      ]);
+      if (commRes.ok) setReqComments(await commRes.json());
+      if (histRes.ok) setReqHistory(await histRes.json());
+    } catch { /* ignore */ }
+  };
+
+  const handleAddReqComment = async () => {
+    if (!commentText.trim() || !viewingRequirement) return;
+    setSubmittingComment(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(`${API_URL}/requirements/${viewingRequirement.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-auth-token': token } : {}) },
+        body: JSON.stringify({ content: commentText.trim() }),
+      });
+      if (res.ok) { setReqComments(prev => [...prev, await res.json()]); setCommentText(''); }
+    } finally { setSubmittingComment(false); }
   };
 
   const handleBackFromDetail = () => {
     setViewingRequirement(null);
     setRequirementTestCases([]);
     setRequirementTestFiles([]);
+    setReqComments([]);
+    setReqHistory([]);
   };
 
   const formatDate = (dateString) => {
@@ -350,305 +381,6 @@ function Requirements() {
     );
   }
 
-  // Render detail view
-  if (viewingRequirement) {
-    return (
-      <div className="h-full flex flex-col p-6">
-        {/* Header with Back Button */}
-        <div className="mb-6">
-          <button
-            onClick={handleBackFromDetail}
-            className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg transition-colors duration-200 hover:bg-gray-700"
-            style={{ color: 'rgb(var(--text-secondary))' }}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back to Requirements
-          </button>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <span className="text-xs font-mono px-2 py-1 rounded" style={{ 
-                  backgroundColor: 'rgb(var(--bg-secondary))', 
-                  color: 'rgb(var(--text-tertiary))' 
-                }}>
-                  #{viewingRequirement.id}
-                </span>
-                <h1 className="text-2xl font-bold" style={{ color: 'rgb(var(--text-primary))' }}>
-                  {viewingRequirement.title}
-                </h1>
-                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border ${getPriorityBadgeClass(viewingRequirement.priority)}`}>
-                  {viewingRequirement.priority}
-                </span>
-                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border ${getStatusBadgeClass(viewingRequirement.status)}`}>
-                  {viewingRequirement.status}
-                </span>
-              </div>
-              {viewingRequirement.description && (
-                <p className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
-                  {viewingRequirement.description}
-                </p>
-              )}
-              {viewingRequirement.sprint_id && (
-                <div className="mt-3 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>Sprint:</span>
-                  <button
-                    onClick={() => window.dispatchEvent(new CustomEvent('navigateToSprint', { detail: { sprintId: viewingRequirement.sprint_id } }))}
-                    className="text-sm text-indigo-400 hover:text-indigo-300 hover:underline transition-colors"
-                  >
-                    {sprints.find(s => s.id === viewingRequirement.sprint_id)?.name || `Sprint #${viewingRequirement.sprint_id}`}
-                  </button>
-                </div>
-              )}
-              <div className="mt-3 flex items-center gap-4 text-sm" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                <span>Created: {new Date(viewingRequirement.created_at).toLocaleDateString()}</span>
-                {viewingRequirement.created_by && <span>· By: {viewingRequirement.created_by}</span>}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Test Case Metrics */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="rounded-xl p-4 border" style={{ 
-            borderColor: 'rgb(var(--border-primary))', 
-            backgroundColor: 'rgb(var(--bg-elevated))' 
-          }}>
-            <div className="text-sm mb-1" style={{ color: 'rgb(var(--text-secondary))' }}>Total Test Cases</div>
-            <div className="text-3xl font-bold" style={{ color: 'rgb(var(--text-primary))' }}>
-              {testCaseMetrics.total}
-            </div>
-          </div>
-          <div className="rounded-xl p-4 border" style={{ 
-            borderColor: 'rgb(var(--border-primary))', 
-            backgroundColor: 'rgb(var(--bg-elevated))' 
-          }}>
-            <div className="text-sm mb-1" style={{ color: 'rgb(var(--text-secondary))' }}>Manual</div>
-            <div className="text-3xl font-bold text-blue-400">
-              {testCaseMetrics.manual}
-            </div>
-          </div>
-          <div className="rounded-xl p-4 border" style={{ 
-            borderColor: 'rgb(var(--border-primary))', 
-            backgroundColor: 'rgb(var(--bg-elevated))' 
-          }}>
-            <div className="text-sm mb-1" style={{ color: 'rgb(var(--text-secondary))' }}>Automated</div>
-            <div className="text-3xl font-bold text-green-400">
-              {testCaseMetrics.automated}
-            </div>
-          </div>
-        </div>
-
-        {/* Mapped Test Cases Section */}
-        <div className="flex-1 overflow-auto">
-          <h2 className="text-xl font-bold mb-4" style={{ color: 'rgb(var(--text-primary))' }}>
-            Mapped Test Cases
-          </h2>
-
-          {loadingTestCases ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-2"></div>
-                <p className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>Loading test cases...</p>
-              </div>
-            </div>
-          ) : requirementTestCases.length === 0 ? (
-            <div className="rounded-xl border p-8 text-center" style={{ 
-              borderColor: 'rgb(var(--border-primary))', 
-              backgroundColor: 'rgb(var(--bg-elevated))' 
-            }}>
-              <p style={{ color: 'rgb(var(--text-secondary))' }}>
-                No test cases mapped to this requirement yet.
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-xl border overflow-hidden" style={{ 
-              borderColor: 'rgb(var(--border-primary))', 
-              backgroundColor: 'rgb(var(--bg-elevated))' 
-            }}>
-              <table className="w-full">
-                <thead className="border-b" style={{ 
-                  borderColor: 'rgb(var(--border-primary))', 
-                  backgroundColor: 'rgb(var(--bg-secondary))' 
-                }}>
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                      Test Case ID
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                      Title
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                      Type
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                      Status
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                      Linked Automation
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y" style={{ borderColor: 'rgb(var(--border-secondary))' }}>
-                  {requirementTestCases.map((testCase) => (
-                    <tr key={testCase.id} className="hover:bg-opacity-50 transition-colors" style={{
-                      backgroundColor: 'transparent'
-                    }}>
-                      <td className="px-4 py-3">
-                        <span className="text-xs font-mono px-2 py-1 rounded" style={{ 
-                          backgroundColor: 'rgb(var(--bg-secondary))', 
-                          color: 'rgb(var(--text-tertiary))' 
-                        }}>
-                          #{testCase.id}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-medium" style={{ color: 'rgb(var(--text-primary))' }}>
-                        {testCase.title}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border ${
-                          testCase.type === 'Automated' 
-                            ? 'bg-green-500/20 text-green-400 border-green-500/30' 
-                            : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                        }`}>
-                          {testCase.type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border ${
-                          testCase.status === 'Active' 
-                            ? 'bg-green-500/20 text-green-400 border-green-500/30' 
-                            : testCase.status === 'Draft' 
-                            ? 'bg-gray-500/20 text-gray-400 border-gray-500/30'
-                            : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-                        }`}>
-                          {testCase.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
-                        {testCase.linked_automation_id ? (
-                          <span className="inline-flex items-center gap-1 text-green-400">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            Linked
-                          </span>
-                        ) : (
-                          <span style={{ color: 'rgb(var(--text-tertiary))' }}>-</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          
-          {/* Automation Test Files Section */}
-          <h2 className="text-xl font-bold mb-4 mt-8" style={{ color: 'rgb(var(--text-primary))' }}>
-            Automation Test Files
-          </h2>
-
-          {loadingTestFiles ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-2"></div>
-                <p className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>Loading automation scripts...</p>
-              </div>
-            </div>
-          ) : requirementTestFiles.length === 0 ? (
-            <div className="rounded-xl border p-8 text-center" style={{ 
-              borderColor: 'rgb(var(--border-primary))', 
-              backgroundColor: 'rgb(var(--bg-elevated))' 
-            }}>
-              <svg className="w-12 h-12 mx-auto mb-3" style={{ color: 'rgb(var(--text-tertiary))' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-              </svg>
-              <p style={{ color: 'rgb(var(--text-secondary))' }}>
-                No automation test files linked to this requirement yet.
-              </p>
-              <p className="text-xs mt-2" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                Link test files from the Modules view to track automation coverage.
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-xl border overflow-hidden" style={{ 
-              borderColor: 'rgb(var(--border-primary))', 
-              backgroundColor: 'rgb(var(--bg-elevated))' 
-            }}>
-              <table className="w-full">
-                <thead className="border-b" style={{ 
-                  borderColor: 'rgb(var(--border-primary))', 
-                  backgroundColor: 'rgb(var(--bg-secondary))' 
-                }}>
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                      Module
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                      Test File Name
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                      Created Date
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y" style={{ borderColor: 'rgb(var(--border-secondary))' }}>
-                  {requirementTestFiles.map((testFile) => (
-                    <tr key={testFile.id} className="hover:bg-opacity-50 transition-colors cursor-pointer" style={{
-                      backgroundColor: 'transparent'
-                    }}
-                      onClick={() => {
-                        window.dispatchEvent(new CustomEvent('navigateToTestFile', { 
-                          detail: { moduleId: testFile.module_id, testFileId: testFile.id } 
-                        }));
-                      }}
-                      title="Click to view test file"
-                    >
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-2">
-                          <svg className="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                          </svg>
-                          <span className="font-medium" style={{ color: 'rgb(var(--text-primary))' }}>
-                            {testFile.module_name || `Module #${testFile.module_id}`}
-                          </span>
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-2">
-                          <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                          </svg>
-                          <span className="font-mono text-sm" style={{ color: 'rgb(var(--text-primary))' }}>
-                            {testFile.name}
-                          </span>
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
-                          {new Date(testFile.created_at).toLocaleDateString('en-US', { 
-                            month: 'short', 
-                            day: 'numeric', 
-                            year: 'numeric' 
-                          })}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="h-full flex flex-col p-6">
@@ -951,159 +683,267 @@ function Requirements() {
         )}
       </div>
 
-      {/* Create/Edit Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={handleCloseModal}>
-          <div
-            className="bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
+
+      {/* ── View Requirement Panel ── */}
+      {viewingRequirement && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={handleBackFromDetail} />
+          <div className="w-full max-w-2xl bg-slate-900 border-l border-slate-700 h-full flex flex-col shadow-2xl overflow-hidden">
             {/* Header */}
-            <div className="flex justify-between items-center px-6 py-4 border-b border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950">
-              <div>
-                <h2 className="text-xl font-semibold text-white">
-                  {editingRequirement ? 'Edit Requirement' : 'Create New Requirement'}
-                </h2>
-                <p className="text-sm text-slate-400 mt-1">
-                  {editingRequirement ? 'Update requirement details' : 'Add a new requirement to your project'}
-                </p>
+            <div className="flex items-start justify-between px-5 py-4 border-b border-slate-700 gap-3 shrink-0">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-xs text-slate-500">#{viewingRequirement.id}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${getPriorityBadgeClass(viewingRequirement.priority)}`}>{viewingRequirement.priority}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${getStatusBadgeClass(viewingRequirement.status)}`}>{viewingRequirement.status}</span>
+                </div>
+                <h2 className="text-base font-semibold text-white leading-snug">{viewingRequirement.title}</h2>
               </div>
-              <button
-                className="text-slate-400 hover:text-white transition-colors p-2 hover:bg-slate-800 rounded-lg"
-                onClick={handleCloseModal}
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => { handleBackFromDetail(); handleEditRequirement(viewingRequirement); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                  Edit
+                </button>
+                <button onClick={handleBackFromDetail} className="p-1 text-slate-500 hover:text-white transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-slate-700 px-5 shrink-0">
+              {[['details','Details'], ['comments',`Comments${reqComments.length ? ` (${reqComments.length})` : ''}`], ['history','History']].map(([key, label]) => (
+                <button key={key} onClick={() => setViewTab(key)}
+                  className={`px-3 py-2.5 text-xs font-medium border-b-2 transition-colors -mb-px ${viewTab === key ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {viewTab === 'details' && (
+                <div className="space-y-4">
+                  {viewingRequirement.description && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Description</p>
+                      <p className="text-sm text-slate-300 whitespace-pre-wrap">{viewingRequirement.description}</p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-800 rounded-lg px-3 py-2">
+                      <p className="text-xs text-slate-500 mb-0.5">Created</p>
+                      <p className="text-sm text-slate-300">{new Date(viewingRequirement.created_at).toLocaleDateString()}</p>
+                    </div>
+                    {viewingRequirement.created_by && (
+                      <div className="bg-slate-800 rounded-lg px-3 py-2">
+                        <p className="text-xs text-slate-500 mb-0.5">Created By</p>
+                        <p className="text-sm text-slate-300">{viewingRequirement.created_by}</p>
+                      </div>
+                    )}
+                    {viewingRequirement.sprint_id && (
+                      <div className="bg-slate-800 rounded-lg px-3 py-2">
+                        <p className="text-xs text-slate-500 mb-0.5">Sprint</p>
+                        <p className="text-sm text-indigo-400">{sprints.find(s => s.id === viewingRequirement.sprint_id)?.name || `Sprint #${viewingRequirement.sprint_id}`}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Test Case Metrics */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {[['Total', testCaseMetrics.total, 'text-white'], ['Manual', testCaseMetrics.manual, 'text-blue-400'], ['Automated', testCaseMetrics.automated, 'text-green-400']].map(([label, val, cls]) => (
+                      <div key={label} className="bg-slate-800 rounded-lg px-3 py-2 text-center">
+                        <p className="text-xs text-slate-500">{label}</p>
+                        <p className={`text-2xl font-bold ${cls}`}>{val}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Mapped Test Cases */}
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Mapped Test Cases</p>
+                    {loadingTestCases ? (
+                      <p className="text-xs text-slate-500 italic">Loading…</p>
+                    ) : requirementTestCases.length === 0 ? (
+                      <p className="text-xs text-slate-600 italic">No test cases mapped yet.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {requirementTestCases.map(tc => (
+                          <div key={tc.id} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 flex items-center justify-between">
+                            <span className="text-sm text-white">{tc.title}</span>
+                            <div className="flex gap-1.5">
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full border ${tc.type === 'Automated' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>{tc.type}</span>
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full border ${tc.status === 'Active' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>{tc.status}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Automation Test Files */}
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Automation Test Files</p>
+                    {loadingTestFiles ? (
+                      <p className="text-xs text-slate-500 italic">Loading…</p>
+                    ) : requirementTestFiles.length === 0 ? (
+                      <p className="text-xs text-slate-600 italic">No automation test files linked.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {requirementTestFiles.map(f => (
+                          <div key={f.id} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 flex items-center gap-2 cursor-pointer hover:border-indigo-500/50 transition-colors"
+                            onClick={() => window.dispatchEvent(new CustomEvent('navigateToTestFile', { detail: { moduleId: f.module_id, testFileId: f.id } }))}>
+                            <svg className="w-4 h-4 text-green-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                            <span className="text-sm font-mono text-white truncate">{f.name}</span>
+                            <span className="text-xs text-slate-500 ml-auto shrink-0">{f.module_name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {viewTab === 'comments' && (
+                <div className="space-y-4">
+                  {reqComments.length === 0 ? (
+                    <p className="text-xs text-slate-600 italic">No comments yet.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {reqComments.map(c => (
+                        <div key={c.id} className="flex gap-2.5">
+                          <Avatar username={c.author_name || '?'} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2 mb-0.5">
+                              <span className="text-xs font-medium text-slate-300">{c.author_name || 'Unknown'}</span>
+                              <span className="text-xs text-slate-600">{new Date(c.created_at).toLocaleString()}</span>
+                            </div>
+                            <p className="text-sm text-slate-300 whitespace-pre-wrap">{c.content}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="pt-2 border-t border-slate-700">
+                    <textarea value={commentText} onChange={e => setCommentText(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleAddReqComment(); }}
+                      placeholder="Add a comment… (Ctrl+Enter to submit)" rows={3}
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-indigo-500 resize-none" />
+                    <div className="flex justify-end mt-2">
+                      <button onClick={handleAddReqComment} disabled={!commentText.trim() || submittingComment}
+                        className="px-4 py-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg transition-colors">
+                        {submittingComment ? 'Posting…' : 'Post Comment'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {viewTab === 'history' && (
+                <div>
+                  {reqHistory.length === 0 ? (
+                    <p className="text-xs text-slate-600 italic">No changes recorded yet.</p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {reqHistory.map(h => (
+                        <div key={h.id} className="flex gap-2.5 items-start">
+                          <Avatar username={h.changed_by_username || '?'} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-slate-300">
+                              <span className="font-medium">{h.changed_by_username || 'Someone'}</span>
+                              {' changed '}<span className="text-indigo-400 font-medium">{h.field}</span>
+                              {h.old_value ? <> from <span className="text-slate-400">"{h.old_value}"</span></> : null}
+                              {' to '}<span className="text-slate-200">"{h.new_value}"</span>
+                            </p>
+                            <p className="text-xs text-slate-600 mt-0.5">{new Date(h.created_at).toLocaleString()}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create/Edit Panel ── */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={handleCloseModal} />
+          <div className="w-full max-w-xl bg-slate-900 border-l border-slate-700 h-full flex flex-col shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+              <div>
+                <h2 className="text-base font-semibold text-white">{editingRequirement ? 'Edit Requirement' : 'Create New Requirement'}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">{editingRequirement ? 'Update requirement details' : 'Add a new requirement to your project'}</p>
+              </div>
+              <button onClick={handleCloseModal} className="p-1 text-slate-500 hover:text-white transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
 
             {/* Form */}
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
-              <div className="space-y-5">
-                {/* Feature */}
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-white mb-1">Feature <span className="text-red-400">*</span></label>
+                <select value={formData.featureId} onChange={e => setFormData({ ...formData, featureId: e.target.value })} required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="">Select a feature…</option>
+                  {features.map(f => <option key={f.id} value={f.id}>{f.name} ({f.priority} priority)</option>)}
+                </select>
+                {features.length === 0 && <p className="mt-1 text-xs text-yellow-400">No features available. Please create a feature first.</p>}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-white mb-1">Title <span className="text-red-400">*</span></label>
+                <input type="text" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })}
+                  placeholder="Enter requirement title…" required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-white mb-1">Description</label>
+                <textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Enter detailed description…" rows={5}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Feature <span className="text-red-400">*</span>
-                  </label>
-                  <select
-                    value={formData.featureId}
-                    onChange={(e) => setFormData({ ...formData, featureId: e.target.value })}
-                    required
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="">Select a feature...</option>
-                    {features.map(feature => (
-                      <option key={feature.id} value={feature.id}>
-                        {feature.name} ({feature.priority} priority)
-                      </option>
-                    ))}
-                  </select>
-                  {features.length === 0 && (
-                    <p className="mt-1 text-xs text-yellow-400">
-                      No features available. Please create a feature first.
-                    </p>
-                  )}
-                </div>
-
-                {/* Title */}
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Title <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="Enter requirement title..."
-                    required
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Description
-                  </label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Enter detailed description..."
-                    rows="6"
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-                  />
-                </div>
-
-                {/* Priority and Status */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">
-                      Priority <span className="text-red-400">*</span>
-                    </label>
-                    <select
-                      value={formData.priority}
-                      onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                      required
-                      className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="Low">Low</option>
-                      <option value="Medium">Medium</option>
-                      <option value="High">High</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">
-                      Status <span className="text-red-400">*</span>
-                    </label>
-                    <select
-                      value={formData.status}
-                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                      required
-                      className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="Draft">Draft</option>
-                      <option value="Approved">Approved</option>
-                      <option value="Implemented">Implemented</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Assign to Sprint */}
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Assign to Sprint
-                  </label>
-                  <select
-                    value={formData.sprintId}
-                    onChange={(e) => setFormData({ ...formData, sprintId: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="">No Sprint</option>
-                    {sprints.map(sprint => (
-                      <option key={sprint.id} value={sprint.id}>
-                        {sprint.name} ({sprint.status})
-                      </option>
-                    ))}
+                  <label className="block text-xs font-medium text-white mb-1">Priority <span className="text-red-400">*</span></label>
+                  <select value={formData.priority} onChange={e => setFormData({ ...formData, priority: e.target.value })} required
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-white mb-1">Status <span className="text-red-400">*</span></label>
+                  <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })} required
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="Draft">Draft</option>
+                    <option value="Approved">Approved</option>
+                    <option value="Implemented">Implemented</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-white mb-1">Assign to Sprint</label>
+                <select value={formData.sprintId} onChange={e => setFormData({ ...formData, sprintId: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="">No Sprint</option>
+                  {sprints.map(s => <option key={s.id} value={s.id}>{s.name} ({s.status})</option>)}
+                </select>
               </div>
             </form>
 
             {/* Footer */}
-            <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/50 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={handleCloseModal}
-                className="px-6 py-2 bg-slate-700 text-white rounded-lg font-medium hover:bg-slate-600 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSubmit}
-                className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-600/20"
-              >
+            <div className="px-5 py-4 border-t border-slate-700 shrink-0 flex justify-end gap-2">
+              <button type="button" onClick={handleCloseModal}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors">Cancel</button>
+              <button onClick={handleSubmit}
+                className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">
                 {editingRequirement ? 'Update Requirement' : 'Create Requirement'}
               </button>
             </div>

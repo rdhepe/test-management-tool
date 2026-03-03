@@ -6,7 +6,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -2076,12 +2076,20 @@ app.put('/features/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invalid priority. Must be Low, Medium, or High' });
     }
     
-    const feature = await featureOperations.update(id, {
-      name,
-      description,
-      priority
-    });
-    
+    const feature = await featureOperations.update(id, { name, description, priority });
+
+    // Log history for changed fields
+    const orgId = req.session?.orgId || 1;
+    const changedById = req.session?.userId || null;
+    const changedByUsername = req.session?.username || null;
+    const tracked = { name, description: description || '', priority };
+    const prev = { name: existing.name, description: existing.description || '', priority: existing.priority };
+    for (const field of Object.keys(tracked)) {
+      if (String(tracked[field]) !== String(prev[field])) {
+        await featureHistoryOperations.create({ featureId: id, changedById, changedByUsername, field, oldValue: prev[field], newValue: tracked[field] }, orgId);
+      }
+    }
+
     res.json(feature);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2104,6 +2112,32 @@ app.delete('/features/:id', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// GET /features/:id/comments
+app.get('/features/:id/comments', async (req, res) => {
+  try {
+    res.json(await featureCommentOperations.getByFeatureId(parseInt(req.params.id)));
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+// POST /features/:id/comments
+app.post('/features/:id/comments', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+    const comment = await featureCommentOperations.create({
+      featureId: parseInt(req.params.id),
+      authorId: req.session?.userId || null,
+      authorName: req.session?.username || req.body.authorName || null,
+      content: req.body.content
+    }, orgId);
+    res.json(comment);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+// GET /features/:id/history
+app.get('/features/:id/history', async (req, res) => {
+  try {
+    res.json(await featureHistoryOperations.getByFeatureId(parseInt(req.params.id)));
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 // ===== Requirements Endpoints =====
@@ -2236,11 +2270,49 @@ app.put('/requirements/:id', async (req, res) => {
       status,
       priority
     });
-    
+
+    // Log history for changed fields
+    const orgId = req.session?.orgId || 1;
+    const changedById = req.session?.userId || null;
+    const changedByUsername = req.session?.username || null;
+    const reqTracked = { title, description: description || '', status, priority };
+    const reqPrev = { title: existing.title, description: existing.description || '', status: existing.status, priority: existing.priority };
+    for (const field of Object.keys(reqTracked)) {
+      if (String(reqTracked[field]) !== String(reqPrev[field])) {
+        await requirementHistoryOperations.create({ requirementId: id, changedById, changedByUsername, field, oldValue: reqPrev[field], newValue: reqTracked[field] }, orgId);
+      }
+    }
+
     res.json(requirement);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// GET /requirements/:id/comments
+app.get('/requirements/:id/comments', async (req, res) => {
+  try {
+    res.json(await requirementCommentOperations.getByRequirementId(parseInt(req.params.id)));
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+// POST /requirements/:id/comments
+app.post('/requirements/:id/comments', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+    const comment = await requirementCommentOperations.create({
+      requirementId: parseInt(req.params.id),
+      authorId: req.session?.userId || null,
+      authorName: req.session?.username || req.body.authorName || null,
+      content: req.body.content
+    }, orgId);
+    res.json(comment);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+// GET /requirements/:id/history
+app.get('/requirements/:id/history', async (req, res) => {
+  try {
+    res.json(await requirementHistoryOperations.getByRequirementId(parseInt(req.params.id)));
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 // DELETE /requirements/:id - Delete a requirement
@@ -2393,11 +2465,49 @@ app.put('/test-cases/:id', async (req, res) => {
       status,
       test_file_id: testFileId !== undefined ? testFileId : existing.test_file_id
     });
-    
+
+    // Log history for changed fields
+    const tcOrgId = req.session?.orgId || 1;
+    const tcChangedById = req.session?.userId || null;
+    const tcChangedByUsername = req.session?.username || null;
+    const tcTracked = { title, type, priority, status };
+    const tcPrev = { title: existing.title, type: existing.type, priority: existing.priority, status: existing.status };
+    for (const field of Object.keys(tcTracked)) {
+      if (tcTracked[field] !== undefined && String(tcTracked[field]) !== String(tcPrev[field])) {
+        await testCaseHistoryOperations.create({ testCaseId: id, changedById: tcChangedById, changedByUsername: tcChangedByUsername, field, oldValue: tcPrev[field], newValue: tcTracked[field] }, tcOrgId);
+      }
+    }
+
     res.json(testCase);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// GET /test-cases/:id/comments
+app.get('/test-cases/:id/comments', async (req, res) => {
+  try {
+    res.json(await testCaseCommentOperations.getByTestCaseId(parseInt(req.params.id)));
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+// POST /test-cases/:id/comments
+app.post('/test-cases/:id/comments', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+    const comment = await testCaseCommentOperations.create({
+      testCaseId: parseInt(req.params.id),
+      authorId: req.session?.userId || null,
+      authorName: req.session?.username || req.body.authorName || null,
+      content: req.body.content
+    }, orgId);
+    res.json(comment);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+// GET /test-cases/:id/history
+app.get('/test-cases/:id/history', async (req, res) => {
+  try {
+    res.json(await testCaseHistoryOperations.getByTestCaseId(parseInt(req.params.id)));
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 // DELETE /test-cases/:id - Delete a test case

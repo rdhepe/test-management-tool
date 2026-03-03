@@ -276,6 +276,79 @@ async function initDB() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS feature_comments (
+      id          SERIAL PRIMARY KEY,
+      feature_id  INTEGER NOT NULL REFERENCES features(id) ON DELETE CASCADE,
+      author_id   INTEGER,
+      author_name TEXT,
+      content     TEXT NOT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      org_id      INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS feature_history (
+      id                  SERIAL PRIMARY KEY,
+      feature_id          INTEGER NOT NULL REFERENCES features(id) ON DELETE CASCADE,
+      changed_by_id       INTEGER,
+      changed_by_username TEXT,
+      field               TEXT NOT NULL,
+      old_value           TEXT,
+      new_value           TEXT,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      org_id              INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS requirement_comments (
+      id              SERIAL PRIMARY KEY,
+      requirement_id  INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+      author_id       INTEGER,
+      author_name     TEXT,
+      content         TEXT NOT NULL,
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      org_id          INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS requirement_history (
+      id                  SERIAL PRIMARY KEY,
+      requirement_id      INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+      changed_by_id       INTEGER,
+      changed_by_username TEXT,
+      field               TEXT NOT NULL,
+      old_value           TEXT,
+      new_value           TEXT,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      org_id              INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS test_case_comments (
+      id            SERIAL PRIMARY KEY,
+      test_case_id  INTEGER NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+      author_id     INTEGER,
+      author_name   TEXT,
+      content       TEXT NOT NULL,
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      org_id        INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS test_case_history (
+      id                  SERIAL PRIMARY KEY,
+      test_case_id        INTEGER NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+      changed_by_id       INTEGER,
+      changed_by_username TEXT,
+      field               TEXT NOT NULL,
+      old_value           TEXT,
+      new_value           TEXT,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      org_id              INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS auth_sessions (
       token            TEXT PRIMARY KEY,
       user_id          INTEGER NOT NULL,
@@ -1228,6 +1301,96 @@ const taskHistoryOperations = {
 };
 
 // ---------------------------------------------------------------------------
+// Feature Comment / History Operations
+// ---------------------------------------------------------------------------
+const featureCommentOperations = {
+  getByFeatureId: async (featureId) => {
+    const r = await pool.query('SELECT * FROM feature_comments WHERE feature_id = $1 ORDER BY created_at ASC', [featureId]);
+    return r.rows;
+  },
+  create: async ({ featureId, authorId, authorName, content }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO feature_comments (feature_id, author_id, author_name, content, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [featureId, authorId || null, authorName || null, content, orgId]
+    );
+    return r.rows[0];
+  }
+};
+
+const featureHistoryOperations = {
+  getByFeatureId: async (featureId) => {
+    const r = await pool.query('SELECT * FROM feature_history WHERE feature_id = $1 ORDER BY created_at DESC', [featureId]);
+    return r.rows;
+  },
+  create: async ({ featureId, changedById, changedByUsername, field, oldValue, newValue }, orgId = 1) => {
+    await pool.query(
+      'INSERT INTO feature_history (feature_id, changed_by_id, changed_by_username, field, old_value, new_value, org_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [featureId, changedById || null, changedByUsername || null, field, oldValue ?? null, newValue ?? null, orgId]
+    );
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Requirement Comment / History Operations
+// ---------------------------------------------------------------------------
+const requirementCommentOperations = {
+  getByRequirementId: async (requirementId) => {
+    const r = await pool.query('SELECT * FROM requirement_comments WHERE requirement_id = $1 ORDER BY created_at ASC', [requirementId]);
+    return r.rows;
+  },
+  create: async ({ requirementId, authorId, authorName, content }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO requirement_comments (requirement_id, author_id, author_name, content, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [requirementId, authorId || null, authorName || null, content, orgId]
+    );
+    return r.rows[0];
+  }
+};
+
+const requirementHistoryOperations = {
+  getByRequirementId: async (requirementId) => {
+    const r = await pool.query('SELECT * FROM requirement_history WHERE requirement_id = $1 ORDER BY created_at DESC', [requirementId]);
+    return r.rows;
+  },
+  create: async ({ requirementId, changedById, changedByUsername, field, oldValue, newValue }, orgId = 1) => {
+    await pool.query(
+      'INSERT INTO requirement_history (requirement_id, changed_by_id, changed_by_username, field, old_value, new_value, org_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [requirementId, changedById || null, changedByUsername || null, field, oldValue ?? null, newValue ?? null, orgId]
+    );
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Test Case Comment / History Operations
+// ---------------------------------------------------------------------------
+const testCaseCommentOperations = {
+  getByTestCaseId: async (testCaseId) => {
+    const r = await pool.query('SELECT * FROM test_case_comments WHERE test_case_id = $1 ORDER BY created_at ASC', [testCaseId]);
+    return r.rows;
+  },
+  create: async ({ testCaseId, authorId, authorName, content }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO test_case_comments (test_case_id, author_id, author_name, content, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [testCaseId, authorId || null, authorName || null, content, orgId]
+    );
+    return r.rows[0];
+  }
+};
+
+const testCaseHistoryOperations = {
+  getByTestCaseId: async (testCaseId) => {
+    const r = await pool.query('SELECT * FROM test_case_history WHERE test_case_id = $1 ORDER BY created_at DESC', [testCaseId]);
+    return r.rows;
+  },
+  create: async ({ testCaseId, changedById, changedByUsername, field, oldValue, newValue }, orgId = 1) => {
+    await pool.query(
+      'INSERT INTO test_case_history (test_case_id, changed_by_id, changed_by_username, field, old_value, new_value, org_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [testCaseId, changedById || null, changedByUsername || null, field, oldValue ?? null, newValue ?? null, orgId]
+    );
+  }
+};
+
+// ---------------------------------------------------------------------------
 // User Operations
 // ---------------------------------------------------------------------------
 const userOperations = {
@@ -1602,6 +1765,12 @@ module.exports = {
   taskOperations,
   taskCommentOperations,
   taskHistoryOperations,
+  featureCommentOperations,
+  featureHistoryOperations,
+  requirementCommentOperations,
+  requirementHistoryOperations,
+  testCaseCommentOperations,
+  testCaseHistoryOperations,
   sessionOperations,
   userOperations,
   customRoleOperations,

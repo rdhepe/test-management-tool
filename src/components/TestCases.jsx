@@ -3,6 +3,15 @@ import API_URL from '../apiUrl';
 import { authFetch } from '../utils/api';
 import * as XLSX from 'xlsx';
 
+function Avatar({ username }) {
+  if (!username) return null;
+  return (
+    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-700 text-white text-xs font-bold shrink-0">
+      {username.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
 function TestCases({ currentUser }) {
   const [testCases, setTestCases] = useState([]);
   const [requirements, setRequirements] = useState([]);
@@ -37,6 +46,13 @@ function TestCases({ currentUser }) {
   const [linkedDefectIds, setLinkedDefectIds] = useState([]);
   const [showNewDefectForm, setShowNewDefectForm] = useState(false);
   const [newDefectForm, setNewDefectForm] = useState({ title: '', description: '', severity: 'Medium', status: 'Open', linkedTestCaseId: '', sprintId: '', screenshotPreview: null, screenshotFile: null });
+
+  // Comments / history
+  const [tcComments, setTcComments] = useState([]);
+  const [tcHistory, setTcHistory] = useState([]);
+  const [viewTab, setViewTab] = useState('details');
+  const [commentText, setCommentText] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -341,8 +357,37 @@ function TestCases({ currentUser }) {
 
   const handleViewDetails = async (testCase) => {
     setViewingTestCase(testCase);
-    setExecutionHistoryPage(1); // Reset pagination when viewing test case
+    setViewTab('details');
+    setTcComments([]);
+    setTcHistory([]);
+    setCommentText('');
+    setExecutionHistoryPage(1);
     await fetchExecutionHistory(testCase.id);
+    // Fetch comments + history
+    try {
+      const token = localStorage.getItem('auth_token');
+      const headers = token ? { 'x-auth-token': token } : {};
+      const [commRes, histRes] = await Promise.all([
+        fetch(`${API_URL}/test-cases/${testCase.id}/comments`, { headers }),
+        fetch(`${API_URL}/test-cases/${testCase.id}/history`, { headers }),
+      ]);
+      if (commRes.ok) setTcComments(await commRes.json());
+      if (histRes.ok) setTcHistory(await histRes.json());
+    } catch { /* ignore */ }
+  };
+
+  const handleAddTcComment = async () => {
+    if (!commentText.trim() || !viewingTestCase) return;
+    setSubmittingComment(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(`${API_URL}/test-cases/${viewingTestCase.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-auth-token': token } : {}) },
+        body: JSON.stringify({ content: commentText.trim() }),
+      });
+      if (res.ok) { setTcComments(prev => [...prev, await res.json()]); setCommentText(''); }
+    } finally { setSubmittingComment(false); }
   };
 
   const handleCloseDetails = () => {
@@ -1424,16 +1469,18 @@ function TestCases({ currentUser }) {
       )}
       </div>
 
-      {/* Modal */}
+      {/* ── Create / Edit Panel ── */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-lg max-w-5xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <h2 className="text-xl font-bold text-white mb-4">
-                {editingTestCase ? 'Edit Test Case' : 'Create Test Case'}
-              </h2>
-              
-              <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={() => setShowModal(false)} />
+          <div className="w-full max-w-xl bg-slate-800 border-l border-slate-700 h-full flex flex-col shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+              <h2 className="text-base font-semibold text-white">{editingTestCase ? 'Edit Test Case' : 'Create Test Case'}</h2>
+              <button onClick={() => setShowModal(false)} className="p-1 text-slate-500 hover:text-white transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">
                     Title <span className="text-red-400">*</span>
@@ -1625,17 +1672,52 @@ function TestCases({ currentUser }) {
                   </button>
                 </div>
               </form>
-            </div>
           </div>
         </div>
       )}
 
-      {/* Test Case Detail View Modal */}
+      {/* ── Test Case Detail View Panel ── */}
       {viewingTestCase && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-6">
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={handleCloseDetails} />
+          <div className="w-full max-w-2xl bg-slate-800 border-l border-slate-700 h-full flex flex-col shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-start justify-between px-5 py-4 border-b border-slate-700 gap-3 shrink-0">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getTypeBadgeColor(viewingTestCase.type)}`}>{viewingTestCase.type}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getPriorityBadgeColor(viewingTestCase.priority)}`}>{viewingTestCase.priority}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getStatusBadgeColor(viewingTestCase.status)}`}>{viewingTestCase.status}</span>
+                </div>
+                <h2 className="text-base font-semibold text-white leading-snug">{viewingTestCase.title}</h2>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => { handleCloseDetails(); handleEditTestCase(viewingTestCase); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                  Edit
+                </button>
+                <button onClick={handleCloseDetails} className="p-1 text-slate-500 hover:text-white transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-slate-700 px-5 shrink-0">
+              {[['details','Details'], ['comments',`Comments${tcComments.length ? ` (${tcComments.length})` : ''}`], ['history','History']].map(([key, label]) => (
+                <button key={key} onClick={() => setViewTab(key)}
+                  className={`px-3 py-2.5 text-xs font-medium border-b-2 transition-colors -mb-px ${viewTab === key ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto">
+              {viewTab === 'details' && (
+                <div className="p-5">
+            <div className="flex justify-between items-start mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-white">{viewingTestCase.title}</h2>
                   <div className="flex gap-2 mt-2">
@@ -1650,14 +1732,6 @@ function TestCases({ currentUser }) {
                     </span>
                   </div>
                 </div>
-                <button
-                  onClick={handleCloseDetails}
-                  className="text-slate-400 hover:text-white"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
               </div>
 
               {/* Test Case Details */}
@@ -1873,6 +1947,68 @@ function TestCases({ currentUser }) {
                           </div>
                         </div>
                       )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+              )}
+
+              {viewTab === 'comments' && (
+                <div className="p-5 space-y-4">
+                  {tcComments.length === 0 ? (
+                    <p className="text-xs text-slate-600 italic">No comments yet.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {tcComments.map(c => (
+                        <div key={c.id} className="flex gap-2.5">
+                          <Avatar username={c.author_name || '?'} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2 mb-0.5">
+                              <span className="text-xs font-medium text-slate-300">{c.author_name || 'Unknown'}</span>
+                              <span className="text-xs text-slate-600">{new Date(c.created_at).toLocaleString()}</span>
+                            </div>
+                            <p className="text-sm text-slate-300 whitespace-pre-wrap">{c.content}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="pt-2 border-t border-slate-700">
+                    <textarea value={commentText} onChange={e => setCommentText(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleAddTcComment(); }}
+                      placeholder="Add a comment… (Ctrl+Enter to submit)" rows={3}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-indigo-500 resize-none" />
+                    <div className="flex justify-end mt-2">
+                      <button onClick={handleAddTcComment} disabled={!commentText.trim() || submittingComment}
+                        className="px-4 py-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg transition-colors">
+                        {submittingComment ? 'Posting…' : 'Post Comment'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {viewTab === 'history' && (
+                <div className="p-5">
+                  {tcHistory.length === 0 ? (
+                    <p className="text-xs text-slate-600 italic">No changes recorded yet.</p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {tcHistory.map(h => (
+                        <div key={h.id} className="flex gap-2.5 items-start">
+                          <Avatar username={h.changed_by_username || '?'} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-slate-300">
+                              <span className="font-medium">{h.changed_by_username || 'Someone'}</span>
+                              {' changed '}<span className="text-indigo-400 font-medium">{h.field}</span>
+                              {h.old_value ? <> from <span className="text-slate-400">"{h.old_value}"</span></> : null}
+                              {' to '}<span className="text-slate-200">"{h.new_value}"</span>
+                            </p>
+                            <p className="text-xs text-slate-600 mt-0.5">{new Date(h.created_at).toLocaleString()}</p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
