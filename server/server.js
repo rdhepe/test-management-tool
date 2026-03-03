@@ -6,7 +6,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -2792,7 +2792,29 @@ app.delete('/sprints/:id', async (req, res) => {
 });
 
 // ===== Auth / Session Management =====
-const sessions = new Map(); // token -> { userId, username, role, loggedInAt }
+const sessions = new Map(); // token -> { userId, username, role, orgId, ... }
+
+// Reload persisted sessions from DB into the in-memory map on startup
+// so sessions survive server restarts (e.g. Railway deploys).
+(async () => {
+  try {
+    const rows = await sessionOperations.getAll();
+    for (const row of rows) {
+      sessions.set(row.token, {
+        userId: row.user_id,
+        username: row.username,
+        role: row.role,
+        orgId: row.org_id,
+        customRoleId: row.custom_role_id,
+        permissions: row.permissions ? JSON.parse(row.permissions) : null,
+        customRoleName: row.custom_role_name,
+      });
+    }
+    console.log(`[sessions] Loaded ${rows.length} session(s) from DB`);
+  } catch (err) {
+    console.error('[sessions] Failed to reload from DB:', err.message);
+  }
+})();
 
 // ===== Task Routes =====
 app.get('/tasks', async (req, res) => {
@@ -3066,6 +3088,7 @@ app.put('/orgs/:orgId/users/:userId', requireAuth, async (req, res) => {
       for (const [token, sess] of sessions.entries()) {
         if (sess.userId === id) sessions.delete(token);
       }
+      await sessionOperations.deleteByUserId(id);
     }
     res.json(updated);
   } catch (error) { res.status(500).json({ error: error.message }); }
@@ -3082,6 +3105,7 @@ app.delete('/orgs/:orgId/users/:userId', requireAuth, async (req, res) => {
     for (const [token, sess] of sessions.entries()) {
       if (sess.userId === id) sessions.delete(token);
     }
+    await sessionOperations.deleteByUserId(id);
     await userOperations.delete(id);
     res.json({ message: 'User deleted' });
   } catch (error) { res.status(500).json({ error: error.message }); }
@@ -3123,9 +3147,11 @@ app.post('/auth/login', async (req, res) => {
       }
     }
     const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, { userId: user.id, username: user.username, role: user.role,
+    const sessionData = { userId: user.id, username: user.username, role: user.role,
       orgId: user.org_id || 1,
-      customRoleId: user.custom_role_id || null, permissions, customRoleName });
+      customRoleId: user.custom_role_id || null, permissions, customRoleName };
+    sessions.set(token, sessionData);
+    await sessionOperations.create(token, sessionData);
     res.json({ token, user: { id: user.id, username: user.username, role: user.role,
       orgId: user.org_id || 1, permissions, customRoleName } });
   } catch (error) {
@@ -3136,7 +3162,7 @@ app.post('/auth/login', async (req, res) => {
 // POST /auth/logout
 app.post('/auth/logout', async (req, res) => {
   const token = req.headers['x-auth-token'];
-  if (token) sessions.delete(token);
+  if (token) { sessions.delete(token); await sessionOperations.delete(token); }
   res.json({ message: 'Logged out' });
 });
 
@@ -3243,6 +3269,7 @@ app.put('/auth/users/:id', requireAdmin, async (req, res) => {
       for (const [token, sess] of sessions.entries()) {
         if (sess.userId === id) sessions.delete(token);
       }
+      await sessionOperations.deleteByUserId(id);
     }
     res.json(updated);
   } catch (error) {
@@ -3266,6 +3293,7 @@ app.delete('/auth/users/:id', requireAdmin, async (req, res) => {
     for (const [token, sess] of sessions.entries()) {
       if (sess.userId === id) sessions.delete(token);
     }
+    await sessionOperations.deleteByUserId(id);
     await userOperations.delete(id);
     res.json({ message: 'User deleted' });
   } catch (error) {

@@ -276,6 +276,20 @@ async function initDB() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      token            TEXT PRIMARY KEY,
+      user_id          INTEGER NOT NULL,
+      username         TEXT NOT NULL,
+      role             TEXT NOT NULL,
+      org_id           INTEGER NOT NULL DEFAULT 1,
+      custom_role_id   INTEGER,
+      permissions      TEXT,
+      custom_role_name TEXT,
+      logged_in_at     TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS custom_roles (
       id          SERIAL PRIMARY KEY,
       name        TEXT NOT NULL,
@@ -1512,6 +1526,33 @@ const organizationOperations = {
 };
 
 // ---------------------------------------------------------------------------
+// Session persistence (DB-backed so sessions survive server restarts)
+// ---------------------------------------------------------------------------
+const sessionOperations = {
+  create: async (token, data) => {
+    await pool.query(
+      `INSERT INTO auth_sessions (token, user_id, username, role, org_id, custom_role_id, permissions, custom_role_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (token) DO UPDATE SET user_id=$2, username=$3, role=$4, org_id=$5, custom_role_id=$6, permissions=$7, custom_role_name=$8`,
+      [token, data.userId, data.username, data.role, data.orgId || 1,
+       data.customRoleId || null,
+       data.permissions ? JSON.stringify(data.permissions) : null,
+       data.customRoleName || null]
+    );
+  },
+  getAll: async () => {
+    const r = await pool.query('SELECT * FROM auth_sessions');
+    return r.rows;
+  },
+  delete: async (token) => {
+    await pool.query('DELETE FROM auth_sessions WHERE token = $1', [token]);
+  },
+  deleteByUserId: async (userId) => {
+    await pool.query('DELETE FROM auth_sessions WHERE user_id = $1', [userId]);
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Initialise on startup
 // ---------------------------------------------------------------------------
 initDB().catch((err) => {
@@ -1542,6 +1583,7 @@ module.exports = {
   taskOperations,
   taskCommentOperations,
   taskHistoryOperations,
+  sessionOperations,
   userOperations,
   customRoleOperations,
   wikiOperations,
