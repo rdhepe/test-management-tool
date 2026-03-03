@@ -3042,7 +3042,7 @@ app.get('/auth/me', async (req, res) => {
 // GET /auth/team — any authenticated user can see the team list
 app.get('/auth/team', requireAuth, async (req, res) => {
   try {
-    const users = await userOperations.getAll(req.session.orgId).map(u => ({
+    const users = (await userOperations.getAll(req.session.orgId)).map(u => ({
       id: u.id,
       username: u.username,
       role: u.role,

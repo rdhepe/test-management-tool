@@ -377,15 +377,25 @@ async function seedDefaultUsers() {
 // ---------------------------------------------------------------------------
 // Module Operations
 // ---------------------------------------------------------------------------
+const parseModuleTags = (row) => {
+  if (!row) return row;
+  if (row.tags && typeof row.tags === 'string') {
+    try { row.tags = JSON.parse(row.tags); } catch { row.tags = []; }
+  } else if (!row.tags) {
+    row.tags = [];
+  }
+  return row;
+};
+
 const moduleOperations = {
   getAll: async (orgId = 1) => {
     const r = await pool.query('SELECT * FROM modules WHERE org_id = $1 ORDER BY created_at ASC', [orgId]);
-    return r.rows;
+    return r.rows.map(parseModuleTags);
   },
 
   getById: async (id) => {
     const r = await pool.query('SELECT * FROM modules WHERE id = $1', [id]);
-    return r.rows[0] || null;
+    return parseModuleTags(r.rows[0] || null);
   },
 
   create: async ({ name, description, base_url, language = 'javascript', tags, imports }, orgId = 1) => {
