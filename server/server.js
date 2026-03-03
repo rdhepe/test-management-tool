@@ -2887,10 +2887,12 @@ app.get('/tasks/:id/history', async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// Basic user list for assignee pickers (no auth required — returns id+username only)
+// Basic user list for assignee pickers — resolves org from token if present
 app.get('/users/list', async (req, res) => {
   try {
-    const orgId = req.session?.orgId || 1;
+    const token = req.headers['x-auth-token'];
+    const session = token ? sessions.get(token) : null;
+    const orgId = session?.orgId || req.session?.orgId || 1;
     const users = (await userOperations.getAll(orgId)).map(u => ({ id: u.id, username: u.username, role: u.role }));
     res.json(users);
   } catch (error) { res.status(500).json({ error: error.message }); }

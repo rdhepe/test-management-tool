@@ -92,7 +92,10 @@ export default function Taskboard({ currentUser }) {
     }
     async function loadUsers() {
       try {
-        const res = await fetch(`${API_URL}/users/list`);
+        const token = localStorage.getItem('auth_token');
+        const res = await fetch(`${API_URL}/users/list`, {
+          headers: token ? { 'x-auth-token': token } : {},
+        });
         if (res.ok) setUsers(await res.json());
       } catch { /* ignore */ }
     }
