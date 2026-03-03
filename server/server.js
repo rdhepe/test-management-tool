@@ -8,6 +8,10 @@ const { promisify } = require('util');
 const crypto = require('crypto');
 const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
 
+// On Linux containers (Railway/Docker) there is no X display — always run headless.
+// On Windows/Mac with a real display, 'headed' mode works for local development.
+const FORCE_HEADLESS = process.platform !== 'win32' && !process.env.DISPLAY;
+
 const execAsync = promisify(exec);
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -665,8 +669,8 @@ export default defineConfig({
   fullyParallel: ${fullyParallel},
   workers: ${workers},
   use: {
-    headless: false,
-    slowMo: 500,
+    headless: ${FORCE_HEADLESS},
+    slowMo: ${FORCE_HEADLESS ? 0 : 500},
     screenshot: '${screenshotMode}',
   },
   reporter: [
@@ -1640,8 +1644,8 @@ export default defineConfig({
   fullyParallel: ${suiteFullyParallel},
   workers: ${suiteWorkers},
   use: {
-    headless: false,
-    slowMo: 500,
+    headless: ${FORCE_HEADLESS},
+    slowMo: ${FORCE_HEADLESS ? 0 : 500},
     screenshot: '${suiteScreenshotMode}',
   },
   reporter: [
@@ -1650,7 +1654,7 @@ export default defineConfig({
     ['html', { open: 'never', outputFolder: 'playwright-report' }]
   ],
 });
-`;
+`
     await fs.writeFile(path.join(tempDir, 'playwright.config.ts'), configContent, 'utf8');
     pushLog(suiteExecutionId, `✓  ${suiteTestFiles.length} test file(s) written to workspace`);
 
