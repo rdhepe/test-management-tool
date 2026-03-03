@@ -13,7 +13,6 @@
     "express": "^4.18.2",
     "lodash": "^4.17.23",
     "pg": "^8.13.0",
-    "playwright-cloud-studio": "file:..",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
