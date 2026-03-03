@@ -71,7 +71,7 @@ app.use('/reports', express.static(reportsDir));
 const distPath = path.join(__dirname, '..', 'dist');
 if (require('fs').existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.use('*', (req, res, next) => {
+  app.use((req, res, next) => {
     const p = req.path;
     if (
       p.startsWith('/auth') || p.startsWith('/orgs') || p.startsWith('/reports') ||
