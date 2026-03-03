@@ -1223,7 +1223,7 @@ app.post('/test-suites', async (req, res) => {
     // Create the suite
     const orgId = req.session?.orgId || 1;
     const suite = await testSuiteOperations.create({
-      moduleId,
+      module_id: moduleId,
       name
     }, orgId);
     
@@ -1231,8 +1231,8 @@ app.post('/test-suites', async (req, res) => {
     if (testFileIds && testFileIds.length > 0) {
       for (const testFileId of testFileIds) {
         await suiteTestFileOperations.add({
-          suiteId: suite.id,
-          testFileId
+          suite_id: suite.id,
+          test_file_id: testFileId
         });
       }
     }
@@ -1268,8 +1268,8 @@ app.post('/test-suites/:id/test-files', async (req, res) => {
     const addedFiles = [];
     for (const testFileId of testFileIds) {
       const result = await suiteTestFileOperations.add({
-        suiteId,
-        testFileId: parseInt(testFileId)
+        suite_id: suiteId,
+        test_file_id: parseInt(testFileId)
       });
       addedFiles.push(result);
     }
