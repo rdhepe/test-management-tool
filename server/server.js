@@ -2953,28 +2953,31 @@ app.put('/tasks/:id', async (req, res) => {
     const { title, description, sprintId, assigneeId, status, priority, startDate, endDate, plannedHours, completedHours, requirementId } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     const task = await taskOperations.update(id, { title, description, sprintId, assigneeId, status, priority, startDate, endDate, plannedHours, completedHours, requirementId });
-    // Log history for changed fields
-    const actor = req.session?.username || null;
-    const actorId = req.session?.userId || null;
-    const orgId = req.session?.orgId || 1;
-    const tracked = [
-      ['title', existing.title, title],
-      ['status', existing.status, status],
-      ['priority', existing.priority, priority],
-      ['assignee', existing.assignee_id ? String(existing.assignee_id) : null, assigneeId ? String(assigneeId) : null],
-    ];
-    for (const [field, oldVal, newVal] of tracked) {
-      if (String(oldVal ?? '') !== String(newVal ?? '')) {
-        // Resolve username for assignee field
-        let oldDisplay = oldVal, newDisplay = newVal;
-        if (field === 'assignee') {
-          const allUsers = await userOperations.getAll(orgId);
-          const findName = uid => allUsers.find(u => String(u.id) === String(uid))?.username || uid || '—';
-          oldDisplay = oldVal ? findName(oldVal) : '—';
-          newDisplay = newVal ? findName(newVal) : '—';
+    // Log history for changed fields (wrapped in try-catch so a schema/DB issue never fails the update itself)
+    try {
+      const actor = req.session?.username || null;
+      const actorId = req.session?.userId || null;
+      const orgId = req.session?.orgId || 1;
+      const tracked = [
+        ['title', existing.title, title],
+        ['status', existing.status, status],
+        ['priority', existing.priority, priority],
+        ['assignee', existing.assignee_id ? String(existing.assignee_id) : null, assigneeId ? String(assigneeId) : null],
+      ];
+      for (const [field, oldVal, newVal] of tracked) {
+        if (String(oldVal ?? '') !== String(newVal ?? '')) {
+          let oldDisplay = oldVal, newDisplay = newVal;
+          if (field === 'assignee') {
+            const allUsers = await userOperations.getAll(orgId);
+            const findName = uid => allUsers.find(u => String(u.id) === String(uid))?.username || uid || '—';
+            oldDisplay = oldVal ? findName(oldVal) : '—';
+            newDisplay = newVal ? findName(newVal) : '—';
+          }
+          await taskHistoryOperations.create({ taskId: id, changedById: actorId, changedByUsername: actor, field, oldValue: oldDisplay, newValue: newDisplay }, orgId);
         }
-        await taskHistoryOperations.create({ taskId: id, changedById: actorId, changedByUsername: actor, field, oldValue: oldDisplay, newValue: newDisplay }, orgId);
       }
+    } catch (histErr) {
+      console.warn('Task history logging failed (non-fatal):', histErr.message);
     }
     res.json(task);
   } catch (error) { res.status(500).json({ error: error.message }); }

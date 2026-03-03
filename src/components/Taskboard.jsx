@@ -49,6 +49,18 @@ function Avatar({ username }) {
   );
 }
 
+function RightPanel({ open, onClose, children }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="w-full max-w-xl bg-slate-900 border-l border-slate-700 h-full flex flex-col shadow-2xl overflow-hidden">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function Taskboard({ currentUser }) {
   const [sprints, setSprints]   = useState([]);
   const [tasks, setTasks]       = useState([]);
@@ -557,10 +569,9 @@ export default function Taskboard({ currentUser }) {
         const barColor = pct >= 100 ? 'bg-emerald-500' : pct >= 60 ? 'bg-blue-500' : pct >= 30 ? 'bg-yellow-500' : 'bg-slate-500';
         const STATUS_DOT = { 'New': 'bg-slate-400', 'In Progress': 'bg-indigo-400', 'Completed': 'bg-emerald-400', 'Done': 'bg-purple-400' };
         return (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh]">
+          <RightPanel open={true} onClose={closeView}>
               {/* Header */}
-              <div className="flex items-start justify-between px-5 py-4 border-b border-slate-700 gap-3">
+              <div className="flex items-start justify-between px-5 py-4 border-b border-slate-700 gap-3 shrink-0">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                     <span className={`inline-block w-2 h-2 rounded-full ${STATUS_DOT[t.status] || 'bg-slate-400'} shrink-0`} />
@@ -777,17 +788,15 @@ export default function Taskboard({ currentUser }) {
                 )}
 
               </div>
-            </div>
-          </div>
+          </RightPanel>
         );
       })()}
 
-      {/* ── Task Modal ── */}
+      {/* ── Create / Edit Panel ── */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-lg shadow-2xl">
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+        <RightPanel open={true} onClose={closeModal}>
+            {/* Panel header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
               <h2 className="text-base font-semibold text-white">
                 {editingTask ? 'Edit Task' : 'New Task'}
               </h2>
@@ -812,7 +821,7 @@ export default function Taskboard({ currentUser }) {
             </div>
 
             {/* Modal body */}
-            <form onSubmit={handleSave} className="p-5 space-y-4">
+            <form onSubmit={handleSave} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               {/* Title */}
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">Title <span className="text-red-400">*</span></label>
@@ -982,8 +991,7 @@ export default function Taskboard({ currentUser }) {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </RightPanel>
       )}
 
       {/* ── Delete confirm ── */}

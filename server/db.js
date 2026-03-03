@@ -450,6 +450,12 @@ async function initDB() {
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS created_by TEXT`);
   await pool.query(`ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS created_by TEXT`);
 
+  // Ensure comment/history tables have org_id (safe for DBs created before this column was added)
+  for (const tbl of ['task_comments','task_history','feature_comments','feature_history',
+                      'requirement_comments','requirement_history','test_case_comments','test_case_history']) {
+    await pool.query(`ALTER TABLE IF EXISTS ${tbl} ADD COLUMN IF NOT EXISTS org_id INTEGER NOT NULL DEFAULT 1`);
+  }
+
   await seedDefaultOrg();
   await seedDefaultUsers();
   console.log('Database initialised');
