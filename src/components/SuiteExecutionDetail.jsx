@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 
-const API_URL = 'http://localhost:3001';
+import API_URL from '../apiUrl';
 
 function SuiteExecutionDetail({ executionId, onBack }) {
   const [execution, setExecution] = useState(null);

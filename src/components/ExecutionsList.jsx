@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import API_URL from '../apiUrl';
 
 function ExecutionsList({ executions, onExecutionSelect }) {
   const [stats, setStats] = useState({ total: 0, passed: 0, failed: 0, passPercentage: 0 });
@@ -21,7 +22,7 @@ function ExecutionsList({ executions, onExecutionSelect }) {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch('http://localhost:3001/executions/stats');
+        const response = await fetch(`${API_URL}/executions/stats`);
         if (!response.ok) throw new Error('Failed to fetch stats');
         const statsData = await response.json();
         setStats(statsData);

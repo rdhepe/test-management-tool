@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-const API_URL = 'http://localhost:3001';
+import API_URL from '../apiUrl';
 
 // ─── Lightweight markdown → HTML renderer ────────────────────────────────────
 function renderMarkdown(md) {

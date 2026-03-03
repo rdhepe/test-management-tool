@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import API_URL from '../apiUrl';
 
 function Defects() {
   const [defects, setDefects] = useState([]);
@@ -45,7 +46,7 @@ function Defects() {
 
   const fetchDefects = async () => {
     try {
-      const response = await fetch('http://localhost:3001/defects');
+      const response = await fetch(`${API_URL}/defects`);
       const data = await response.json();
       setDefects(data);
     } catch (error) {
@@ -55,7 +56,7 @@ function Defects() {
 
   const fetchTestCases = async () => {
     try {
-      const response = await fetch('http://localhost:3001/test-cases');
+      const response = await fetch(`${API_URL}/test-cases`);
       const data = await response.json();
       setTestCases(data);
     } catch (error) {
@@ -65,7 +66,7 @@ function Defects() {
 
   const fetchSprints = async () => {
     try {
-      const response = await fetch('http://localhost:3001/sprints');
+      const response = await fetch(`${API_URL}/sprints`);
       const data = await response.json();
       setSprints(data);
     } catch (error) {
@@ -88,13 +89,13 @@ function Defects() {
 
     try {
       if (editingDefect) {
-        await fetch(`http://localhost:3001/defects/${editingDefect.id}`, {
+        await fetch(`${API_URL}/defects/${editingDefect.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
       } else {
-        await fetch('http://localhost:3001/defects', {
+        await fetch(`${API_URL}/defects`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -111,7 +112,7 @@ function Defects() {
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this defect?')) {
       try {
-        await fetch(`http://localhost:3001/defects/${id}`, {
+        await fetch(`${API_URL}/defects/${id}`, {
           method: 'DELETE'
         });
         fetchDefects();

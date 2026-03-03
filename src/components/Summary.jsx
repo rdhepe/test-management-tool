@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const API_URL = 'http://localhost:3001';
+import API_URL from '../apiUrl';
 
 function Summary() {
   const [stats, setStats] = useState({

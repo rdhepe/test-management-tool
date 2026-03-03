@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const API_URL = 'http://localhost:3001';
+import API_URL from '../apiUrl';
 
 const PLAN_BADGE = {
   free:       'bg-slate-500/20 text-slate-400 border-slate-500/30',

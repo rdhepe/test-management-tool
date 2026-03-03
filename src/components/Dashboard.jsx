@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Wiki from './Wiki';
 
-const API_URL = 'http://localhost:3001';
+import API_URL from '../apiUrl';
 const STORAGE_KEY = 'tcs_project_info';
 
 const DEFAULT_INFO = {

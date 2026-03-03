@@ -1,4 +1,5 @@
 import React from 'react';
+import API_URL from '../apiUrl';
 
 function ExecutionDetail({ execution, onBack }) {
   const formatDate = (dateString) => {
@@ -13,7 +14,7 @@ function ExecutionDetail({ execution, onBack }) {
   };
 
   const handleDownloadReport = () => {
-    const reportUrl = `http://localhost:3001/execution/${execution.id}/report`;
+    const reportUrl = `${API_URL}/execution/${execution.id}/report`;
     window.open(reportUrl, '_blank');
   };
 

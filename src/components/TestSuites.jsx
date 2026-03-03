@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 
-const API_URL = 'http://localhost:3001';
+import API_URL from '../apiUrl';
 
 function TestSuites({ modules, onNavigateToSuiteExecution }) {
   const [suites, setSuites] = useState([]);

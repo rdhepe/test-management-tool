@@ -28,7 +28,7 @@ import Reports from './components/Reports';
 import Tutorial from './components/Tutorial';
 import OrgManagement from './components/OrgManagement';
 
-const API_URL = 'http://localhost:3001';
+import API_URL from './apiUrl';
 
 function App({ orgSlug = 'default' }) {
   const navigate = useNavigate();
@@ -569,11 +569,9 @@ function App({ orgSlug = 'default' }) {
       } catch {}
 
       // Send POST request to backend
-      const response = await fetch('http://localhost:3001/run-test', {
+      const response = await fetch(`${API_URL}/run-test`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code: selectedTestFile.content,
           moduleId: selectedModule.id,
@@ -619,7 +617,7 @@ function App({ orgSlug = 'default' }) {
       setExecutionStatus('completed');
       setExecutionResult({
         status: 'fail',
-        message: `Error: ${error.message}\n\nMake sure the server is running on http://localhost:3001`,
+        message: `Error: ${error.message}\n\nMake sure the server is running.`,
       });
     }
   };
@@ -652,7 +650,7 @@ function App({ orgSlug = 'default' }) {
         pwScreenshotModeDebug = pwCfg.screenshotMode || 'only-on-failure';
       } catch {}
 
-      const response = await fetch('http://localhost:3001/run-test', {
+      const response = await fetch(`${API_URL}/run-test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -682,14 +680,14 @@ function App({ orgSlug = 'default' }) {
       setExecutionStatus('completed');
       setExecutionResult({
         status: 'fail',
-        message: `Error: ${error.message}\n\nMake sure the server is running on http://localhost:3001`,
+        message: `Error: ${error.message}\n\nMake sure the server is running.`,
       });
     }
   };
 
   const handleStopDebug = async () => {
     try {
-      await fetch('http://localhost:3001/stop-debug', { method: 'POST' });
+      await fetch(`${API_URL}/stop-debug`, { method: 'POST' });
     } catch {}
     setDebugActive(false);
     setExecutionStatus(null);

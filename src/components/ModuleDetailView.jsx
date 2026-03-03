@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import API_URL from '../apiUrl';
 import Editor from '@monaco-editor/react';
 
 function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedTestFile, onManageDependencies, onDeleteModule, onDeleteTestFile }) {
@@ -39,7 +40,7 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
       const depsMap = {};
       for (const testFile of module.testFiles) {
         try {
-          const response = await fetch(`http://localhost:3001/test-files/${testFile.id}/dependencies`);
+          const response = await fetch(`${API_URL}/test-files/${testFile.id}/dependencies`);
           const deps = await response.json();
           depsMap[testFile.id] = {
             hasBefore: deps.some(d => d.dependency_type === 'before'),
@@ -69,7 +70,7 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
   // Load imports text whenever the module changes or modal opens
   const openImportsModal = async () => {
     try {
-      const res = await fetch(`http://localhost:3001/modules/${module.id}`);
+      const res = await fetch(`${API_URL}/modules/${module.id}`);
       const data = await res.json();
       setImportsText(data.imports || '');
     } catch {
@@ -87,7 +88,7 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
     setPkgLogs([]);
     setPkgName('');
     try {
-      const res = await fetch('http://localhost:3001/install-package', {
+      const res = await fetch(`${API_URL}/install-package`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ packageName: name }),
@@ -132,7 +133,7 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
   const handleSaveImports = async () => {
     setImportsSaving(true);
     try {
-      const res = await fetch(`http://localhost:3001/modules/${module.id}/imports`, {
+      const res = await fetch(`${API_URL}/modules/${module.id}/imports`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imports: importsText }),
@@ -148,7 +149,7 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
 
   const handleSaveModule = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/modules/${module.id}`, {
+      const response = await fetch(`${API_URL}/modules/${module.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(moduleFormData)

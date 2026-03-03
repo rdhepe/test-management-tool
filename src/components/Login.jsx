@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const API_URL = 'http://localhost:3001';
+import API_URL from '../apiUrl';
 
 function Login({ onLoginSuccess, orgName, orgSlug, authError }) {
   const [username, setUsername] = useState('');

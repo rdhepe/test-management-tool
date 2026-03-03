@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
-const API_URL = 'http://localhost:3001';
+import API_URL from '../apiUrl';
 
 const getStatusBadgeClass = (status) => {
   switch (status) {

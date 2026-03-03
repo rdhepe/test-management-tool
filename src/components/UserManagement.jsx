@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const API_URL = 'http://localhost:3001';
+import API_URL from '../apiUrl';
 
 const ROLE_BADGE = {
   super_admin: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
