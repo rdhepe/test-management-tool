@@ -778,7 +778,13 @@ const featureOperations = {
   },
 
   delete: async (id) => {
-    // Delete requirements (and their test cases via ON DELETE CASCADE) before deleting the feature
+    // Explicitly delete all test cases under each requirement of this feature
+    const reqs = await pool.query('SELECT id FROM requirements WHERE feature_id = $1', [id]);
+    const reqIds = reqs.rows.map(r => r.id);
+    if (reqIds.length > 0) {
+      await pool.query('DELETE FROM test_cases WHERE requirement_id = ANY($1::int[])', [reqIds]);
+    }
+    // Delete the requirements
     await pool.query('DELETE FROM requirements WHERE feature_id = $1', [id]);
     return pool.query('DELETE FROM features WHERE id = $1', [id]);
   }
@@ -836,6 +842,8 @@ const requirementOperations = {
   },
 
   delete: async (id) => {
+    // Explicitly delete test cases first (ON DELETE CASCADE may not exist on older DB)
+    await pool.query('DELETE FROM test_cases WHERE requirement_id = $1', [id]);
     return pool.query('DELETE FROM requirements WHERE id = $1', [id]);
   }
 };
