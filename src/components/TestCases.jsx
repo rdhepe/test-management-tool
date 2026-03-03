@@ -270,7 +270,7 @@ function TestCases({ currentUser }) {
       
       const response = await fetch(url, {
         method: editingTestCase ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') },
         body: JSON.stringify(payload)
       });
 
