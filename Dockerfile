@@ -4,7 +4,8 @@ WORKDIR /app
 
 COPY package*.json ./
 COPY server/package*.json ./server/
-RUN npm ci
+RUN npm ci --ignore-scripts
+RUN npm install --prefix server --omit=dev
 
 # Copy everything and build the Vite frontend
 COPY . .
