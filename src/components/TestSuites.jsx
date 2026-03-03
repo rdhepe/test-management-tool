@@ -553,7 +553,6 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
             <thead className="bg-slate-800">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Suite Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Module</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Test Files</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Created</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Actions</th>
@@ -563,7 +562,6 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
               {[...Array(5)].map((_, i) => (
                 <tr key={i} className="animate-pulse">
                   <td className="px-6 py-4"><div className="h-4 bg-slate-800 rounded w-32"></div></td>
-                  <td className="px-6 py-4"><div className="h-4 bg-slate-800 rounded w-24"></div></td>
                   <td className="px-6 py-4"><div className="h-4 bg-slate-800 rounded w-16"></div></td>
                   <td className="px-6 py-4"><div className="h-4 bg-slate-800 rounded w-28"></div></td>
                   <td className="px-6 py-4"><div className="h-8 bg-slate-800 rounded w-20"></div></td>
@@ -623,9 +621,6 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
                   Suite Name
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  Module
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
                   Test Files
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
@@ -645,9 +640,6 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
                 >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-white">{suite.name}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-slate-400">{getModuleName(suite.module_id)}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-slate-400">
