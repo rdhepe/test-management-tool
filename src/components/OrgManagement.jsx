@@ -163,7 +163,7 @@ function OrgManagement({ currentUser }) {
   const openEdit = (org, e) => {
     e?.stopPropagation();
     setEditingOrg(org);
-    setEditForm({ name: org.name, plan: org.plan, is_active: org.is_active, maxUsers: org.max_users ?? '', pocName: org.poc_name ?? '', pocEmail: org.poc_email ?? '', aiHealingEnabled: !!org.ai_healing_enabled, openaiApiKey: '' });
+    setEditForm({ name: org.name, plan: org.plan, is_active: org.is_active, maxUsers: org.max_users ?? '', pocName: org.poc_name ?? '', pocEmail: org.poc_email ?? '', aiHealingEnabled: !!org.ai_healing_enabled, openaiApiKey: org.openai_api_key || '' });
     setEditError('');
   };
 
