@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import Editor from '@monaco-editor/react';
 
 function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedTestFile, onManageDependencies, onDeleteModule, onDeleteTestFile }) {
   const [testFilesDeps, setTestFilesDeps] = useState({});
@@ -13,6 +14,22 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
   const [testFileFormData, setTestFileFormData] = useState({
     name: ''
   });
+
+  // ── Module-level imports state ─────────────────────────────────────────────
+  const [importsModalOpen, setImportsModalOpen] = useState(false);
+  const [importsText, setImportsText] = useState('');
+  const [importsSaving, setImportsSaving] = useState(false);
+
+  // ── Package installer state ────────────────────────────────────────────────
+  const [pkgName, setPkgName] = useState('');
+  const [pkgInstalling, setPkgInstalling] = useState(false);
+  const [pkgLogs, setPkgLogs] = useState([]);   // [{ status: 'ok'|'err'|'info', text }]
+  const pkgLogsEndRef = useRef(null);
+
+  // Auto-scroll log panel when new lines arrive
+  useEffect(() => {
+    pkgLogsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [pkgLogs]);
 
   // Load dependency indicators for all test files
   useEffect(() => {
@@ -47,6 +64,86 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
       language: module.language || 'TypeScript'
     });
     setEditingModule(true);
+  };
+
+  // Load imports text whenever the module changes or modal opens
+  const openImportsModal = async () => {
+    try {
+      const res = await fetch(`http://localhost:3001/modules/${module.id}`);
+      const data = await res.json();
+      setImportsText(data.imports || '');
+    } catch {
+      setImportsText(module.imports || '');
+    }
+    setPkgName('');
+    setPkgLogs([]);
+    setImportsModalOpen(true);
+  };
+
+  const handleInstallPackage = async () => {
+    const name = pkgName.trim();
+    if (!name) return;
+    setPkgInstalling(true);
+    setPkgLogs([]);
+    setPkgName('');
+    try {
+      const res = await fetch('http://localhost:3001/install-package', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packageName: name }),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('text/event-stream') && !contentType.includes('application/json')) {
+        throw new Error(`Server returned unexpected response (status ${res.status}). Make sure the server is running.`);
+      }
+      if (contentType.includes('application/json')) {
+        // Error before streaming started (e.g. validation failure)
+        const data = await res.json();
+        setPkgLogs([{ status: 'err', text: `❌ ${data.error || 'Install failed'}` }]);
+        return;
+      }
+      // Read the SSE stream
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop(); // keep incomplete last chunk
+        for (const part of parts) {
+          const dataLine = part.split('\n').find(l => l.startsWith('data:'));
+          if (!dataLine) continue;
+          try {
+            const { type, text } = JSON.parse(dataLine.slice(5).trim());
+            const status = type === 'done' ? 'ok' : type === 'error' ? 'err' : 'info';
+            setPkgLogs(prev => [...prev, { status, text }]);
+          } catch {}
+        }
+      }
+    } catch (err) {
+      setPkgLogs(prev => [...prev, { status: 'err', text: `❌ ${err.message}` }]);
+    } finally {
+      setPkgInstalling(false);
+    }
+  };
+
+  const handleSaveImports = async () => {
+    setImportsSaving(true);
+    try {
+      const res = await fetch(`http://localhost:3001/modules/${module.id}/imports`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imports: importsText }),
+      });
+      if (!res.ok) throw new Error('Failed to save imports');
+      setImportsModalOpen(false);
+    } catch (error) {
+      alert('Error saving imports: ' + error.message);
+    } finally {
+      setImportsSaving(false);
+    }
   };
 
   const handleSaveModule = async () => {
@@ -111,6 +208,16 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={openImportsModal}
+              className="px-4 py-2 bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 rounded-xl hover:bg-emerald-600/30 transition-all duration-200 flex items-center gap-2 font-medium"
+              title="Manage module-level imports shared by all test files"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              Imports
+            </button>
             <button
               onClick={handleEditModule}
               className="px-4 py-2 bg-indigo-600/20 text-indigo-400 border border-indigo-600/30 rounded-xl hover:bg-indigo-600/30 transition-all duration-200 flex items-center gap-2 font-medium"
@@ -240,6 +347,119 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
           </div>
         )}
       </div>
+
+      {/* Imports Modal */}
+      {importsModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl w-full max-w-2xl flex flex-col" style={{ maxHeight: '90vh' }}>
+
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 border-b border-slate-700">
+              <div>
+                <h2 className="text-lg font-bold text-white">Module-Level Imports</h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Imports prepended to every test file in <span className="text-emerald-400 font-medium">{module.name}</span>.
+                </p>
+              </div>
+              <button onClick={() => setImportsModalOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Install Package Section */}
+            <div className="p-4 border-b border-slate-700 bg-slate-900/40">
+              <p className="text-xs font-semibold text-slate-300 mb-2 uppercase tracking-wide">Install npm Package</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={pkgName}
+                  onChange={e => setPkgName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !pkgInstalling && handleInstallPackage()}
+                  placeholder="e.g. uuid, axios, dayjs"
+                  className="flex-1 px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  disabled={pkgInstalling}
+                />
+                <button
+                  onClick={handleInstallPackage}
+                  disabled={pkgInstalling || !pkgName.trim()}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap"
+                >
+                  {pkgInstalling ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                      Installing…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      Install
+                    </>
+                  )}
+                </button>
+              </div>
+              {pkgLogs.length > 0 && (
+                <div className="mt-2 max-h-48 overflow-y-auto rounded-lg bg-slate-950 p-3 space-y-0.5">
+                  {pkgLogs.map((log, i) => (
+                    <p key={i} className={`text-xs font-mono whitespace-pre-wrap break-all ${log.status === 'err' ? 'text-red-400' : log.status === 'ok' ? 'text-emerald-400' : 'text-slate-400'}`}>
+                      {log.text}
+                    </p>
+                  ))}
+                  <div ref={pkgLogsEndRef} />
+                </div>
+              )}
+            </div>
+
+            {/* Imports Editor */}
+            <div className="flex-1 overflow-hidden" style={{ minHeight: '220px' }}>
+              <Editor
+                height="220px"
+                defaultLanguage="typescript"
+                value={importsText}
+                onChange={(val) => setImportsText(val || '')}
+                theme="vs-dark"
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  wordWrap: 'on',
+                  scrollBeyondLastLine: false,
+                  padding: { top: 12, bottom: 12 },
+                }}
+              />
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-700 bg-slate-900/50 rounded-b-xl">
+              <p className="text-xs text-slate-500 mb-3">
+                Write import statements here — they are automatically added at the top of every generated spec file.
+              </p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setImportsModalOpen(false)}
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveImports}
+                  disabled={importsSaving}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg transition-colors text-sm font-medium"
+                >
+                  {importsSaving ? 'Saving…' : 'Save Imports'}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* Edit Module Modal */}
       {editingModule && (

@@ -314,6 +314,17 @@ try {
   console.error('Migration error for defects.screenshot:', error);
 }
 
+// Migration: Add imports column to modules if it doesn't exist
+try {
+  const moduleCols = db.prepare('PRAGMA table_info(modules)').all().map(c => c.name);
+  if (!moduleCols.includes('imports')) {
+    db.exec("ALTER TABLE modules ADD COLUMN imports TEXT DEFAULT ''");
+    console.log('Migration: Added imports column to modules table');
+  }
+} catch (error) {
+  console.error('Migration error for modules.imports:', error);
+}
+
 // Migration: Fix linked_execution_id FK — was wrongly referencing executions, should be manual_test_runs
 try {
   const fkList = db.prepare('PRAGMA foreign_key_list(defects)').all();
@@ -427,6 +438,10 @@ const moduleOperations = {
     if (updates.tags !== undefined) {
       fields.push('tags = ?');
       values.push(JSON.stringify(updates.tags));
+    }
+    if (updates.imports !== undefined) {
+      fields.push('imports = ?');
+      values.push(updates.imports);
     }
     
     if (fields.length > 0) {

@@ -11,6 +11,13 @@ const execAsync = promisify(exec);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Allow test specs to import any package installed in server/node_modules without
+// requiring a separate npm install inside the temp directory.
+const SERVER_NODE_MODULES = path.join(__dirname, 'node_modules');
+const nodePathEnv = process.env.NODE_PATH
+  ? `${process.env.NODE_PATH}${path.delimiter}${SERVER_NODE_MODULES}`
+  : SERVER_NODE_MODULES;
+
 // Track the currently active debug process so we can kill it before starting a new one
 let activeDebugProcess = null;
 
@@ -64,8 +71,22 @@ app.use('/reports', express.static(reportsDir));
 const distPath = path.join(__dirname, '..', 'dist');
 if (require('fs').existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/auth') || req.path.startsWith('/orgs') || req.path.startsWith('/reports') || req.path.startsWith('/health') || req.path.startsWith('/modules') || req.path.startsWith('/executions') || req.path.startsWith('/suites') || req.path.startsWith('/requirements') || req.path.startsWith('/features') || req.path.startsWith('/test-cases') || req.path.startsWith('/manual-test-runs') || req.path.startsWith('/defects') || req.path.startsWith('/sprints') || req.path.startsWith('/tasks') || req.path.startsWith('/wiki') || req.path.startsWith('/settings') || req.path.startsWith('/global-variables') || req.path.startsWith('/roles')) return next();
+  app.use('*', (req, res, next) => {
+    const p = req.path;
+    if (
+      p.startsWith('/auth') || p.startsWith('/orgs') || p.startsWith('/reports') ||
+      p.startsWith('/health') || p.startsWith('/modules') || p.startsWith('/executions') ||
+      p.startsWith('/suites') || p.startsWith('/requirements') || p.startsWith('/features') ||
+      p.startsWith('/test-cases') || p.startsWith('/manual-test-runs') || p.startsWith('/defects') ||
+      p.startsWith('/sprints') || p.startsWith('/tasks') || p.startsWith('/wiki') ||
+      p.startsWith('/settings') || p.startsWith('/global-variables') || p.startsWith('/roles') ||
+      p.startsWith('/run-test') || p.startsWith('/run-suite') || p.startsWith('/stop-debug') ||
+      p.startsWith('/install-package') || p.startsWith('/execution') || p.startsWith('/suite-execution') ||
+      p.startsWith('/analytics') || p.startsWith('/test-suites') || p.startsWith('/test-files') ||
+      p.startsWith('/test-file-dependencies')
+    ) return next();
+    // Only serve the SPA shell for GET requests (browser navigation)
+    if (req.method !== 'GET') return next();
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
@@ -109,6 +130,94 @@ app.post('/modules', (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// GET /modules/:id - Get a module by ID
+app.get('/modules/:id', (req, res) => {
+  try {
+    const module = moduleOperations.getById(req.params.id);
+    if (!module) return res.status(404).json({ error: 'Module not found' });
+    res.json(module);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /modules/:id - Update a module (including imports)
+app.put('/modules/:id', (req, res) => {
+  try {
+    const module = moduleOperations.update(req.params.id, req.body);
+    if (!module) return res.status(404).json({ error: 'Module not found' });
+    res.json(module);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PATCH /modules/:id/imports - Update only the imports block for a module
+app.patch('/modules/:id/imports', (req, res) => {
+  try {
+    const { imports } = req.body;
+    if (imports === undefined) return res.status(400).json({ error: 'imports field is required' });
+    const module = moduleOperations.update(req.params.id, { imports });
+    if (!module) return res.status(404).json({ error: 'Module not found' });
+    res.json(module);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /install-package — stream npm install output to the client via SSE so the
+// user sees live logs instead of waiting for the whole install to finish.
+app.post('/install-package', (req, res) => {
+  const { packageName } = req.body;
+  if (!packageName || !packageName.trim()) {
+    return res.status(400).json({ error: 'packageName is required' });
+  }
+  // Basic safety: only allow valid npm package name chars (including @scope/name and @version)
+  const safe = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*(@[\w.^~>=<|-]+)?$/i;
+  if (!safe.test(packageName.trim())) {
+    return res.status(400).json({ error: 'Invalid package name' });
+  }
+
+  // Stream response using SSE
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.flushHeaders();
+
+  const send = (type, text) => {
+    res.write(`data: ${JSON.stringify({ type, text })}\n\n`);
+  };
+
+  send('log', `$ npm install ${packageName.trim()} --save --ignore-scripts`);
+
+  const proc = spawn('npm', ['install', packageName.trim(), '--save', '--ignore-scripts'], {
+    cwd: __dirname,
+    shell: true,
+  });
+
+  proc.stdout.on('data', chunk => {
+    chunk.toString().split('\n').forEach(line => { if (line.trim()) send('log', line); });
+  });
+  proc.stderr.on('data', chunk => {
+    chunk.toString().split('\n').forEach(line => { if (line.trim()) send('log', line); });
+  });
+  proc.on('close', code => {
+    if (code === 0) {
+      send('done', `✅ ${packageName.trim()} installed successfully.`);
+    } else {
+      send('error', `❌ npm exited with code ${code}`);
+    }
+    res.end();
+  });
+  proc.on('error', err => {
+    send('error', `❌ Failed to run npm: ${err.message}`);
+    res.end();
+  });
 });
 
 // DELETE /modules/:id - Delete a module
@@ -401,8 +510,18 @@ app.post('/run-test', async (req, res) => {
 
     const combinedTestName = filesToRun.map(f => f.name).join(' → ');
 
-    const specContent = `import { test, expect } from '@playwright/test';
+    // Fetch module-level imports (extra libraries the user configured for this module)
+    let moduleImportBlock = '';
+    if (moduleId) {
+      try {
+        const mod = moduleOperations.getById(moduleId);
+        if (mod && mod.imports && mod.imports.trim()) {
+          moduleImportBlock = '\n' + mod.imports.trim() + '\n';
+        }
+      } catch (_) {}
+    }
 
+    const specContent = `import { test, expect } from '@playwright/test';${moduleImportBlock}
 test(${JSON.stringify(combinedTestName)}, async ({ page, request, browser, context, browserName }) => {
 ${combinedSteps}
 });
@@ -472,7 +591,7 @@ export default defineConfig({
         shell: true,
         stdio: 'ignore',
         windowsHide: true,
-        env: { ...process.env, ...globalVarsEnv, PWDEBUG: '1' },
+        env: { ...process.env, ...globalVarsEnv, PWDEBUG: '1', NODE_PATH: nodePathEnv },
       });
       debugProc.on('close', () => { activeDebugProcess = null; });
       debugProc.on('error', () => { activeDebugProcess = null; });
@@ -497,7 +616,7 @@ export default defineConfig({
     const { stdout, stderr } = await execAsync('npx playwright test', {
       cwd: tempDir,
       timeout: 60000, // 60 second timeout for headed mode
-      env: { ...process.env, ...globalVarsEnv },
+      env: { ...process.env, ...globalVarsEnv, NODE_PATH: nodePathEnv },
     });
 
     // Success - exit code 0
@@ -1268,13 +1387,21 @@ app.post('/run-suite/:suiteId', async (req, res) => {
         await fs.mkdir(tempDir, { recursive: true });
         pushLog(suiteExecutionId, `⚙  Suite execution #${suiteExecutionId} started — ${suiteTestFiles.length} test file(s)`);
 
+    // Fetch module-level imports for this suite's module
+    let suiteModuleImportBlock = '';
+    try {
+      const suiteModule = moduleOperations.getById(suite.module_id);
+      if (suiteModule && suiteModule.imports && suiteModule.imports.trim()) {
+        suiteModuleImportBlock = '\n' + suiteModule.imports.trim() + '\n';
+      }
+    } catch (_) {}
+
     // 3. For each test file, wrap in Playwright template and save
     const testFilePromises = suiteTestFiles.map(async (suiteTestFile, index) => {
       const userCode = suiteTestFile.test_file_content || '';
       
-      const testContent = `import { test, expect } from '@playwright/test';
-
-test('${suiteTestFile.test_file_name}', async ({ page }) => {
+      const testContent = `import { test, expect } from '@playwright/test';${suiteModuleImportBlock}
+test('${suiteTestFile.test_file_name}', async ({ page, request, browser, context, browserName }) => {
 ${userCode}
 });
 `;
@@ -1368,7 +1495,7 @@ export default defineConfig({
       const proc = spawn(`"${playwrightBin}" test`, [], {
         cwd: tempDir,
         shell: true,
-        env: { ...process.env, ...suiteGlobalVarsEnv }
+        env: { ...process.env, ...suiteGlobalVarsEnv, NODE_PATH: nodePathEnv }
       });
       proc.stdout.on('data', (chunk) => {
         const text = chunk.toString();

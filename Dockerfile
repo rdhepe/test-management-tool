@@ -5,11 +5,9 @@ RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt
 
 WORKDIR /app
 
-# Install root (frontend) deps — ignore scripts to skip postinstall
 COPY package*.json ./
-RUN npm ci --ignore-scripts
+RUN npm ci
 
-# Install server prod deps (compiles better-sqlite3 natively)
 COPY server/package*.json ./server/
 RUN npm install --prefix server --omit=dev
 
