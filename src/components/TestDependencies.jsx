@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import API_URL from '../apiUrl';
 
 function TestDependencies({ testFile, moduleId, onClose, onUpdate }) {
   const [dependencies, setDependencies] = useState({ before: [], after: [] });
@@ -27,7 +28,7 @@ function TestDependencies({ testFile, moduleId, onClose, onUpdate }) {
 
   const loadDependencies = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/test-files/${testFile.id}/dependencies`);
+      const response = await fetch(`${API_URL}/test-files/${testFile.id}/dependencies`);
       const data = await response.json();
       
       const before = data.filter(d => d.dependency_type === 'before');
@@ -41,7 +42,7 @@ function TestDependencies({ testFile, moduleId, onClose, onUpdate }) {
 
   const loadModules = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/modules`);
+      const response = await fetch(`${API_URL}/modules`);
       const data = await response.json();
       setModules(data);
       // Set default module to current module
@@ -55,7 +56,7 @@ function TestDependencies({ testFile, moduleId, onClose, onUpdate }) {
 
   const loadAvailableTests = async (modId) => {
     try {
-      const response = await fetch(`http://localhost:3001/modules/${modId}/test-files`);
+      const response = await fetch(`${API_URL}/modules/${modId}/test-files`);
       const data = await response.json();
       // Filter out the current test file only if it's from the same module
       const tests = modId === moduleId?.toString() 
@@ -74,7 +75,7 @@ function TestDependencies({ testFile, moduleId, onClose, onUpdate }) {
 
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/test-files/${testFile.id}/dependencies`, {
+      const response = await fetch(`${API_URL}/test-files/${testFile.id}/dependencies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -103,7 +104,7 @@ function TestDependencies({ testFile, moduleId, onClose, onUpdate }) {
   const handleRemoveDependency = async (dependencyFileId, type) => {
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/test-files/${testFile.id}/dependencies`, {
+      const response = await fetch(`${API_URL}/test-files/${testFile.id}/dependencies`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

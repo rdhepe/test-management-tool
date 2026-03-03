@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import API_URL from '../apiUrl';
 import * as XLSX from 'xlsx';
 
 function TestCases({ currentUser }) {
@@ -79,7 +80,7 @@ function TestCases({ currentUser }) {
   const fetchTestCases = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:3001/test-cases');
+      const response = await fetch(`${API_URL}/test-cases`);
       if (!response.ok) throw new Error('Failed to fetch test cases');
       const data = await response.json();
       setTestCases(data);
@@ -93,7 +94,7 @@ function TestCases({ currentUser }) {
 
   const fetchRequirements = async () => {
     try {
-      const response = await fetch('http://localhost:3001/requirements');
+      const response = await fetch(`${API_URL}/requirements`);
       if (!response.ok) throw new Error('Failed to fetch requirements');
       const data = await response.json();
       setRequirements(data);
@@ -110,7 +111,7 @@ function TestCases({ currentUser }) {
 
   const fetchSprints = async () => {
     try {
-      const response = await fetch('http://localhost:3001/sprints');
+      const response = await fetch(`${API_URL}/sprints`);
       if (!response.ok) throw new Error('Failed to fetch sprints');
       const data = await response.json();
       setSprints(data);
@@ -121,7 +122,7 @@ function TestCases({ currentUser }) {
 
   const fetchAllDefects = async () => {
     try {
-      const response = await fetch('http://localhost:3001/defects');
+      const response = await fetch(`${API_URL}/defects`);
       if (!response.ok) return;
       const data = await response.json();
       setAllDefects(data);
@@ -132,7 +133,7 @@ function TestCases({ currentUser }) {
 
   const fetchAllRuns = async () => {
     try {
-      const response = await fetch('http://localhost:3001/manual-test-runs');
+      const response = await fetch(`${API_URL}/manual-test-runs`);
       if (!response.ok) return;
       const data = await response.json();
       setAllRuns(data);
@@ -143,7 +144,7 @@ function TestCases({ currentUser }) {
 
   const fetchAllTestFiles = async () => {
     try {
-      const response = await fetch('http://localhost:3001/test-files');
+      const response = await fetch(`${API_URL}/test-files`);
       if (!response.ok) return;
       const data = await response.json();
       setAllTestFiles(data);
@@ -228,7 +229,7 @@ function TestCases({ currentUser }) {
     if (!confirm('Are you sure you want to delete this test case?')) return;
 
     try {
-      const response = await fetch(`http://localhost:3001/test-cases/${id}`, {
+      const response = await fetch(`${API_URL}/test-cases/${id}`, {
         method: 'DELETE'
       });
       if (!response.ok) throw new Error('Failed to delete test case');
@@ -264,8 +265,8 @@ function TestCases({ currentUser }) {
 
     try {
       const url = editingTestCase
-        ? `http://localhost:3001/test-cases/${editingTestCase.id}`
-        : 'http://localhost:3001/test-cases';
+        ? `${API_URL}/test-cases/${editingTestCase.id}`
+        : `${API_URL}/test-cases`;
       
       const response = await fetch(url, {
         method: editingTestCase ? 'PUT' : 'POST',
@@ -350,7 +351,7 @@ function TestCases({ currentUser }) {
 
   const fetchExecutionHistory = async (testCaseId) => {
     try {
-      const response = await fetch(`http://localhost:3001/test-cases/${testCaseId}/manual-test-runs`);
+      const response = await fetch(`${API_URL}/test-cases/${testCaseId}/manual-test-runs`);
       if (!response.ok) throw new Error('Failed to fetch execution history');
       const data = await response.json();
       setExecutionHistory(data);
@@ -535,7 +536,7 @@ function TestCases({ currentUser }) {
         screenshotPreview: step.screenshotPreview || null
       }));
 
-      const response = await fetch('http://localhost:3001/manual-test-runs', {
+      const response = await fetch(`${API_URL}/manual-test-runs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -553,7 +554,7 @@ function TestCases({ currentUser }) {
       for (const defectId of linkedDefectIds) {
         const defect = allDefects.find(d => d.id === defectId);
         if (defect) {
-          await fetch(`http://localhost:3001/defects/${defectId}`, {
+          await fetch(`${API_URL}/defects/${defectId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -567,7 +568,7 @@ function TestCases({ currentUser }) {
 
       // Create new defect if form has a title
       if (showNewDefectForm && newDefectForm.title.trim()) {
-        await fetch('http://localhost:3001/defects', {
+        await fetch(`${API_URL}/defects`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

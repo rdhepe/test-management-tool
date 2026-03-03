@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import API_URL from '../apiUrl';
 
 const STATUSES = ['New', 'In Progress', 'Completed', 'Done'];
 const PRIORITIES = ['Low', 'Medium', 'High', 'Critical'];
@@ -72,7 +73,7 @@ export default function Taskboard({ currentUser }) {
   useEffect(() => {
     async function loadSprints() {
       try {
-        const res = await fetch('http://localhost:3001/sprints');
+        const res = await fetch(`${API_URL}/sprints`);
         if (!res.ok) return;
         const data = await res.json();
         setSprints(data);
@@ -86,13 +87,13 @@ export default function Taskboard({ currentUser }) {
     }
     async function loadUsers() {
       try {
-        const res = await fetch('http://localhost:3001/users/list');
+        const res = await fetch(`${API_URL}/users/list`);
         if (res.ok) setUsers(await res.json());
       } catch { /* ignore */ }
     }
     async function loadRequirements() {
       try {
-        const res = await fetch('http://localhost:3001/requirements');
+        const res = await fetch(`${API_URL}/requirements`);
         if (res.ok) setRequirements(await res.json());
       } catch { /* ignore */ }
     }
@@ -106,8 +107,8 @@ export default function Taskboard({ currentUser }) {
       setLoading(true);
       try {
         const url = selectedSprint
-          ? `http://localhost:3001/tasks?sprintId=${selectedSprint}`
-          : 'http://localhost:3001/tasks';
+          ? `${API_URL}/tasks?sprintId=${selectedSprint}`
+          : `${API_URL}/tasks`;
         const res = await fetch(url);
         if (!res.ok) return;
         const data = await res.json();
@@ -176,11 +177,11 @@ export default function Taskboard({ currentUser }) {
     };
     try {
       if (editingTask) {
-        await fetch(`http://localhost:3001/tasks/${editingTask.id}`, {
+        await fetch(`${API_URL}/tasks/${editingTask.id}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
       } else {
-        await fetch('http://localhost:3001/tasks', {
+        await fetch(`${API_URL}/tasks`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
       }
@@ -190,14 +191,14 @@ export default function Taskboard({ currentUser }) {
   };
 
   const handleDelete = async (id) => {
-    await fetch(`http://localhost:3001/tasks/${id}`, { method: 'DELETE' });
+    await fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
     setDeleteConfirm(null);
     refresh();
   };
 
   // Quick status change without opening modal
   const moveTask = async (task, newStatus) => {
-    await fetch(`http://localhost:3001/tasks/${task.id}`, {
+    await fetch(`${API_URL}/tasks/${task.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import API_URL from '../apiUrl';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
@@ -39,7 +40,7 @@ function Sprints() {
 
   const fetchSprints = async () => {
     try {
-      const response = await fetch('http://localhost:3001/sprints');
+      const response = await fetch(`${API_URL}/sprints`);
       const data = await response.json();
       setSprints(data);
     } catch (error) {
@@ -49,7 +50,7 @@ function Sprints() {
 
   const fetchAllTasks = async () => {
     try {
-      const response = await fetch('http://localhost:3001/tasks');
+      const response = await fetch(`${API_URL}/tasks`);
       const data = await response.json();
       setTasks(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -59,7 +60,7 @@ function Sprints() {
 
   const fetchDefects = async () => {
     try {
-      const response = await fetch('http://localhost:3001/defects');
+      const response = await fetch(`${API_URL}/defects`);
       const data = await response.json();
       setDefects(data);
     } catch (error) {
@@ -69,7 +70,7 @@ function Sprints() {
 
   const fetchRequirements = async () => {
     try {
-      const response = await fetch('http://localhost:3001/requirements');
+      const response = await fetch(`${API_URL}/requirements`);
       const data = await response.json();
       setRequirements(data);
     } catch (error) {
@@ -79,7 +80,7 @@ function Sprints() {
 
   const fetchTestCases = async () => {
     try {
-      const response = await fetch('http://localhost:3001/test-cases');
+      const response = await fetch(`${API_URL}/test-cases`);
       const data = await response.json();
       setTestCases(data);
     } catch (error) {
@@ -89,7 +90,7 @@ function Sprints() {
 
   const fetchExecutions = async () => {
     try {
-      const response = await fetch('http://localhost:3001/executions');
+      const response = await fetch(`${API_URL}/executions`);
       const data = await response.json();
       setExecutions(data);
     } catch (error) {
@@ -99,14 +100,14 @@ function Sprints() {
 
   const fetchSuiteExecutions = async () => {
     try {
-      const response = await fetch('http://localhost:3001/test-suites');
+      const response = await fetch(`${API_URL}/test-suites`);
       const suites = await response.json();
       
       // Fetch executions for each suite
       const allSuiteExecutions = [];
       for (const suite of suites) {
         try {
-          const execResponse = await fetch(`http://localhost:3001/test-suites/${suite.id}/executions`);
+          const execResponse = await fetch(`${API_URL}/test-suites/${suite.id}/executions`);
           const execData = await execResponse.json();
           // Add suite info to each execution
           const executionsWithSuite = execData.map(exec => ({
@@ -127,7 +128,7 @@ function Sprints() {
 
   const fetchManualTestRuns = async () => {
     try {
-      const response = await fetch('http://localhost:3001/manual-test-runs');
+      const response = await fetch(`${API_URL}/manual-test-runs`);
       const data = await response.json();
       setManualTestRuns(data);
     } catch (error) {
@@ -137,14 +138,14 @@ function Sprints() {
 
   const fetchModules = async () => {
     try {
-      const response = await fetch('http://localhost:3001/modules');
+      const response = await fetch(`${API_URL}/modules`);
       const modulesData = await response.json();
       
       // Load test files for each module
       const modulesWithTestFiles = await Promise.all(
         modulesData.map(async (module) => {
           try {
-            const testFilesResponse = await fetch(`http://localhost:3001/modules/${module.id}/test-files`);
+            const testFilesResponse = await fetch(`${API_URL}/modules/${module.id}/test-files`);
             const testFiles = await testFilesResponse.json();
             return {
               ...module,
@@ -184,13 +185,13 @@ function Sprints() {
 
     try {
       if (editingSprint) {
-        await fetch(`http://localhost:3001/sprints/${editingSprint.id}`, {
+        await fetch(`${API_URL}/sprints/${editingSprint.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
       } else {
-        await fetch('http://localhost:3001/sprints', {
+        await fetch(`${API_URL}/sprints`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -207,7 +208,7 @@ function Sprints() {
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this sprint?')) {
       try {
-        await fetch(`http://localhost:3001/sprints/${id}`, {
+        await fetch(`${API_URL}/sprints/${id}`, {
           method: 'DELETE'
         });
         fetchSprints();
@@ -1576,7 +1577,7 @@ function Sprints() {
                                 <td className="px-4 py-3">
                                   {exec.report_path ? (
                                     <a
-                                      href={`http://localhost:3001${exec.report_path}`}
+                                      href={`${API_URL}${exec.report_path}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="inline-flex items-center px-3 py-1 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition-colors"

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import API_URL from '../apiUrl';
 
 function Navbar({ theme, onToggleTheme, currentUser, onLogout, onNavigate }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -6,7 +7,7 @@ function Navbar({ theme, onToggleTheme, currentUser, onLogout, onNavigate }) {
   const handleLogout = async () => {
     const token = localStorage.getItem('auth_token');
     try {
-      await fetch('http://localhost:3001/auth/logout', {
+      await fetch(`${API_URL}/auth/logout`, {
         method: 'POST',
         headers: { 'x-auth-token': token }
       });

@@ -164,7 +164,7 @@ function SuiteExecutionDetail({ executionId, onBack }) {
   };
 
   const handleOpenReport = () => {
-    const reportUrl = `http://localhost:3001/suite-execution/${executionId}/report`;
+    const reportUrl = `${API_URL}/suite-execution/${executionId}/report`;
     window.open(reportUrl, '_blank');
   };
 

@@ -171,7 +171,7 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
 
   const handleSaveTestFile = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/test-files/${editingTestFile.id}`, {
+      const response = await fetch(`${API_URL}/test-files/${editingTestFile.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(testFileFormData)
