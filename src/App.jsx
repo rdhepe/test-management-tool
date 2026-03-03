@@ -571,7 +571,7 @@ function App({ orgSlug = 'default' }) {
       // Send POST request to backend
       const response = await fetch(`${API_URL}/run-test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('auth_token') ? { 'x-auth-token': localStorage.getItem('auth_token') } : {}) },
         body: JSON.stringify({
           code: selectedTestFile.content,
           moduleId: selectedModule.id,
@@ -650,7 +650,7 @@ function App({ orgSlug = 'default' }) {
 
       const response = await fetch(`${API_URL}/run-test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('auth_token') ? { 'x-auth-token': localStorage.getItem('auth_token') } : {}) },
         body: JSON.stringify({
           code: selectedTestFile.content,
           moduleId: selectedModule.id,
