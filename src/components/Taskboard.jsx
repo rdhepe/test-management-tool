@@ -93,8 +93,7 @@ export default function Taskboard({ currentUser }) {
     async function loadUsers() {
       try {
         const token = localStorage.getItem('auth_token');
-        const orgId = currentUser?.orgId || JSON.parse(localStorage.getItem('auth_user') || '{}').orgId || 1;
-        const res = await fetch(`${API_URL}/users/list?orgId=${orgId}`, {
+        const res = await fetch(`${API_URL}/auth/team`, {
           headers: token ? { 'x-auth-token': token } : {},
         });
         if (res.ok) setUsers(await res.json());
