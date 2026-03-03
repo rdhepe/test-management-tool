@@ -2279,16 +2279,16 @@ app.post('/test-cases', async (req, res) => {
     }
     
     const testCase = await testCaseOperations.create({
-      requirementId,
+      requirement_id: requirementId || null,
       title,
       description,
       preconditions,
-      testSteps,
-      expectedResult,
+      test_steps: testSteps,
+      expected_result: expectedResult,
       type: type || 'Manual',
       priority: priority || 'Medium',
       status: status || 'Draft',
-      testFileId: testFileId || null
+      test_file_id: testFileId || null
     }, req.session?.orgId || 1);
     
     res.status(201).json(testCase);
@@ -2329,16 +2329,16 @@ app.put('/test-cases/:id', async (req, res) => {
     }
     
     const testCase = await testCaseOperations.update(id, {
-      requirementId,
+      requirement_id: requirementId !== undefined ? (requirementId || null) : existing.requirement_id,
       title,
       description,
       preconditions,
-      testSteps,
-      expectedResult,
+      test_steps: testSteps,
+      expected_result: expectedResult,
       type,
       priority,
       status,
-      testFileId: testFileId !== undefined ? testFileId : existing.test_file_id
+      test_file_id: testFileId !== undefined ? testFileId : existing.test_file_id
     });
     
     res.json(testCase);
