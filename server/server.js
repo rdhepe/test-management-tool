@@ -1381,7 +1381,7 @@ app.get('/global-variables/by-key/:key', async (req, res) => {
   try {
     const key = req.params.key;
     const orgId = req.session?.orgId || 1;
-    const existing = await globalVariableOperations.getAll(orgId).find(v => v.key === key);
+    const existing = (await globalVariableOperations.getAll(orgId)).find(v => v.key === key);
     if (!existing) return res.status(404).json({ error: `Variable "${key}" not found` });
     res.json(existing);
   } catch (err) {
@@ -1398,7 +1398,7 @@ app.patch('/global-variables/by-key/:key', async (req, res) => {
     const { value, description } = req.body;
     const orgId = req.session?.orgId || 1;
     if (value === undefined) return res.status(400).json({ error: 'value is required' });
-    const existing = await globalVariableOperations.getAll(orgId).find(v => v.key === key);
+    const existing = (await globalVariableOperations.getAll(orgId)).find(v => v.key === key);
     if (existing) {
       const updated = await globalVariableOperations.update(existing.id, {
         key,
@@ -2827,7 +2827,7 @@ app.delete('/tasks/:id', async (req, res) => {
 app.get('/users/list', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
-    const users = await userOperations.getAll(orgId).map(u => ({ id: u.id, username: u.username, role: u.role }));
+    const users = (await userOperations.getAll(orgId)).map(u => ({ id: u.id, username: u.username, role: u.role }));
     res.json(users);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
@@ -3134,7 +3134,7 @@ app.post('/auth/users', requireAdmin, async (req, res) => {
     const limitVal = await settingsOperations.get('user_limit');
     const limit = parseInt(limitVal || '0');
     if (limit > 0) {
-      const currentCount = await userOperations.getAll(req.session.orgId).filter(u => u.role !== 'super_admin').length;
+      const currentCount = (await userOperations.getAll(req.session.orgId)).filter(u => u.role !== 'super_admin').length;
       if (currentCount >= limit) {
         return res.status(403).json({ error: `User limit of ${limit} reached. Increase the seat limit to add more users.` });
       }
