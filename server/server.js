@@ -2038,7 +2038,8 @@ app.post('/features', async (req, res) => {
     const feature = await featureOperations.create({
       name,
       description,
-      priority: priority || 'Medium'
+      priority: priority || 'Medium',
+      created_by: req.session?.username || null
     }, req.session?.orgId || 1);
     
     res.status(201).json(feature);
@@ -2166,7 +2167,8 @@ app.post('/requirements', async (req, res) => {
       title,
       description,
       status: status || 'Draft',
-      priority: priority || 'Medium'
+      priority: priority || 'Medium',
+      created_by: req.session?.username || null
     }, req.session?.orgId || 1);
     
     res.status(201).json(requirement);
@@ -2331,7 +2333,8 @@ app.post('/test-cases', async (req, res) => {
       type: type || 'Manual',
       priority: priority || 'Medium',
       status: status || 'Draft',
-      test_file_id: testFileId || null
+      test_file_id: testFileId || null,
+      created_by: req.session?.username || null
     }, req.session?.orgId || 1);
     
     res.status(201).json(testCase);

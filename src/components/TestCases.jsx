@@ -1061,6 +1061,7 @@ function TestCases({ currentUser }) {
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Priority</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Steps</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Created By</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
@@ -1087,6 +1088,9 @@ function TestCases({ currentUser }) {
                       </td>
                       <td className="px-4 py-3">
                         <span className="text-xs text-indigo-400">{getStepCount(tc.test_steps)} steps</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-400">
+                        {tc.created_by || '—'}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
@@ -1375,6 +1379,7 @@ function TestCases({ currentUser }) {
                           <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Priority</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Steps</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Created By</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Actions</th>
                         </tr>
                       </thead>
@@ -1390,6 +1395,7 @@ function TestCases({ currentUser }) {
                             <td className="px-4 py-3"><span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getPriorityBadgeColor(tc.priority)}`}>{tc.priority}</span></td>
                             <td className="px-4 py-3"><span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getStatusBadgeColor(tc.status)}`}>{tc.status}</span></td>
                             <td className="px-4 py-3"><span className="text-xs text-indigo-400">{getStepCount(tc.test_steps)} steps</span></td>
+                            <td className="px-4 py-3 text-sm text-slate-400">{tc.created_by || '—'}</td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1">
                                 <button onClick={() => handleViewDetails(tc)} className="p-2 rounded-lg hover:bg-blue-500/10 text-blue-400 transition-colors" title="View">

@@ -241,13 +241,14 @@ function Features() {
               <th className="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Description</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Priority</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Created</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Created By</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700">
             {filteredFeatures.length === 0 ? (
               <tr>
-                <td colSpan="5" className="px-6 py-8 text-center text-slate-400">
+                <td colSpan="6" className="px-6 py-8 text-center text-slate-400">
                   No features found. Create your first feature to get started.
                 </td>
               </tr>
@@ -269,6 +270,9 @@ function Features() {
                   </td>
                   <td className="px-6 py-4 text-slate-400 text-sm">
                     {new Date(feature.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="px-6 py-4 text-slate-400 text-sm">
+                    {feature.created_by || '—'}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex gap-2">

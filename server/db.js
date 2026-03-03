@@ -332,6 +332,11 @@ async function initDB() {
   await pool.query(`ALTER TABLE test_cases ADD CONSTRAINT test_cases_status_check CHECK (status IN ('Draft','Ready','Deprecated'))`);
   await pool.query(`UPDATE test_cases SET status = 'Ready' WHERE status = 'Active'`);
 
+  // Add created_by column to features, requirements, and test_cases
+  await pool.query(`ALTER TABLE features ADD COLUMN IF NOT EXISTS created_by TEXT`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS created_by TEXT`);
+  await pool.query(`ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS created_by TEXT`);
+
   await seedDefaultOrg();
   await seedDefaultUsers();
   console.log('Database initialised');
@@ -707,10 +712,10 @@ const featureOperations = {
     return r.rows[0] || null;
   },
 
-  create: async ({ name, description, priority = 'Medium' }, orgId = 1) => {
+  create: async ({ name, description, priority = 'Medium', created_by }, orgId = 1) => {
     const r = await pool.query(
-      'INSERT INTO features (name, description, priority, org_id) VALUES ($1,$2,$3,$4) RETURNING id',
-      [name, description || null, priority, orgId]
+      'INSERT INTO features (name, description, priority, created_by, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+      [name, description || null, priority, created_by || null, orgId]
     );
     return featureOperations.getById(r.rows[0].id);
   },
@@ -762,11 +767,11 @@ const requirementOperations = {
     return r.rows;
   },
 
-  create: async ({ feature_id, sprint_id, title, description, status = 'Draft', priority = 'Medium' }, orgId = 1) => {
+  create: async ({ feature_id, sprint_id, title, description, status = 'Draft', priority = 'Medium', created_by }, orgId = 1) => {
     const r = await pool.query(
-      `INSERT INTO requirements (feature_id, sprint_id, title, description, status, priority, org_id, organization_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`,
-      [feature_id || null, sprint_id || null, title, description || null, status, priority, orgId]
+      `INSERT INTO requirements (feature_id, sprint_id, title, description, status, priority, created_by, org_id, organization_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8) RETURNING id`,
+      [feature_id || null, sprint_id || null, title, description || null, status, priority, created_by || null, orgId]
     );
     return requirementOperations.getById(r.rows[0].id);
   },
@@ -816,11 +821,11 @@ const testCaseOperations = {
     return r.rows;
   },
 
-  create: async ({ requirement_id, title, description, preconditions, test_steps, expected_result, type = 'Manual', priority = 'Medium', status = 'Draft', test_file_id }, orgId = 1) => {
+  create: async ({ requirement_id, title, description, preconditions, test_steps, expected_result, type = 'Manual', priority = 'Medium', status = 'Draft', test_file_id, created_by }, orgId = 1) => {
     const r = await pool.query(
-      `INSERT INTO test_cases (requirement_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id, org_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-      [requirement_id || null, title, description || null, preconditions || null, test_steps || null, expected_result || null, type, priority, status, test_file_id || null, orgId]
+      `INSERT INTO test_cases (requirement_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id, created_by, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      [requirement_id || null, title, description || null, preconditions || null, test_steps || null, expected_result || null, type, priority, status, test_file_id || null, created_by || null, orgId]
     );
     return testCaseOperations.getById(r.rows[0].id);
   },

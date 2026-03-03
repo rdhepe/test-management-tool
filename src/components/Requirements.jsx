@@ -900,7 +900,7 @@ function Requirements() {
                                   </p>
                                 )}
                                 <p className="text-xs mt-2" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                                  Created: {formatDate(req.created_at)}
+                                  Created: {formatDate(req.created_at)}{req.created_by ? ` · By: ${req.created_by}` : ''}
                                 </p>
                               </div>
                               <div className="flex items-center gap-2">
