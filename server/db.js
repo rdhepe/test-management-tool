@@ -191,7 +191,7 @@ async function initDB() {
       expected_result TEXT,
       type            TEXT NOT NULL DEFAULT 'Manual' CHECK (type IN ('Manual','Automated')),
       priority        TEXT NOT NULL DEFAULT 'Medium' CHECK (priority IN ('Low','Medium','High','Critical')),
-      status          TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft','Active','Deprecated')),
+      status          TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft','Ready','Deprecated')),
       test_file_id    INTEGER REFERENCES test_files(id) ON DELETE SET NULL,
       created_at      TIMESTAMPTZ DEFAULT NOW(),
       updated_at      TIMESTAMPTZ DEFAULT NOW(),
@@ -326,6 +326,11 @@ async function initDB() {
   await pool.query(`ALTER TABLE requirements DROP CONSTRAINT IF EXISTS requirements_status_check`);
   await pool.query(`ALTER TABLE requirements ADD CONSTRAINT requirements_status_check CHECK (status IN ('Draft','Approved','Implemented'))`);
   await pool.query(`UPDATE requirements SET status = 'Draft' WHERE status NOT IN ('Draft','Approved','Implemented')`);
+
+  // Fix test_cases status CHECK: was ('Draft','Active','Deprecated') but app uses 'Ready'
+  await pool.query(`ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_status_check`);
+  await pool.query(`ALTER TABLE test_cases ADD CONSTRAINT test_cases_status_check CHECK (status IN ('Draft','Ready','Deprecated'))`);
+  await pool.query(`UPDATE test_cases SET status = 'Ready' WHERE status = 'Active'`);
 
   await seedDefaultOrg();
   await seedDefaultUsers();
