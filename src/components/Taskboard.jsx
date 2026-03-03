@@ -244,18 +244,26 @@ export default function Taskboard({ currentUser }) {
       completedHours: form.completedHours !== '' ? parseFloat(form.completedHours) : 0,
       requirementId:  form.requirementId  ? parseInt(form.requirementId) : null,
     };
+    const token = localStorage.getItem('auth_token');
+    const authHeaders = { 'Content-Type': 'application/json', ...(token ? { 'x-auth-token': token } : {}) };
     try {
+      let res;
       if (editingTask) {
-        await fetch(`${API_URL}/tasks/${editingTask.id}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        res = await fetch(`${API_URL}/tasks/${editingTask.id}`, {
+          method: 'PUT', headers: authHeaders, body: JSON.stringify(body)
         });
       } else {
-        await fetch(`${API_URL}/tasks`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        res = await fetch(`${API_URL}/tasks`, {
+          method: 'POST', headers: authHeaders, body: JSON.stringify(body)
         });
       }
-      closeModal();
-      refresh();
+      if (res.ok) {
+        closeModal();
+        refresh();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Failed to save task: ${err.error || res.statusText}`);
+      }
     } finally { setSaving(false); }
   };
 
@@ -267,24 +275,37 @@ export default function Taskboard({ currentUser }) {
 
   // Quick status change without opening modal
   const moveTask = async (task, newStatus) => {
-    await fetch(`${API_URL}/tasks/${task.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title:          task.title,
-        description:    task.description,
-        priority:       task.priority,
-        status:         newStatus,
-        sprintId:       task.sprint_id,
-        assigneeId:     task.assignee_id,
-        startDate:      task.start_date      || null,
-        endDate:        task.end_date        || null,
-        plannedHours:   task.planned_hours   ?? 0,
-        completedHours: task.completed_hours ?? 0,
-        requirementId:  task.requirement_id  || null,
-      }),
-    });
-    refresh();
+    // Optimistic update — move card immediately in the UI
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(`${API_URL}/tasks/${task.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-auth-token': token } : {}) },
+        body: JSON.stringify({
+          title:          task.title,
+          description:    task.description,
+          priority:       task.priority,
+          status:         newStatus,
+          sprintId:       task.sprint_id,
+          assigneeId:     task.assignee_id,
+          startDate:      task.start_date      || null,
+          endDate:        task.end_date        || null,
+          plannedHours:   task.planned_hours   ?? 0,
+          completedHours: task.completed_hours ?? 0,
+          requirementId:  task.requirement_id  || null,
+        }),
+      });
+      if (!res.ok) {
+        // Revert optimistic update on server error
+        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t));
+      } else {
+        refresh(); // sync with server (picks up any server-side changes)
+      }
+    } catch {
+      // Revert on network error
+      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t));
+    }
   };
 
   // ---------- render ----------
