@@ -405,6 +405,10 @@ function Requirements() {
                   </button>
                 </div>
               )}
+              <div className="mt-3 flex items-center gap-4 text-sm" style={{ color: 'rgb(var(--text-tertiary))' }}>
+                <span>Created: {new Date(viewingRequirement.created_at).toLocaleDateString()}</span>
+                {viewingRequirement.created_by && <span>· By: {viewingRequirement.created_by}</span>}
+              </div>
             </div>
           </div>
         </div>

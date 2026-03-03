@@ -1683,6 +1683,11 @@ function TestCases({ currentUser }) {
                   </div>
                 )}
 
+                <div>
+                  <h3 className="text-sm font-medium text-slate-300 mb-2">Created By</h3>
+                  <p className="text-white">{viewingTestCase.created_by || '—'}</p>
+                </div>
+
                 {viewingTestCase.test_file_name && (
                   <div>
                     <h3 className="text-sm font-medium text-slate-300 mb-2">Linked Test File</h3>

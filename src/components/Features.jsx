@@ -348,6 +348,11 @@ function Features() {
                 <p className="text-white">{new Date(viewingFeature.created_at).toLocaleString()}</p>
               </div>
 
+              <div className="mb-4">
+                <h3 className="text-sm font-medium text-slate-300 mb-2">Created By</h3>
+                <p className="text-white">{viewingFeature.created_by || '—'}</p>
+              </div>
+
               {/* Associated Requirements */}
               <div>
                 <h3 className="text-lg font-semibold text-white mb-4">Associated Requirements</h3>
