@@ -386,7 +386,7 @@ function TestCases({ currentUser }) {
         headers: { 'Content-Type': 'application/json', ...(token ? { 'x-auth-token': token } : {}) },
         body: JSON.stringify({ content: commentText.trim() }),
       });
-      if (res.ok) { setTcComments(prev => [...prev, await res.json()]); setCommentText(''); }
+      if (res.ok) { const newComment = await res.json(); setTcComments(prev => [...prev, newComment]); setCommentText(''); }
     } finally { setSubmittingComment(false); }
   };
 
