@@ -713,25 +713,50 @@ export default defineConfig({
       const traceLogs = [traceStdout, traceStderr].filter(s => s && s.trim()).join('\n').trim()
         || 'Trace run completed.';
 
-      // Find trace.zip produced by Playwright and copy to persistent reports directory
+      // Find trace.zip produced by Playwright — search recursively under test-results
       let tracePath = null;
       try {
         const testResultsDir = path.join(tempDir, 'test-results');
-        await fs.access(testResultsDir);
-        const dirs = await fs.readdir(testResultsDir);
-        for (const d of dirs) {
-          const candidate = path.join(testResultsDir, d, 'trace.zip');
-          try {
-            await fs.access(candidate);
-            const traceFolderName = `trace-${Date.now()}`;
-            const traceDestDir = path.join(reportsDir, traceFolderName);
-            await fs.mkdir(traceDestDir, { recursive: true });
-            await fs.copyFile(candidate, path.join(traceDestDir, 'trace.zip'));
-            tracePath = `${traceFolderName}/trace.zip`;
-            break;
-          } catch {}
+        console.log('[trace] searching for trace.zip in:', testResultsDir);
+
+        // Recursive helper: returns first trace.zip path found anywhere under dir
+        async function findTraceZip(dir) {
+          let entries;
+          try { entries = await fs.readdir(dir); } catch { return null; }
+          // Check for trace.zip directly in this dir
+          if (entries.includes('trace.zip')) return path.join(dir, 'trace.zip');
+          // Recurse into subdirectories
+          for (const entry of entries) {
+            const full = path.join(dir, entry);
+            try {
+              const st = await fs.stat(full);
+              if (st.isDirectory()) {
+                const found = await findTraceZip(full);
+                if (found) return found;
+              }
+            } catch {}
+          }
+          return null;
         }
-      } catch {}
+
+        console.log('[trace] tempDir contents:', JSON.stringify(await fs.readdir(tempDir).catch(() => [])));
+        try {
+          const trDirs = await fs.readdir(testResultsDir);
+          console.log('[trace] test-results entries:', JSON.stringify(trDirs));
+        } catch (e) { console.log('[trace] test-results not found:', e.message); }
+
+        const foundZip = await findTraceZip(testResultsDir);
+        console.log('[trace] found zip:', foundZip);
+
+        if (foundZip) {
+          const traceFolderName = `trace-${Date.now()}`;
+          const traceDestDir = path.join(reportsDir, traceFolderName);
+          await fs.mkdir(traceDestDir, { recursive: true });
+          await fs.copyFile(foundZip, path.join(traceDestDir, 'trace.zip'));
+          tracePath = `${traceFolderName}/trace.zip`;
+          console.log('[trace] saved to:', tracePath);
+        }
+      } catch (e) { console.log('[trace] outer error:', e.message); }
 
       return res.json({
         success: true,
