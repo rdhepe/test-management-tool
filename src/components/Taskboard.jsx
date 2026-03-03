@@ -68,6 +68,11 @@ export default function Taskboard({ currentUser }) {
   // View modal state (read-only)
   const [showViewModal, setShowViewModal] = useState(false);
   const [viewingTask, setViewingTask]     = useState(null);
+  const [viewTab, setViewTab]             = useState('details'); // 'details' | 'comments' | 'history'
+  const [taskComments, setTaskComments]   = useState([]);
+  const [taskHistory, setTaskHistory]     = useState([]);
+  const [commentText, setCommentText]     = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
 
   // ---------- data fetching ----------
   useEffect(() => {
@@ -152,9 +157,69 @@ export default function Taskboard({ currentUser }) {
 
   const closeModal = () => { setShowModal(false); setEditingTask(null); setForm(BLANK_FORM); };
 
-  const openView = (task) => { setViewingTask(task); setShowViewModal(true); };
-  const closeView = () => { setShowViewModal(false); setViewingTask(null); };
+  const openView = async (task) => {
+    setViewingTask(task);
+    setViewTab('details');
+    setTaskComments([]);
+    setTaskHistory([]);
+    setCommentText('');
+    setShowViewModal(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const headers = token ? { 'x-auth-token': token } : {};
+      const [commentsRes, historyRes] = await Promise.all([
+        fetch(`${API_URL}/tasks/${task.id}/comments`, { headers }),
+        fetch(`${API_URL}/tasks/${task.id}/history`, { headers }),
+      ]);
+      if (commentsRes.ok) setTaskComments(await commentsRes.json());
+      if (historyRes.ok) setTaskHistory(await historyRes.json());
+    } catch { /* ignore */ }
+  };
+  const closeView = () => { setShowViewModal(false); setViewingTask(null); setTaskComments([]); setTaskHistory([]); };
   const viewToEdit = () => { const t = viewingTask; closeView(); openEdit(t); };
+
+  const handleAddComment = async () => {
+    if (!commentText.trim() || !viewingTask) return;
+    setSubmittingComment(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(`${API_URL}/tasks/${viewingTask.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-auth-token': token } : {}) },
+        body: JSON.stringify({ content: commentText.trim() }),
+      });
+      if (res.ok) {
+        setTaskComments(prev => [...prev, await res.json()]);
+        setCommentText('');
+      }
+    } finally { setSubmittingComment(false); }
+  };
+
+  const handleQuickAssign = async (assigneeId) => {
+    if (!viewingTask) return;
+    const token = localStorage.getItem('auth_token');
+    const t = viewingTask;
+    try {
+      const res = await fetch(`${API_URL}/tasks/${t.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-auth-token': token } : {}) },
+        body: JSON.stringify({
+          title: t.title, description: t.description, priority: t.priority, status: t.status,
+          sprintId: t.sprint_id, assigneeId: assigneeId ? parseInt(assigneeId) : null,
+          startDate: t.start_date || null, endDate: t.end_date || null,
+          plannedHours: t.planned_hours ?? 0, completedHours: t.completed_hours ?? 0,
+          requirementId: t.requirement_id || null,
+        }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setViewingTask(updated);
+        const histRes = await fetch(`${API_URL}/tasks/${t.id}/history`, { headers: token ? { 'x-auth-token': token } : {} });
+        if (histRes.ok) setTaskHistory(await histRes.json());
+        refresh();
+      }
+    } catch { /* ignore */ }
+  };
 
   // ---------- CRUD ----------
   const handleSave = async (e) => {
@@ -455,11 +520,10 @@ export default function Taskboard({ currentUser }) {
         </div>
       )}
 
-      {/* ── View Modal (read-only) ── */}
+      {/* ── View Modal ── */}
       {showViewModal && viewingTask && (() => {
         const t = viewingTask;
         const pc = PRIORITY_COLORS[t.priority] || PRIORITY_COLORS.Medium;
-        const assignee = userObj(t.assignee_id);
         const sprintObj = sprints.find(s => s.id === t.sprint_id);
         const planned   = t.planned_hours   || 0;
         const completed = t.completed_hours || 0;
@@ -469,7 +533,7 @@ export default function Taskboard({ currentUser }) {
         const STATUS_DOT = { 'New': 'bg-slate-400', 'In Progress': 'bg-indigo-400', 'Completed': 'bg-emerald-400', 'Done': 'bg-purple-400' };
         return (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh]">
               {/* Header */}
               <div className="flex items-start justify-between px-5 py-4 border-b border-slate-700 gap-3">
                 <div className="flex-1 min-w-0">
@@ -499,80 +563,194 @@ export default function Taskboard({ currentUser }) {
                 </div>
               </div>
 
+              {/* Tabs */}
+              <div className="flex border-b border-slate-700 px-5 shrink-0">
+                {[
+                  ['details', 'Details'],
+                  ['comments', `Comments${taskComments.length ? ` (${taskComments.length})` : ''}`],
+                  ['history', 'History'],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setViewTab(key)}
+                    className={`px-3 py-2.5 text-xs font-medium border-b-2 transition-colors -mb-px ${
+                      viewTab === key
+                        ? 'border-indigo-500 text-indigo-400'
+                        : 'border-transparent text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               {/* Body */}
-              <div className="overflow-y-auto px-5 py-4 space-y-4">
-                {/* Description */}
-                {t.description ? (
+              <div className="overflow-y-auto px-5 py-4 flex-1">
+
+                {/* ── DETAILS TAB ── */}
+                {viewTab === 'details' && (
+                  <div className="space-y-4">
+                    {/* Description */}
+                    {t.description ? (
+                      <div>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Description</p>
+                        <p className="text-sm text-slate-300 whitespace-pre-wrap">{t.description}</p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-600 italic">No description provided.</p>
+                    )}
+
+                    {/* Linked requirement */}
+                    {t.requirement_title && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-indigo-950/40 border border-indigo-900/50 rounded-lg">
+                        <svg className="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <div>
+                          <p className="text-xs text-slate-500">Linked Requirement</p>
+                          <p className="text-sm text-indigo-300 font-medium">{t.requirement_title}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Meta grid */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-slate-900/60 rounded-lg px-3 py-2">
+                        <p className="text-xs text-slate-500 mb-0.5">Sprint</p>
+                        <p className="text-sm text-slate-300">{sprintObj ? sprintObj.name : <span className="text-slate-600">—</span>}</p>
+                      </div>
+                      <div className="bg-slate-900/60 rounded-lg px-3 py-2">
+                        <p className="text-xs text-slate-500 mb-1">Assignee</p>
+                        <select
+                          value={t.assignee_id || ''}
+                          onChange={e => handleQuickAssign(e.target.value ? Number(e.target.value) : null)}
+                          className="w-full text-sm bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300 focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="">Unassigned</option>
+                          {users.map(u => (
+                            <option key={u.id} value={u.id}>{u.username}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {t.start_date && (
+                        <div className="bg-slate-900/60 rounded-lg px-3 py-2">
+                          <p className="text-xs text-slate-500 mb-0.5">Start Date</p>
+                          <p className="text-sm text-slate-300">{t.start_date}</p>
+                        </div>
+                      )}
+                      {t.end_date && (
+                        <div className="bg-slate-900/60 rounded-lg px-3 py-2">
+                          <p className="text-xs text-slate-500 mb-0.5">End Date</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm text-slate-300">{t.end_date}</p>
+                            <DueBadge endDate={t.end_date} />
+                          </div>
+                        </div>
+                      )}
+                      {t.created_by && (
+                        <div className="bg-slate-900/60 rounded-lg px-3 py-2">
+                          <p className="text-xs text-slate-500 mb-0.5">Created By</p>
+                          <p className="text-sm text-slate-300">{t.created_by}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Effort */}
+                    {planned > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Effort</p>
+                        <div className="bg-slate-900/60 rounded-lg px-3 py-3 space-y-2">
+                          <div className="flex justify-between text-xs text-slate-400">
+                            <span>{completed}h completed</span>
+                            <span>{remaining}h remaining</span>
+                            <span>{planned}h planned</span>
+                          </div>
+                          <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                            <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <p className="text-xs text-slate-500 text-right">{pct}% complete</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── COMMENTS TAB ── */}
+                {viewTab === 'comments' && (
+                  <div className="space-y-4">
+                    {/* Comment list */}
+                    {taskComments.length === 0 ? (
+                      <p className="text-xs text-slate-600 italic">No comments yet. Be the first to comment.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {taskComments.map(c => (
+                          <div key={c.id} className="flex gap-2.5">
+                            <Avatar username={c.author_name || '?'} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-baseline gap-2 mb-0.5">
+                                <span className="text-xs font-medium text-slate-300">{c.author_name || 'Unknown'}</span>
+                                <span className="text-xs text-slate-600">{new Date(c.created_at).toLocaleString()}</span>
+                              </div>
+                              <p className="text-sm text-slate-300 whitespace-pre-wrap">{c.content}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Add comment */}
+                    <div className="pt-2 border-t border-slate-700">
+                      <textarea
+                        value={commentText}
+                        onChange={e => setCommentText(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleAddComment(); }}
+                        placeholder="Add a comment… (Ctrl+Enter to submit)"
+                        rows={3}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-indigo-500 resize-none"
+                      />
+                      <div className="flex justify-end mt-2">
+                        <button
+                          onClick={handleAddComment}
+                          disabled={!commentText.trim() || submittingComment}
+                          className="px-4 py-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg transition-colors"
+                        >
+                          {submittingComment ? 'Posting…' : 'Post Comment'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── HISTORY TAB ── */}
+                {viewTab === 'history' && (
                   <div>
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Description</p>
-                    <p className="text-sm text-slate-300 whitespace-pre-wrap">{t.description}</p>
+                    {taskHistory.length === 0 ? (
+                      <p className="text-xs text-slate-600 italic">No changes recorded yet.</p>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {taskHistory.map(h => (
+                          <div key={h.id} className="flex gap-2.5 items-start">
+                            <Avatar username={h.changed_by_username || '?'} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-300">
+                                <span className="font-medium">{h.changed_by_username || 'Someone'}</span>
+                                {' changed '}
+                                <span className="text-indigo-400 font-medium">{h.field}</span>
+                                {h.old_value ? (
+                                  <> from <span className="text-slate-400">"{h.old_value}"</span></>
+                                ) : null}
+                                {' to '}
+                                <span className="text-slate-200">"{h.new_value}"</span>
+                              </p>
+                              <p className="text-xs text-slate-600 mt-0.5">{new Date(h.created_at).toLocaleString()}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <p className="text-xs text-slate-600 italic">No description provided.</p>
                 )}
 
-                {/* Linked requirement */}
-                {t.requirement_title && (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-indigo-950/40 border border-indigo-900/50 rounded-lg">
-                    <svg className="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <div>
-                      <p className="text-xs text-slate-500">Linked Requirement</p>
-                      <p className="text-sm text-indigo-300 font-medium">{t.requirement_title}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Meta grid */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-slate-900/60 rounded-lg px-3 py-2">
-                    <p className="text-xs text-slate-500 mb-0.5">Sprint</p>
-                    <p className="text-sm text-slate-300">{sprintObj ? sprintObj.name : <span className="text-slate-600">—</span>}</p>
-                  </div>
-                  <div className="bg-slate-900/60 rounded-lg px-3 py-2">
-                    <p className="text-xs text-slate-500 mb-0.5">Assignee</p>
-                    {assignee ? (
-                      <div className="flex items-center gap-1.5">
-                        <Avatar username={assignee.username} />
-                        <span className="text-sm text-slate-300">{assignee.username}</span>
-                      </div>
-                    ) : <span className="text-sm text-slate-600">Unassigned</span>}
-                  </div>
-                  {t.start_date && (
-                    <div className="bg-slate-900/60 rounded-lg px-3 py-2">
-                      <p className="text-xs text-slate-500 mb-0.5">Start Date</p>
-                      <p className="text-sm text-slate-300">{t.start_date}</p>
-                    </div>
-                  )}
-                  {t.end_date && (
-                    <div className="bg-slate-900/60 rounded-lg px-3 py-2">
-                      <p className="text-xs text-slate-500 mb-0.5">End Date</p>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm text-slate-300">{t.end_date}</p>
-                        <DueBadge endDate={t.end_date} />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Effort */}
-                {planned > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Effort</p>
-                    <div className="bg-slate-900/60 rounded-lg px-3 py-3 space-y-2">
-                      <div className="flex justify-between text-xs text-slate-400">
-                        <span>{completed}h completed</span>
-                        <span>{remaining}h remaining</span>
-                        <span>{planned}h planned</span>
-                      </div>
-                      <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                        <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${pct}%` }} />
-                      </div>
-                      <p className="text-xs text-slate-500 text-right">{pct}% complete</p>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>

@@ -6,7 +6,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -2816,10 +2816,34 @@ app.post('/tasks', async (req, res) => {
 app.put('/tasks/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    if (!await taskOperations.getById(id)) return res.status(404).json({ error: 'Task not found' });
+    const existing = await taskOperations.getById(id);
+    if (!existing) return res.status(404).json({ error: 'Task not found' });
     const { title, description, sprintId, assigneeId, status, priority, startDate, endDate, plannedHours, completedHours, requirementId } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     const task = await taskOperations.update(id, { title, description, sprintId, assigneeId, status, priority, startDate, endDate, plannedHours, completedHours, requirementId });
+    // Log history for changed fields
+    const actor = req.session?.username || null;
+    const actorId = req.session?.userId || null;
+    const orgId = req.session?.orgId || 1;
+    const tracked = [
+      ['title', existing.title, title],
+      ['status', existing.status, status],
+      ['priority', existing.priority, priority],
+      ['assignee', existing.assignee_id ? String(existing.assignee_id) : null, assigneeId ? String(assigneeId) : null],
+    ];
+    for (const [field, oldVal, newVal] of tracked) {
+      if (String(oldVal ?? '') !== String(newVal ?? '')) {
+        // Resolve username for assignee field
+        let oldDisplay = oldVal, newDisplay = newVal;
+        if (field === 'assignee') {
+          const allUsers = await userOperations.getAll(orgId);
+          const findName = uid => allUsers.find(u => String(u.id) === String(uid))?.username || uid || '—';
+          oldDisplay = oldVal ? findName(oldVal) : '—';
+          newDisplay = newVal ? findName(newVal) : '—';
+        }
+        await taskHistoryOperations.create({ taskId: id, changedById: actorId, changedByUsername: actor, field, oldValue: oldDisplay, newValue: newDisplay }, orgId);
+      }
+    }
     res.json(task);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
@@ -2830,6 +2854,36 @@ app.delete('/tasks/:id', async (req, res) => {
     if (!await taskOperations.getById(id)) return res.status(404).json({ error: 'Task not found' });
     await taskOperations.delete(id);
     res.json({ message: 'Task deleted successfully' });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Task comments
+app.get('/tasks/:id/comments', async (req, res) => {
+  try {
+    const comments = await taskCommentOperations.getByTaskId(parseInt(req.params.id));
+    res.json(comments);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/tasks/:id/comments', async (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: 'Content is required' });
+    const comment = await taskCommentOperations.create({
+      taskId: parseInt(req.params.id),
+      authorId: req.session?.userId || null,
+      authorName: req.session?.username || null,
+      content: content.trim(),
+    }, req.session?.orgId || 1);
+    res.status(201).json(comment);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Task history
+app.get('/tasks/:id/history', async (req, res) => {
+  try {
+    const history = await taskHistoryOperations.getByTaskId(parseInt(req.params.id));
+    res.json(history);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 

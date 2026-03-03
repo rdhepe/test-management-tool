@@ -250,6 +250,32 @@ async function initDB() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS task_comments (
+      id          SERIAL PRIMARY KEY,
+      task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      author_id   INTEGER,
+      author_name TEXT,
+      content     TEXT NOT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      org_id      INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS task_history (
+      id                   SERIAL PRIMARY KEY,
+      task_id              INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      changed_by_id        INTEGER,
+      changed_by_username  TEXT,
+      field                TEXT NOT NULL,
+      old_value            TEXT,
+      new_value            TEXT,
+      created_at           TIMESTAMPTZ DEFAULT NOW(),
+      org_id               INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS custom_roles (
       id          SERIAL PRIMARY KEY,
       name        TEXT NOT NULL,
@@ -1130,6 +1156,45 @@ const taskOperations = {
 };
 
 // ---------------------------------------------------------------------------
+// Task Comment Operations
+// ---------------------------------------------------------------------------
+const taskCommentOperations = {
+  getByTaskId: async (taskId) => {
+    const r = await pool.query(
+      'SELECT * FROM task_comments WHERE task_id = $1 ORDER BY created_at ASC',
+      [taskId]
+    );
+    return r.rows;
+  },
+  create: async ({ taskId, authorId, authorName, content }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO task_comments (task_id, author_id, author_name, content, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [taskId, authorId || null, authorName || null, content, orgId]
+    );
+    return r.rows[0];
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Task History Operations
+// ---------------------------------------------------------------------------
+const taskHistoryOperations = {
+  getByTaskId: async (taskId) => {
+    const r = await pool.query(
+      'SELECT * FROM task_history WHERE task_id = $1 ORDER BY created_at DESC',
+      [taskId]
+    );
+    return r.rows;
+  },
+  create: async ({ taskId, changedById, changedByUsername, field, oldValue, newValue }, orgId = 1) => {
+    await pool.query(
+      'INSERT INTO task_history (task_id, changed_by_id, changed_by_username, field, old_value, new_value, org_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [taskId, changedById || null, changedByUsername || null, field, oldValue ?? null, newValue ?? null, orgId]
+    );
+  }
+};
+
+// ---------------------------------------------------------------------------
 // User Operations
 // ---------------------------------------------------------------------------
 const userOperations = {
@@ -1475,6 +1540,8 @@ module.exports = {
   defectOperations,
   sprintOperations,
   taskOperations,
+  taskCommentOperations,
+  taskHistoryOperations,
   userOperations,
   customRoleOperations,
   wikiOperations,
