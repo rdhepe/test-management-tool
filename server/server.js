@@ -97,7 +97,8 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/run-test') || p.startsWith('/run-suite') || p.startsWith('/stop-debug') ||
       p.startsWith('/install-package') || p.startsWith('/execution') || p.startsWith('/suite-execution') ||
       p.startsWith('/analytics') || p.startsWith('/test-suites') || p.startsWith('/test-files') ||
-      p.startsWith('/test-file-dependencies') || p.startsWith('/public')
+      p.startsWith('/test-file-dependencies') || p.startsWith('/public') ||
+      p.startsWith('/release-readiness')
     ) return next();
     // Only serve the SPA shell for GET requests (browser navigation)
     if (req.method !== 'GET') return next();
