@@ -268,6 +268,10 @@ function Requirements({ currentUser, orgInfo }) {
       if (!res.ok) { setAiError(data.error || 'Generation failed.'); return; }
       setAiResult(data);
       await loadRequirements();
+      // Auto-expand the target feature so generated requirements are visible
+      if (aiFeatureId) {
+        setExpandedFeatures(prev => ({ ...prev, [aiFeatureId]: true }));
+      }
     } catch { setAiError('Network error. Please try again.'); }
     finally { setAiLoading(false); }
   };
