@@ -6,7 +6,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations } = require('./db');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -2699,7 +2699,7 @@ app.get('/defects/:id', async (req, res) => {
 // Create new defect
 app.post('/defects', async (req, res) => {
   try {
-    const { title, description, severity, status, linkedTestCaseId, linkedExecutionId, sprintId, screenshot } = req.body;
+    const { title, description, severity, status, linkedTestCaseId, linkedExecutionId, sprintId, screenshot, assignedTo } = req.body;
     
     // Validate required fields
     if (!title) {
@@ -2732,7 +2732,9 @@ app.post('/defects', async (req, res) => {
       linked_test_case_id: linkedTestCaseId,
       linked_execution_id: linkedExecutionId,
       sprint_id: sprintId,
-      screenshot: screenshot || null
+      screenshot: screenshot || null,
+      created_by: req.session?.username || null,
+      assigned_to: assignedTo || null
     }, req.session?.orgId || 1);
     
     res.status(201).json(defect);
@@ -2745,7 +2747,7 @@ app.post('/defects', async (req, res) => {
 app.put('/defects/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { title, description, severity, status, linkedTestCaseId, linkedExecutionId, sprintId, screenshot } = req.body;
+    const { title, description, severity, status, linkedTestCaseId, linkedExecutionId, sprintId, screenshot, assignedTo } = req.body;
     
     // Check if defect exists
     const existing = await defectOperations.getById(id);
@@ -2784,8 +2786,21 @@ app.put('/defects/:id', async (req, res) => {
       linked_test_case_id: linkedTestCaseId,
       linked_execution_id: linkedExecutionId,
       sprint_id: sprintId,
-      screenshot: screenshot !== undefined ? screenshot : existing.screenshot
+      screenshot: screenshot !== undefined ? screenshot : existing.screenshot,
+      assigned_to: assignedTo !== undefined ? assignedTo : existing.assigned_to
     });
+
+    // Record history for changed fields
+    const orgId = req.session?.orgId || 1;
+    const changedById = req.session?.userId || null;
+    const changedByUsername = req.session?.username || null;
+    const tracked = { title, description: description || '', severity, status, assigned_to: assignedTo || '' };
+    const prev = { title: existing.title, description: existing.description || '', severity: existing.severity, status: existing.status, assigned_to: existing.assigned_to || '' };
+    for (const field of Object.keys(tracked)) {
+      if (String(tracked[field]) !== String(prev[field])) {
+        await defectHistoryOperations.create({ defectId: id, changedById, changedByUsername, field, oldValue: prev[field], newValue: tracked[field] }, orgId);
+      }
+    }
     
     res.json(defect);
   } catch (error) {
@@ -2809,6 +2824,32 @@ app.delete('/defects/:id', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// GET /defects/:id/comments
+app.get('/defects/:id/comments', async (req, res) => {
+  try {
+    res.json(await defectCommentOperations.getByDefectId(parseInt(req.params.id)));
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+// POST /defects/:id/comments
+app.post('/defects/:id/comments', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+    const comment = await defectCommentOperations.create({
+      defectId: parseInt(req.params.id),
+      authorId: req.session?.userId || null,
+      authorName: req.session?.username || req.body.authorName || null,
+      content: req.body.content
+    }, orgId);
+    res.json(comment);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+// GET /defects/:id/history
+app.get('/defects/:id/history', async (req, res) => {
+  try {
+    res.json(await defectHistoryOperations.getByDefectId(parseInt(req.params.id)));
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 // =============== SPRINTS ENDPOINTS ===============

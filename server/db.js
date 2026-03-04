@@ -300,6 +300,30 @@ async function initDB() {
     )
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS defect_comments (
+      id          SERIAL PRIMARY KEY,
+      defect_id   INTEGER NOT NULL REFERENCES defects(id) ON DELETE CASCADE,
+      author_id   INTEGER,
+      author_name TEXT,
+      content     TEXT NOT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      org_id      INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS defect_history (
+      id                  SERIAL PRIMARY KEY,
+      defect_id           INTEGER NOT NULL REFERENCES defects(id) ON DELETE CASCADE,
+      changed_by_id       INTEGER,
+      changed_by_username TEXT,
+      field               TEXT NOT NULL,
+      old_value           TEXT,
+      new_value           TEXT,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      org_id              INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS requirement_comments (
       id              SERIAL PRIMARY KEY,
       requirement_id  INTEGER NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
@@ -457,6 +481,10 @@ async function initDB() {
   await pool.query(`ALTER TABLE features ADD COLUMN IF NOT EXISTS created_by TEXT`);
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS created_by TEXT`);
   await pool.query(`ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS created_by TEXT`);
+
+  // Add created_by and assigned_to to defects
+  await pool.query(`ALTER TABLE defects ADD COLUMN IF NOT EXISTS created_by TEXT`);
+  await pool.query(`ALTER TABLE defects ADD COLUMN IF NOT EXISTS assigned_to TEXT`);
 
   // Ensure comment/history tables have org_id (safe for DBs created before this column was added)
   for (const tbl of ['task_comments','task_history','feature_comments','feature_history',
@@ -1058,26 +1086,56 @@ const defectOperations = {
     return r.rows[0] || null;
   },
 
-  create: async ({ title, description, severity = 'Medium', status = 'Open', linked_test_case_id, linked_execution_id, sprint_id, screenshot }, orgId = 1) => {
+  create: async ({ title, description, severity = 'Medium', status = 'Open', linked_test_case_id, linked_execution_id, sprint_id, screenshot, created_by, assigned_to }, orgId = 1) => {
     const r = await pool.query(
-      `INSERT INTO defects (title, description, severity, status, linked_test_case_id, linked_execution_id, sprint_id, screenshot, org_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-      [title, description || null, severity, status, linked_test_case_id || null, linked_execution_id || null, sprint_id || null, screenshot || null, orgId]
+      `INSERT INTO defects (title, description, severity, status, linked_test_case_id, linked_execution_id, sprint_id, screenshot, created_by, assigned_to, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [title, description || null, severity, status, linked_test_case_id || null, linked_execution_id || null, sprint_id || null, screenshot || null, created_by || null, assigned_to || null, orgId]
     );
     return defectOperations.getById(r.rows[0].id);
   },
 
-  update: async (id, { title, description, severity, status, linked_test_case_id, linked_execution_id, sprint_id, screenshot }) => {
+  update: async (id, { title, description, severity, status, linked_test_case_id, linked_execution_id, sprint_id, screenshot, assigned_to }) => {
     await pool.query(
       `UPDATE defects SET title=$1, description=$2, severity=$3, status=$4, linked_test_case_id=$5,
-       linked_execution_id=$6, sprint_id=$7, screenshot=$8, updated_at=NOW() WHERE id=$9`,
-      [title, description || null, severity, status, linked_test_case_id || null, linked_execution_id || null, sprint_id || null, screenshot || null, id]
+       linked_execution_id=$6, sprint_id=$7, screenshot=$8, assigned_to=$9, updated_at=NOW() WHERE id=$10`,
+      [title, description || null, severity, status, linked_test_case_id || null, linked_execution_id || null, sprint_id || null, screenshot || null, assigned_to || null, id]
     );
     return defectOperations.getById(id);
   },
 
   delete: async (id) => {
     return pool.query('DELETE FROM defects WHERE id = $1', [id]);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Defect Comment / History Operations
+// ---------------------------------------------------------------------------
+const defectCommentOperations = {
+  getByDefectId: async (defectId) => {
+    const r = await pool.query('SELECT * FROM defect_comments WHERE defect_id = $1 ORDER BY created_at ASC', [defectId]);
+    return r.rows;
+  },
+  create: async ({ defectId, authorId, authorName, content }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO defect_comments (defect_id, author_id, author_name, content, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [defectId, authorId || null, authorName || null, content, orgId]
+    );
+    return r.rows[0];
+  }
+};
+
+const defectHistoryOperations = {
+  getByDefectId: async (defectId) => {
+    const r = await pool.query('SELECT * FROM defect_history WHERE defect_id = $1 ORDER BY created_at DESC', [defectId]);
+    return r.rows;
+  },
+  create: async ({ defectId, changedById, changedByUsername, field, oldValue, newValue }, orgId = 1) => {
+    await pool.query(
+      'INSERT INTO defect_history (defect_id, changed_by_id, changed_by_username, field, old_value, new_value, org_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [defectId, changedById || null, changedByUsername || null, field, oldValue ?? null, newValue ?? null, orgId]
+    );
   }
 };
 
@@ -1775,6 +1833,8 @@ module.exports = {
   testCaseOperations,
   manualTestRunOperations,
   defectOperations,
+  defectCommentOperations,
+  defectHistoryOperations,
   sprintOperations,
   taskOperations,
   taskCommentOperations,
