@@ -681,7 +681,7 @@ const testSuiteOperations = {
 const suiteTestFileOperations = {
   getBySuiteId: async (suiteId) => {
     const r = await pool.query(
-      `SELECT stf.*, tf.name as test_file_name, tf.content FROM suite_test_files stf
+      `SELECT stf.*, tf.name as test_file_name, tf.content as test_file_content FROM suite_test_files stf
        JOIN test_files tf ON stf.test_file_id = tf.id
        WHERE stf.suite_id = $1`,
       [suiteId]
