@@ -283,7 +283,10 @@ function App({ orgSlug = 'default' }) {
   useEffect(() => {
     const loadExecutions = async () => {
       try {
-        const response = await fetch(`${API_URL}/executions`);
+        const token = localStorage.getItem('auth_token');
+        const response = await fetch(`${API_URL}/executions`, {
+          headers: token ? { 'x-auth-token': token } : {},
+        });
         const executionsData = await response.json();
         setExecutions(executionsData);
       } catch (error) {
@@ -809,7 +812,10 @@ function App({ orgSlug = 'default' }) {
 
   const refreshExecutions = async () => {
     try {
-      const response = await fetch(`${API_URL}/executions`);
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/executions`, {
+        headers: token ? { 'x-auth-token': token } : {},
+      });
       const executionsData = await response.json();
       setExecutions(executionsData);
     } catch (error) {
