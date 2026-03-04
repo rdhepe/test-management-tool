@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import EnquiryModal from './EnquiryModal';
 
 // ─── Feature cards ────────────────────────────────────────────────────────────
 const features = [
@@ -86,6 +87,7 @@ export default function Landing() {
   const navigate = useNavigate();
   const [orgSlug, setOrgSlug] = useState('');
   const [scrolled, setScrolled] = useState(false);
+  const [enquiryOpen, setEnquiryOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -113,12 +115,20 @@ export default function Landing() {
             </div>
             <span className="font-bold text-lg tracking-tight">TestStudio<span className="text-indigo-400">.cloud</span></span>
           </div>
-          <button
-            onClick={handleLaunch}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            Login to App
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setEnquiryOpen(true)}
+              className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white border border-slate-700 hover:border-slate-500 rounded-lg transition-colors"
+            >
+              Contact Us
+            </button>
+            <button
+              onClick={handleLaunch}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              Login to App
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -171,6 +181,13 @@ export default function Landing() {
             </button>
           </form>
           <p className="text-slate-600 text-xs mt-3">Leave blank to go to the default workspace</p>
+          <div className="mt-4 flex items-center justify-center gap-2 text-slate-500 text-sm">
+            <span>Have questions?</span>
+            <button onClick={() => setEnquiryOpen(true)}
+              className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors underline underline-offset-2">
+              Contact us
+            </button>
+          </div>
         </div>
       </section>
 
@@ -281,6 +298,15 @@ export default function Landing() {
               </svg>
             </button>
           </form>
+          <div className="mt-5">
+            <button onClick={() => setEnquiryOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 border border-indigo-500/50 hover:border-indigo-400 text-indigo-300 hover:text-indigo-200 text-sm font-medium rounded-xl transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              Send us an enquiry
+            </button>
+          </div>
         </div>
       </section>
 
@@ -296,8 +322,14 @@ export default function Landing() {
             <span className="font-semibold text-slate-400">TestStudio<span className="text-indigo-400">.cloud</span></span>
           </div>
           <p>© {new Date().getFullYear()} TestStudio.cloud · Quality you can ship</p>
+          <button onClick={() => setEnquiryOpen(true)}
+            className="text-slate-500 hover:text-indigo-400 transition-colors">
+            Contact Us
+          </button>
         </div>
       </footer>
+
+      {enquiryOpen && <EnquiryModal onClose={() => setEnquiryOpen(false)} />}
     </div>
   );
 }

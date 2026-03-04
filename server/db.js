@@ -492,6 +492,19 @@ async function initDB() {
     await pool.query(`ALTER TABLE IF EXISTS ${tbl} ADD COLUMN IF NOT EXISTS org_id INTEGER NOT NULL DEFAULT 1`);
   }
 
+  // Enquiries (landing page contact form)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS enquiries (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      email       TEXT NOT NULL,
+      company     TEXT,
+      team_size   TEXT,
+      message     TEXT NOT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   await seedDefaultOrg();
   await seedDefaultUsers();
   console.log('Database initialised');
@@ -1807,6 +1820,23 @@ const sessionOperations = {
 };
 
 // ---------------------------------------------------------------------------
+// Enquiry Operations
+// ---------------------------------------------------------------------------
+const enquiryOperations = {
+  create: async ({ name, email, company, team_size, message }) => {
+    const r = await pool.query(
+      `INSERT INTO enquiries (name, email, company, team_size, message) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [name, email, company || null, team_size || null, message]
+    );
+    return r.rows[0];
+  },
+  getAll: async () => {
+    const r = await pool.query('SELECT * FROM enquiries ORDER BY created_at DESC');
+    return r.rows;
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Initialise on startup
 // ---------------------------------------------------------------------------
 initDB().catch((err) => {
@@ -1850,5 +1880,6 @@ module.exports = {
   customRoleOperations,
   wikiOperations,
   settingsOperations,
-  globalVariableOperations
+  globalVariableOperations,
+  enquiryOperations
 };
