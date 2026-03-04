@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY server/package*.json ./server/
 RUN npm ci --ignore-scripts
-RUN cd server && npm install --omit=dev
+RUN cd server && npm install --omit=dev --ignore-scripts
 
 # Install Playwright browsers + OS dependencies
 RUN cd server && npx playwright install --with-deps chromium
