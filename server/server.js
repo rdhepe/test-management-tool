@@ -516,6 +516,72 @@ Rules:
   };
 }
 
+// ── AI Defect Description Generator ─────────────────────────────────────────
+async function generateDefectWithAI({ testName, suiteName, errorMessage, specContent, logSnippet, aiHealNote }, apiKey) {
+  if (!apiKey) throw new Error('No API key');
+
+  const prompt = `You are a QA engineer writing a defect report for a failed automated Playwright test.
+Use ONLY the information provided — do not invent steps or details.
+
+## Context
+Suite:        ${suiteName}
+Test:         ${testName}
+Error:
+${(errorMessage || 'No error message captured').slice(0, 1500)}
+
+## Test Source Code
+\`\`\`typescript
+${(specContent || '').slice(0, 2000)}
+\`\`\`
+
+Respond with ONLY valid JSON — no markdown fences, no extra text:
+{
+  "title": "Short, descriptive defect title (max 90 chars, no [Auto] prefix)",
+  "summary": "One paragraph summarising the failure",
+  "steps_to_reproduce": ["step 1", "step 2", "..."],
+  "expected_behavior": "What should have happened",
+  "actual_behavior": "What actually happened based on the error"
+}`;
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 1000 }),
+  });
+
+  if (!response.ok) throw new Error(`OpenAI ${response.status}`);
+  const data = await response.json();
+  const raw = data.choices?.[0]?.message?.content?.trim() || '';
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('No JSON in AI response');
+  const parsed = JSON.parse(jsonMatch[0]);
+
+  // Build structured markdown description
+  const steps = Array.isArray(parsed.steps_to_reproduce) ? parsed.steps_to_reproduce : [];
+  const description = [
+    `## Summary`,
+    parsed.summary || '',
+    ``,
+    `## Steps to Reproduce`,
+    ...steps.map((s, i) => `${i + 1}. ${s}`),
+    ``,
+    `## Expected Behavior`,
+    parsed.expected_behavior || '',
+    ``,
+    `## Actual Behavior`,
+    parsed.actual_behavior || '',
+    ``,
+    `## Execution Details`,
+    `- **Suite:** ${suiteName}`,
+    `- **Test:** ${testName}`,
+    `- **AI Heal:** ${aiHealNote}`,
+    ``,
+    logSnippet ? `## Execution Logs\n\`\`\`\n${logSnippet}\n\`\`\`` : ''
+  ].filter(l => l !== undefined).join('\n').trim();
+
+  return { title: String(parsed.title || testName).slice(0, 90), description };
+}
+
 function buildFixedSpec(originalSpec, fixedTestBody) {
   const testCallIdx = originalSpec.indexOf('\ntest(');
   const importSection = testCallIdx >= 0 ? originalSpec.slice(0, testCallIdx) : '';
@@ -1993,13 +2059,12 @@ export default defineConfig({
         pushLog(suiteExecutionId, `\n🐛  Auto Bug Creation: ${failedForBugs.length} test(s) still failing${aiNote}...`);
         let bugsCreated = 0;
         for (const tr of failedForBugs) {
-          const bugTitle = `[Auto] Test failed: ${tr.test_name}`;
           try {
-            // Deduplication: skip if an Open or In Progress defect with this exact
-            // title already exists in this org — avoids flooding the board on reruns.
+            // Deduplication: skip if any Open or In Progress auto-defect for this
+            // test already exists — match on test name substring to survive AI title rewrites.
             const dupCheck = await pool.query(
-              `SELECT id FROM defects WHERE title = $1 AND status IN ('Open','In Progress') AND org_id = $2 LIMIT 1`,
-              [bugTitle, suiteRunOrgId]
+              `SELECT id, title FROM defects WHERE title LIKE $1 AND status IN ('Open','In Progress') AND org_id = $2 LIMIT 1`,
+              [`[Auto]%${tr.test_name}%`, suiteRunOrgId]
             );
             if (dupCheck.rows.length > 0) {
               pushLog(suiteExecutionId, `  ⏭  Skipped "${tr.test_name}" — open defect #${dupCheck.rows[0].id} already exists`);
@@ -2015,28 +2080,70 @@ export default defineConfig({
               .join('\n');
 
             const aiHealNote = !suiteAiHeal
-              ? `AI Heal:      Skipped (AI healing not enabled for this organisation)`
+              ? `Not enabled for this organisation`
               : !suiteAiApiKey
-                ? `AI Heal:      Skipped (AI healing enabled but no OpenAI API key configured)`
+                ? `Enabled but no OpenAI API key configured`
                 : tr.ai_healed
-                  ? `AI Heal:      Attempted — fix did not resolve the failure`
-                  : `AI Heal:      Attempted — could not locate test file in temp workspace`;
+                  ? `Attempted — fix did not resolve the failure`
+                  : `Attempted — could not locate test file in temp workspace`;
 
-            const description = [
-              `Automated Test Failure Report`,
-              ``,
-              `Suite:        ${suite.name}`,
-              `Execution ID: #${suiteExecutionId}`,
-              `Test:         ${tr.test_name}`,
-              `Result:       ${tr.status}`,
-              `Duration:     ${tr.duration_ms}ms`,
-              aiHealNote,
-              ``,
-              `Error:`,
-              tr.error_message || 'No error message captured',
-              ``,
-              logSnippet ? `Execution Logs (last 60 lines):\n${logSnippet}` : ''
-            ].filter(l => l !== undefined).join('\n').trim();
+            // Read spec source if available (used both for AI description + heal note)
+            let specContent = '';
+            try {
+              const fileInfo = testFileNames.find(fn => fn.testName === tr.test_name);
+              if (fileInfo) specContent = await fs.readFile(path.join(tempDir, fileInfo.fileName), 'utf8');
+            } catch (_) {}
+
+            let bugTitle = `[Auto] ${tr.test_name} — test ${tr.status.toLowerCase()}`;
+            let description;
+
+            // Try AI-generated structured description if key is available
+            if (suiteAiApiKey) {
+              try {
+                pushLog(suiteExecutionId, `  ✏️  Generating AI defect description for "${tr.test_name}"...`);
+                const aiDefect = await generateDefectWithAI({
+                  testName: tr.test_name,
+                  suiteName: suite.name,
+                  errorMessage: tr.error_message,
+                  specContent,
+                  logSnippet,
+                  aiHealNote
+                }, suiteAiApiKey);
+                bugTitle = `[Auto] ${aiDefect.title}`;
+                description = aiDefect.description;
+                pushLog(suiteExecutionId, `  ✅  AI description generated`);
+              } catch (aiErr) {
+                pushLog(suiteExecutionId, `  ⚠️  AI description failed (${aiErr.message}) — using template`);
+              }
+            }
+
+            // Fallback plain-text description if AI was skipped or failed
+            if (!description) {
+              description = [
+                `## Summary`,
+                `Automated test "${tr.test_name}" failed in suite "${suite.name}".`,
+                ``,
+                `## Steps to Reproduce`,
+                `1. Run suite: ${suite.name}`,
+                `2. Execute test: ${tr.test_name}`,
+                ``,
+                `## Expected Behavior`,
+                `Test should pass without errors.`,
+                ``,
+                `## Actual Behavior`,
+                tr.error_message || 'Test failed — no error message captured.',
+                ``,
+                `## Execution Details`,
+                `- **Suite:** ${suite.name}`,
+                `- **Test:** ${tr.test_name}`,
+                `- **Result:** ${tr.status}`,
+                `- **Duration:** ${tr.duration_ms}ms`,
+                `- **Execution ID:** #${suiteExecutionId}`,
+                `- **AI Heal:** ${aiHealNote}`,
+                ``,
+                logSnippet ? `## Execution Logs\n\`\`\`\n${logSnippet}\n\`\`\`` : ''
+              ].filter(l => l !== undefined).join('\n').trim();
+            }
 
             const severity = tr.status === 'TIMEOUT' ? 'Medium' : 'High';
             const screenshotData = tr.screenshot_base64
