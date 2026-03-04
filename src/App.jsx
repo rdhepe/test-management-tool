@@ -1000,6 +1000,7 @@ function App({ orgSlug = 'default' }) {
                   executionResult={executionResult}
                   requirements={requirements}
                   onUpdateRequirement={handleUpdateTestFileRequirement}
+                  orgInfo={orgInfo}
                 />
               </>
             )}

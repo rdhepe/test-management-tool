@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import EditTestFileRequirementModal from './EditTestFileRequirementModal';
+import API_URL from '../apiUrl';
 
-function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, onDebug, onStopDebug, debugActive = false, executionStatus, executionResult, requirements = [], onUpdateRequirement }) {
+function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, onDebug, onStopDebug, debugActive = false, executionStatus, executionResult, requirements = [], onUpdateRequirement, orgInfo }) {
+  const aiEnabled = orgInfo?.aiHealingEnabled === true || orgInfo?.aiHealingEnabled === 1;
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('output'); // 'output' or 'problems'
@@ -12,6 +14,17 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
   const [isEditRequirementModalOpen, setIsEditRequirementModalOpen] = useState(false);
   const panelRef = useRef(null);
   const editorRef = useRef(null);
+
+  // AI script generation panel
+  const [isAiOpen, setIsAiOpen] = useState(false);
+  const [aiInstruction, setAiInstruction] = useState('');
+  const [aiTestName, setAiTestName] = useState('');
+  const [aiMode, setAiMode] = useState('replace'); // 'replace' | 'append'
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiResult, setAiResult] = useState(null); // { script, npmNote }
+  const [aiScriptCopied, setAiScriptCopied] = useState(false);
+  const aiInstructionRef = useRef(null);
   
   // Configure Monaco Editor to disable TypeScript errors
   useEffect(() => {
@@ -126,6 +139,54 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
     setIsResizing(true);
   };
 
+  // ---------- AI script generation ----------
+  const openAiPanel = () => {
+    setAiInstruction('');
+    setAiTestName(testFile?.name?.replace(/\.spec\.(ts|js)$/, '') || '');
+    setAiMode('replace');
+    setAiError('');
+    setAiResult(null);
+    setIsAiOpen(true);
+    setTimeout(() => aiInstructionRef.current?.focus(), 60);
+  };
+  const closeAiPanel = () => { setIsAiOpen(false); setAiResult(null); setAiError(''); };
+
+  const handleAiGenerate = async (e) => {
+    e.preventDefault();
+    if (!aiInstruction.trim()) { setAiError('Please describe what the script should do.'); return; }
+    setAiLoading(true);
+    setAiError('');
+    setAiResult(null);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const currentContent = editorRef.current ? editorRef.current.getValue() : (testFile?.content || '');
+      const res = await fetch(`${API_URL}/test-files/generate-ai-script`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-auth-token': token } : {}) },
+        body: JSON.stringify({
+          instruction: aiInstruction.trim(),
+          testName: aiTestName.trim() || testFile?.name || 'generated test',
+          currentContent: aiMode === 'append' ? currentContent : '',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAiError(data.error || 'Generation failed.'); return; }
+      setAiResult(data);
+    } catch { setAiError('Network error. Please try again.'); }
+    finally { setAiLoading(false); }
+  };
+
+  const applyScriptToEditor = () => {
+    if (!aiResult?.script || !editorRef.current) return;
+    const newContent = aiMode === 'append'
+      ? (editorRef.current.getValue() + '\n\n' + aiResult.script)
+      : aiResult.script;
+    editorRef.current.setValue(newContent);
+    if (onContentChange) onContentChange(testFile.id, newContent);
+    setHasUnsavedChanges(true);
+    closeAiPanel();
+  };
+
   // Parse problems from execution result
   const problems = executionResult?.error ? [
     {
@@ -179,7 +240,21 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
             )}
           </div>
 
-          {/* Edit Requirement Button */}
+          {/* AI Script Generation Button */}
+          {aiEnabled && (
+            <button
+              onClick={openAiPanel}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium transition-all bg-violet-700 text-white hover:bg-violet-600 flex items-center gap-1.5"
+              title="Generate Playwright script from natural language"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              AI Script
+            </button>
+          )}
+
+          {/* Edit Requirement Button */}}
           <button
             onClick={() => setIsEditRequirementModalOpen(true)}
             className="px-3 py-1.5 rounded-lg text-sm font-medium transition-all bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-1.5"
@@ -581,6 +656,174 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
         currentRequirementId={testFile.requirementId}
         requirements={requirements}
       />
+
+      {/* ── AI Script Generation Panel ── */}
+      {isAiOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={closeAiPanel} />
+          <div className="w-full max-w-2xl bg-slate-900 border-l border-slate-700 h-full flex flex-col shadow-2xl overflow-hidden">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-violet-400">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-white leading-tight">AI Playwright Script Generator</h2>
+                  <p className="text-xs text-slate-500">Powered by GPT-4o · Follows your project's Playwright framework</p>
+                </div>
+              </div>
+              <button onClick={closeAiPanel} className="p-1 text-slate-500 hover:text-white transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {!aiResult ? (
+                <form onSubmit={handleAiGenerate} className="px-5 py-5 space-y-4">
+
+                  <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 px-4 py-3 text-xs text-violet-300 leading-relaxed">
+                    Describe what you want the test to do in plain English. AI will generate a complete Playwright script following your framework's structure (<code className="text-violet-200 bg-violet-900/40 px-1 rounded">import &#123; test, expect &#125; from '@playwright/test'</code> + async test block).
+                  </div>
+
+                  {/* Instruction */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      What should this test do? <span className="text-red-400">*</span>
+                    </label>
+                    <textarea
+                      ref={aiInstructionRef}
+                      value={aiInstruction}
+                      onChange={e => setAiInstruction(e.target.value)}
+                      rows={6}
+                      placeholder={`Examples:\n• Navigate to google.com, type \"playwright\" in the search box, press Enter, and verify the first result contains \"Playwright\"\n• Go to my-app.com/login, enter username admin@test.com and password Secret123, click Login, and assert the dashboard heading is visible\n• Fill out a contact form with fake name and email using faker, submit it, and verify the success message appears`}
+                      className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-violet-500 resize-none placeholder-slate-600 leading-relaxed font-mono"
+                    />
+                  </div>
+
+                  {/* Test name */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Test name</label>
+                    <input
+                      type="text"
+                      value={aiTestName}
+                      onChange={e => setAiTestName(e.target.value)}
+                      placeholder={testFile?.name?.replace(/\.spec\.(ts|js)$/, '') || 'my generated test'}
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-violet-500"
+                    />
+                  </div>
+
+                  {/* Mode */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Insert mode</label>
+                    <div className="flex gap-2">
+                      {[{ id: 'replace', label: 'Replace file content', desc: 'Overwrites everything in the editor' }, { id: 'append', label: 'Append to file', desc: 'Adds new test after existing content' }].map(m => (
+                        <button key={m.id} type="button" onClick={() => setAiMode(m.id)}
+                          className={`flex-1 px-3 py-2.5 rounded-lg border text-left transition-colors ${
+                            aiMode === m.id ? 'bg-violet-600/20 border-violet-500/50 text-violet-200' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
+                          }`}>
+                          <div className="text-xs font-semibold">{m.label}</div>
+                          <div className="text-[10px] mt-0.5 text-slate-500">{m.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {aiError && (
+                    <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-sm text-red-300">{aiError}</div>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button type="button" onClick={closeAiPanel}
+                      className="px-4 py-2 text-sm text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors">
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={aiLoading || !aiInstruction.trim()}
+                      className="flex items-center gap-2 px-5 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white rounded-lg transition-colors">
+                      {aiLoading ? (
+                        <>
+                          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                          </svg>
+                          Generating script…
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          Generate Script
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="px-5 py-5">
+
+                  {/* npm install note */}
+                  {aiResult.npmNote && (
+                    <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-xs font-semibold text-amber-300">Manual install required</span>
+                      </div>
+                      <p className="text-xs text-amber-200/80 mb-2">Run this command in your <code className="bg-amber-900/40 px-1 rounded">server/</code> directory before running the test:</p>
+                      <code className="block text-xs bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-amber-300 font-mono select-all">
+                        npm install {aiResult.npmNote}
+                      </code>
+                    </div>
+                  )}
+
+                  {/* Generated script */}
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-slate-300">Generated Script</span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(aiResult.script);
+                          setAiScriptCopied(true);
+                          setTimeout(() => setAiScriptCopied(false), 2000);
+                        }}
+                        className="flex items-center gap-1 text-xs px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition-colors">
+                        {aiScriptCopied ? (
+                          <><svg className="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span className="text-green-400">Copied</span></>
+                        ) : (
+                          <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy</>
+                        )}
+                      </button>
+                    </div>
+                    <pre className="text-xs font-mono text-emerald-300 bg-slate-950 border border-slate-700 rounded-xl p-4 overflow-x-auto whitespace-pre leading-relaxed max-h-80 overflow-y-auto">{aiResult.script}</pre>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setAiResult(null); setAiError(''); }}
+                      className="flex-1 py-2 text-sm font-medium border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 rounded-lg transition-colors">
+                      Regenerate
+                    </button>
+                    <button
+                      onClick={applyScriptToEditor}
+                      className="flex-1 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors flex items-center justify-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                      {aiMode === 'append' ? 'Append to Editor' : 'Apply to Editor'}
+                    </button>
+                  </div>
+
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

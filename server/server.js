@@ -268,6 +268,71 @@ app.get('/modules/:id/test-files', async (req, res) => {
   }
 });
 
+// POST /test-files/generate-ai-script — Generate a Playwright script from natural language (AI orgs only)
+app.post('/test-files/generate-ai-script', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+    const org = await organizationOperations.getById(orgId);
+    if (org?.ai_healing_enabled !== 1) {
+      return res.status(403).json({ error: 'AI script generation is only available for AI-enabled organizations.' });
+    }
+    const apiKey = org?.openai_api_key || process.env.OPENAI_API_KEY || '';
+    if (!apiKey) return res.status(400).json({ error: 'No OpenAI API key configured for this organization.' });
+
+    const { instruction, testName = 'generated test', currentContent = '' } = req.body;
+    if (!instruction?.trim()) return res.status(400).json({ error: 'instruction is required.' });
+
+    const prompt = `You are an expert Playwright automation engineer. Generate a complete, production-ready Playwright test script based on the user instruction.
+
+FRAMEWORK RULES (MUST FOLLOW EXACTLY):
+1. Base import is ALWAYS first: import { test, expect } from '@playwright/test';
+2. Test signature is ALWAYS: test(TEST_NAME, async ({ page, request, browser, context, browserName }) => {
+3. If extra things from @playwright/test are needed (e.g. devices), add them to the same import line.
+4. If a THIRD-PARTY npm package is needed (e.g. @faker-js/faker, csv-parse, dayjs), add a SEPARATE import line AFTER the @playwright/test import.
+5. For every third-party import, add a comment on the line immediately before it: // INSTALL: npm install <package-name>
+6. Use modern Playwright locator APIs: getByRole, getByLabel, getByPlaceholder, getByText, getByTestId — prefer over raw CSS/XPath.
+7. Always await every Playwright call.
+8. Add clear inline comments explaining each logical block.
+9. Include meaningful assertions using expect().
+10. Handle navigation load states with await page.waitForLoadState() or expect with appropriate timeouts.
+11. Close the test with }); on its own line.
+
+${currentContent ? `EXISTING FILE CONTENT (for reference):\n\`\`\`\n${currentContent.slice(0, 2000)}\n\`\`\`` : ''}
+
+USER INSTRUCTION: ${instruction.trim()}
+TEST NAME: ${testName.trim()}
+
+Return ONLY valid JSON (no markdown code fences):
+{
+  "script": "<full script starting with imports then the test(...) block>",
+  "npmNote": "<space-separated npm package names to install, e.g. @faker-js/faker csv-parse — empty string if none needed>"
+}`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: prompt }], temperature: 0.15, max_tokens: 3500 }),
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(502).json({ error: `OpenAI error ${response.status}: ${errText.slice(0, 200)}` });
+    }
+    const aiData = await response.json();
+    const raw = aiData.choices?.[0]?.message?.content || '';
+    const jsonStr = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+
+    let result;
+    try { result = JSON.parse(jsonStr); } catch {
+      return res.status(502).json({ error: 'AI returned invalid JSON.', raw });
+    }
+
+    res.json({ script: result.script || '', npmNote: result.npmNote || '' });
+  } catch (error) {
+    console.error('generate-ai-script error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /modules/:id/test-files - Create a new test file
 app.post('/modules/:id/test-files', async (req, res) => {
   try {
