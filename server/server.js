@@ -1865,10 +1865,11 @@ export default defineConfig({
     }
 
     // ── AI Suite Healer ────────────────────────────────────────────────────
-    // Always attempt healing if an API key exists — regardless of the
-    // ai_healing_enabled org setting.  Defects are only raised AFTER the
-    // healer has had exactly one attempt (see auto-bug block below).
-    if (failed > 0 && suiteAiApiKey) {
+    // Only heal when the super-admin has enabled AI healing for this org
+    // AND an API key is available.  Defects are only raised AFTER the healer
+    // has had exactly one attempt (see auto-bug block below).
+    const suiteAiHeal = suiteOrgForHeal?.ai_healing_enabled === 1;
+    if (suiteAiHeal && suiteAiApiKey && failed > 0) {
       pushLog(suiteExecutionId, `\n\uD83E\uDD16  AI Healer: ${failed} failing test(s) — attempting fixes before raising defects...`);
       let healedCount = 0;
       for (let ri = 0; ri < testResults.length; ri++) {
@@ -1978,7 +1979,7 @@ export default defineConfig({
         .filter(tr => tr.status === 'FAIL' || tr.status === 'TIMEOUT');
 
       if (failedForBugs.length > 0) {
-        const aiNote = suiteAiApiKey ? ' (AI heal attempted but could not fix)' : ' (no AI key — heal skipped)';
+        const aiNote = suiteAiHeal && suiteAiApiKey ? ' (AI heal attempted but could not fix)' : ' (AI healing not enabled for this org)';
         pushLog(suiteExecutionId, `\n🐛  Auto Bug Creation: ${failedForBugs.length} test(s) still failing${aiNote}...`);
         let bugsCreated = 0;
         for (const tr of failedForBugs) {
@@ -2005,9 +2006,9 @@ export default defineConfig({
 
             const aiHealNote = tr.ai_healed
               ? `AI Heal:      Attempted — fix did not resolve the failure`
-              : suiteAiApiKey
+              : suiteAiHeal
                 ? `AI Heal:      Attempted — could not locate test file`
-                : `AI Heal:      Skipped (no OpenAI API key configured)`;
+                : `AI Heal:      Skipped (AI healing not enabled for this organisation)`;
 
             const description = [
               `Automated Test Failure Report`,
