@@ -67,6 +67,7 @@ export default function Taskboard({ currentUser }) {
   const [users, setUsers]             = useState([]);
   const [requirements, setRequirements] = useState([]);
   const [selectedSprint, setSelectedSprint] = useState('');
+  const [userFilter, setUserFilter] = useState('');   // '' = all users
   const [loading, setLoading]   = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -142,7 +143,14 @@ export default function Taskboard({ currentUser }) {
   const refresh = () => setRefreshKey(k => k + 1);
 
   // ---------- helpers ----------
-  const tasksByStatus = (status) => tasks.filter(t => t.status === status);
+  const tasksByStatus = (status) => tasks.filter(t => {
+    if (t.status !== status) return false;
+    if (userFilter) {
+      if (userFilter === '__unassigned__') return !t.assignee_id;
+      return String(t.assignee_id) === userFilter;
+    }
+    return true;
+  });
   const userObj = (id) => users.find(u => u.id === id);
 
   // ---------- modal helpers ----------
@@ -352,6 +360,22 @@ export default function Taskboard({ currentUser }) {
 
         {/* Right: sprint selector + new task button */}
         <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-slate-400 whitespace-nowrap">User:</label>
+            <select
+              value={userFilter}
+              onChange={e => setUserFilter(e.target.value)}
+              className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">All Users</option>
+              <option value="__unassigned__">Unassigned</option>
+              {users.map(u => (
+                <option key={u.id} value={String(u.id)}>
+                  {u.username || u.name || u.email}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="flex items-center gap-2">
             <label className="text-sm text-slate-400 whitespace-nowrap">Sprint:</label>
             <select
