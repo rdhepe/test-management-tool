@@ -7,7 +7,6 @@ const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
 const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, enquiryOperations } = require('./db');
-const nodemailer = require('nodemailer');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -3578,58 +3577,23 @@ app.post('/public/enquiry', async (req, res) => {
     const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRe.test(email)) return res.status(400).json({ error: 'Invalid email address.' });
 
-    // 1. Persist to DB
     const saved = await enquiryOperations.create({ name, email, company, team_size, message });
-
-    // 2. Send email via SMTP (optional — requires SMTP_* env vars)
-    const smtpHost = process.env.SMTP_HOST;
-    const smtpUser = process.env.SMTP_USER;
-    const smtpPass = process.env.SMTP_PASS;
-    const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
-    const smtpFrom = process.env.SMTP_FROM || smtpUser;
-
-    if (smtpHost && smtpUser && smtpPass) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: smtpPort,
-          secure: smtpPort === 465,
-          auth: { user: smtpUser, pass: smtpPass },
-        });
-        const html = `
-          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0f172a;color:#e2e8f0;padding:32px;border-radius:12px">
-            <h2 style="color:#818cf8;margin-top:0">New Enquiry — TestStudio.cloud</h2>
-            <table style="width:100%;border-collapse:collapse">
-              <tr><td style="padding:8px 0;color:#94a3b8;width:120px">Name</td><td style="padding:8px 0;font-weight:600">${name}</td></tr>
-              <tr><td style="padding:8px 0;color:#94a3b8">Email</td><td style="padding:8px 0"><a href="mailto:${email}" style="color:#818cf8">${email}</a></td></tr>
-              ${company ? `<tr><td style="padding:8px 0;color:#94a3b8">Company</td><td style="padding:8px 0">${company}</td></tr>` : ''}
-              ${team_size ? `<tr><td style="padding:8px 0;color:#94a3b8">Team size</td><td style="padding:8px 0">${team_size}</td></tr>` : ''}
-            </table>
-            <div style="margin-top:16px;padding:16px;background:#1e293b;border-radius:8px;border-left:3px solid #818cf8">
-              <p style="margin:0;color:#94a3b8;font-size:12px;margin-bottom:8px">MESSAGE</p>
-              <p style="margin:0;white-space:pre-wrap">${message}</p>
-            </div>
-            <p style="color:#475569;font-size:11px;margin-top:24px">Submitted ${new Date().toUTCString()}</p>
-          </div>`;
-        await transporter.sendMail({
-          from: `"TestStudio Enquiry" <${smtpFrom}>`,
-          to: 'founder@teststudio.cloud',
-          replyTo: email,
-          subject: `New enquiry from ${name}${company ? ` (${company})` : ''}`,
-          html,
-          text: `Name: ${name}\nEmail: ${email}\nCompany: ${company || '—'}\nTeam size: ${team_size || '—'}\n\n${message}`,
-        });
-        console.log(`📧 Enquiry email sent for ${email}`);
-      } catch (mailErr) {
-        console.error('⚠️  Enquiry email failed (stored in DB):', mailErr.message);
-      }
-    } else {
-      console.log(`📥 Enquiry stored (no SMTP configured): ${name} <${email}>`);
-    }
-
+    console.log(`📥 Enquiry stored: ${name} <${email}>`);
     res.json({ ok: true, id: saved.id });
   } catch (error) {
     console.error('enquiry error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /enquiries — list all enquiries (super_admin only)
+app.get('/enquiries', requireAuth, async (req, res) => {
+  if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const rows = await enquiryOperations.getAll();
+    res.json(rows);
+  } catch (error) {
+    console.error('enquiries fetch error:', error);
     res.status(500).json({ error: error.message });
   }
 });

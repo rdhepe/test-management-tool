@@ -27,6 +27,7 @@ import Sprints from './components/Sprints';
 import Reports from './components/Reports';
 import Tutorial from './components/Tutorial';
 import OrgManagement from './components/OrgManagement';
+import Enquiries from './components/Enquiries';
 
 import API_URL from './apiUrl';
 
@@ -783,6 +784,10 @@ function App({ orgSlug = 'default' }) {
       setCurrentView('orgManagement');
       setSelectedModule(null);
       setSelectedTestFile(null);
+    } else if (view === 'enquiries') {
+      setCurrentView('enquiries');
+      setSelectedModule(null);
+      setSelectedTestFile(null);
     } else if (view === 'tutorial') {
       setCurrentView('tutorial');
       setSelectedModule(null);
@@ -1062,6 +1067,10 @@ function App({ orgSlug = 'default' }) {
 
             {currentView === 'orgManagement' && currentUser?.role === 'super_admin' && (
               <OrgManagement currentUser={currentUser} />
+            )}
+
+            {currentView === 'enquiries' && currentUser?.role === 'super_admin' && (
+              <Enquiries />
             )}
 
             {currentView === 'tutorial' && (
