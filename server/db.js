@@ -235,7 +235,7 @@ async function initDB() {
       description     TEXT,
       sprint_id       INTEGER REFERENCES sprints(id) ON DELETE SET NULL,
       assignee_id     INTEGER,
-      status          TEXT NOT NULL DEFAULT 'New' CHECK (status IN ('New','In Progress','Done','Blocked')),
+      status          TEXT NOT NULL DEFAULT 'New' CHECK (status IN ('New','In Progress','Completed','Done','Blocked')),
       priority        TEXT NOT NULL DEFAULT 'Medium' CHECK (priority IN ('Low','Medium','High','Critical')),
       created_by      INTEGER,
       created_at      TIMESTAMPTZ DEFAULT NOW(),
@@ -444,6 +444,11 @@ async function initDB() {
   await pool.query(`ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_status_check`);
   await pool.query(`ALTER TABLE test_cases ADD CONSTRAINT test_cases_status_check CHECK (status IN ('Draft','Ready','Deprecated'))`);
   await pool.query(`UPDATE test_cases SET status = 'Ready' WHERE status = 'Active'`);
+
+  // Fix tasks status CHECK: add 'Completed' which was missing from original constraint
+  await pool.query(`ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check`);
+  await pool.query(`ALTER TABLE tasks ADD CONSTRAINT tasks_status_check CHECK (status IN ('New','In Progress','Completed','Done','Blocked'))`);
+  await pool.query(`UPDATE tasks SET status = 'New' WHERE status NOT IN ('New','In Progress','Completed','Done','Blocked')`);
 
   // Add created_by column to features, requirements, and test_cases
   await pool.query(`ALTER TABLE features ADD COLUMN IF NOT EXISTS created_by TEXT`);
