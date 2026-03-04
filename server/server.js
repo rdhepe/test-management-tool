@@ -2959,6 +2959,106 @@ app.get('/requirements/:id/test-files', async (req, res) => {
   }
 });
 
+// POST /test-cases/generate-ai — Generate test cases for a requirement using GPT-4o (AI orgs only)
+app.post('/test-cases/generate-ai', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+    const org = await organizationOperations.getById(orgId);
+    if (org?.ai_healing_enabled !== 1) {
+      return res.status(403).json({ error: 'AI test case generation is only available for AI-enabled organizations.' });
+    }
+    const apiKey = org?.openai_api_key || process.env.OPENAI_API_KEY || '';
+    if (!apiKey) return res.status(400).json({ error: 'No OpenAI API key configured for this organization.' });
+
+    const { requirementId, testTypes = [], focus, count = 5 } = req.body;
+    if (!requirementId) return res.status(400).json({ error: 'requirementId is required.' });
+
+    const requirement = await requirementOperations.getById(requirementId);
+    if (!requirement) return res.status(404).json({ error: 'Requirement not found.' });
+
+    const tcCount = Math.min(Math.max(parseInt(count) || 5, 1), 10);
+    const typesLabel = testTypes.length > 0 ? testTypes.join(', ') : 'Happy Path, Negative/Error, Boundary Value';
+
+    const prompt = `You are a senior QA engineer. Generate ${tcCount} detailed, executable manual test cases for the following software requirement.
+
+REQUIREMENT TITLE: ${requirement.title?.replace(/^AI:\s*/, '')}
+REQUIREMENT DESCRIPTION: ${requirement.description || '(no description provided)'}
+${focus ? `FOCUS AREA: ${focus}` : ''}
+
+TEST TYPES TO COVER (distribute across): ${typesLabel}
+
+Rules:
+- Title: concise, action-oriented, prefixed with the test type in brackets e.g. "[Happy Path] Login with valid credentials". Max 90 chars.
+- Preconditions: 1–2 sentences of setup needed before executing steps.
+- Steps: 3–7 steps, each with a clear action and expected result.
+- Priority: High / Medium / Low based on risk.
+- Type: always "Manual".
+- Cover a realistic mix of the requested test types.
+- Do NOT add numbering or markdown — return ONLY valid JSON.
+
+Return a JSON array of exactly ${tcCount} objects:
+[
+  {
+    "title": "[Type] Test case title",
+    "preconditions": "Any setup or prerequisites.",
+    "steps": [
+      { "action": "User action or system event", "expected": "Expected result" }
+    ],
+    "priority": "High|Medium|Low"
+  }
+]`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 3500 }),
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(502).json({ error: `OpenAI error ${response.status}: ${errText.slice(0, 200)}` });
+    }
+    const aiData = await response.json();
+    const raw = aiData.choices?.[0]?.message?.content || '';
+    const jsonStr = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+
+    let items;
+    try { items = JSON.parse(jsonStr); } catch {
+      return res.status(502).json({ error: 'AI returned invalid JSON.', raw });
+    }
+    if (!Array.isArray(items)) return res.status(502).json({ error: 'AI did not return an array.' });
+
+    const created = [];
+    const createdBy = req.session?.username || null;
+    for (const item of items) {
+      if (!item.title) continue;
+      const priority = ['High', 'Medium', 'Low'].includes(item.priority) ? item.priority : 'Medium';
+      const stepsJson = JSON.stringify(
+        Array.isArray(item.steps) && item.steps.length > 0
+          ? item.steps
+          : [{ action: 'Execute the scenario described in the title', expected: 'System behaves as specified in the requirement' }]
+      );
+      const saved = await testCaseOperations.create({
+        requirement_id: requirementId,
+        title: `AI: ${item.title}`,
+        description: '',
+        preconditions: item.preconditions || '',
+        test_steps: stepsJson,
+        expected_result: '',
+        type: 'Manual',
+        priority,
+        status: 'Draft',
+        created_by: createdBy,
+      }, orgId);
+      created.push(saved);
+    }
+
+    res.status(201).json({ created });
+  } catch (error) {
+    console.error('generate-ai test-cases error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /test-cases - Create a new test case
 app.post('/test-cases', async (req, res) => {
   try {

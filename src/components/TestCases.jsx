@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from 'react';
+﻿import { useState, useEffect, useMemo, useRef } from 'react';
 import API_URL from '../apiUrl';
 import { authFetch } from '../utils/api';
 import * as XLSX from 'xlsx';
@@ -12,7 +12,41 @@ function Avatar({ username }) {
   );
 }
 
-function TestCases({ currentUser }) {
+function AIBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/20 text-violet-300 border border-violet-500/30 shrink-0">
+      <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+        <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1H6.5a2.5 2.5 0 010-5H8V9h4v1h1.5a2.5 2.5 0 010 5H12v1H8z" />
+      </svg>
+      AI
+    </span>
+  );
+}
+
+function SparkIcon({ className = 'w-4 h-4' }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+    </svg>
+  );
+}
+
+const AI_TEST_TYPES = [
+  { id: 'happy_path',   label: 'Happy Path',      desc: 'Main success scenario' },
+  { id: 'negative',     label: 'Negative / Error', desc: 'Invalid inputs & failures' },
+  { id: 'boundary',     label: 'Boundary Value',   desc: 'Min/max edge limits' },
+  { id: 'edge_case',    label: 'Edge Case',        desc: 'Unexpected/unusual scenarios' },
+  { id: 'integration',  label: 'Integration',      desc: 'Interactions between components' },
+  { id: 'regression',   label: 'Regression',       desc: 'Existing behaviour unchanged' },
+  { id: 'smoke',        label: 'Smoke',            desc: 'Basic sanity check' },
+  { id: 'performance',  label: 'Performance',      desc: 'Speed and load behaviour' },
+  { id: 'security',     label: 'Security',         desc: 'Auth, injection, data exposure' },
+  { id: 'accessibility',label: 'Accessibility',    desc: 'WCAG / keyboard / screen-reader' },
+  { id: 'usability',    label: 'Usability',        desc: 'UX clarity and ease-of-use' },
+];
+
+function TestCases({ currentUser, orgInfo }) {
+  const aiEnabled = orgInfo?.aiHealingEnabled === true || orgInfo?.aiHealingEnabled === 1;
   const [testCases, setTestCases] = useState([]);
   const [requirements, setRequirements] = useState([]);
   const [sprints, setSprints] = useState([]);
@@ -53,6 +87,16 @@ function TestCases({ currentUser }) {
   const [viewTab, setViewTab] = useState('details');
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
+
+  // AI generation panel
+  const [isAiOpen, setIsAiOpen] = useState(false);
+  const [aiReqId, setAiReqId] = useState('');
+  const [aiTypes, setAiTypes] = useState(['happy_path', 'negative', 'boundary']);
+  const [aiForm, setAiForm] = useState({ focus: '', count: '5' });
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiResult, setAiResult] = useState(null);
+  const aiFocusRef = useRef(null);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -254,6 +298,46 @@ function TestCases({ currentUser }) {
     } catch (err) {
       alert('Error deleting test case: ' + err.message);
     }
+  };
+
+  // ---------- AI generation ----------
+  const openAiPanel = (requirementId = '') => {
+    setAiReqId(requirementId ? String(requirementId) : '');
+    setAiTypes(['happy_path', 'negative', 'boundary']);
+    setAiForm({ focus: '', count: '5' });
+    setAiError('');
+    setAiResult(null);
+    setIsAiOpen(true);
+    setTimeout(() => aiFocusRef.current?.focus(), 60);
+  };
+  const closeAiPanel = () => { setIsAiOpen(false); setAiResult(null); setAiError(''); };
+
+  const toggleAiType = (id) => {
+    setAiTypes(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]);
+  };
+
+  const handleAiGenerate = async (e) => {
+    e.preventDefault();
+    if (!aiReqId) { setAiError('Please select a requirement.'); return; }
+    if (aiTypes.length === 0) { setAiError('Select at least one test type.'); return; }
+    setAiLoading(true);
+    setAiError('');
+    setAiResult(null);
+    try {
+      const typeLabels = aiTypes.map(id => AI_TEST_TYPES.find(t => t.id === id)?.label || id);
+      const res = await authFetch(`${API_URL}/test-cases/generate-ai`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requirementId: aiReqId, testTypes: typeLabels, focus: aiForm.focus.trim(), count: parseInt(aiForm.count) || 5 }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAiError(data.error || 'Generation failed.'); return; }
+      setAiResult(data);
+      fetchTestCases();
+      // Auto-expand the target requirement
+      if (aiReqId) setExpandedRequirements(prev => ({ ...prev, [aiReqId]: true }));
+    } catch { setAiError('Network error. Please try again.'); }
+    finally { setAiLoading(false); }
   };
 
   const handleSubmit = async (e) => {
@@ -1000,6 +1084,15 @@ function TestCases({ currentUser }) {
               </button>
             </>
           )}
+          {aiEnabled && (
+            <button
+              onClick={() => openAiPanel()}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors font-medium"
+            >
+              <SparkIcon className="w-4 h-4" />
+              Generate via AI
+            </button>
+          )}
           <button
             onClick={() => handleCreateNew()}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
@@ -1258,18 +1351,32 @@ function TestCases({ currentUser }) {
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCreateNew(requirement.id);
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Add Test Case
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {aiEnabled && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openAiPanel(requirement.id);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors text-sm"
+                      >
+                        <SparkIcon className="w-4 h-4" />
+                        Generate via AI
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCreateNew(requirement.id);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Add Test Case
+                    </button>
+                  </div>
                 </div>
 
                 {/* Test Cases List */}
@@ -1299,8 +1406,9 @@ function TestCases({ currentUser }) {
                                   <span className="text-xs font-mono px-2 py-1 rounded bg-slate-900 text-slate-400">
                                     #{testCase.id}
                                   </span>
+                                  {testCase.title?.startsWith('AI: ') && <AIBadge />}
                                   <h4 className="font-medium text-white">
-                                    {testCase.title}
+                                    {testCase.title?.startsWith('AI: ') ? testCase.title.slice(4) : testCase.title}
                                   </h4>
                                   <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getTypeBadgeColor(testCase.type)}`}>
                                     {testCase.type}
@@ -1468,6 +1576,206 @@ function TestCases({ currentUser }) {
       </div>
       )}
       </div>
+
+      {/* ── AI Generation Panel ── */}
+      {isAiOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={closeAiPanel} />
+          <div className="w-full max-w-xl bg-slate-900 border-l border-slate-700 h-full flex flex-col shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-violet-400">
+                  <SparkIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-white leading-tight">Generate Test Cases via AI</h2>
+                  <p className="text-xs text-slate-500">Powered by GPT-4o</p>
+                </div>
+              </div>
+              <button onClick={closeAiPanel} className="p-1 text-slate-500 hover:text-white transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {!aiResult ? (
+                <form onSubmit={handleAiGenerate} className="px-5 py-5 space-y-5">
+                  <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 px-4 py-3 text-xs text-violet-300 leading-relaxed">
+                    AI will generate structured, executable manual test cases for the selected requirement. Each is saved with an <strong>AI</strong> badge.
+                  </div>
+
+                  {/* Requirement */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Requirement <span className="text-red-400">*</span></label>
+                    <select value={aiReqId} onChange={e => setAiReqId(e.target.value)} required
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-violet-500">
+                      <option value="">Select a requirement…</option>
+                      {requirements.map(r => (
+                        <option key={r.id} value={r.id}>
+                          {r.title?.startsWith('AI: ') ? `◆ ${r.title.slice(4)}` : r.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Test types */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-2">
+                      Test types to generate
+                      <span className="ml-1 text-slate-500 font-normal">(select all that apply)</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {AI_TEST_TYPES.map(t => {
+                        const checked = aiTypes.includes(t.id);
+                        return (
+                          <button key={t.id} type="button" onClick={() => toggleAiType(t.id)}
+                            className={`flex flex-col items-start px-3 py-2 rounded-lg border text-left transition-colors ${
+                              checked
+                                ? 'bg-violet-600/20 border-violet-500/50 text-violet-200'
+                                : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                            }`}>
+                            <div className="flex items-center gap-1.5">
+                              <div className={`w-3.5 h-3.5 rounded flex items-center justify-center border transition-colors ${
+                                checked ? 'bg-violet-600 border-violet-500' : 'border-slate-600'
+                              }`}>
+                                {checked && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                              </div>
+                              <span className="text-xs font-semibold">{t.label}</span>
+                            </div>
+                            <span className="text-[10px] mt-0.5 ml-5 text-slate-500">{t.desc}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Focus area */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      Focus area
+                      <span className="ml-1 text-slate-500 font-normal">(optional)</span>
+                    </label>
+                    <textarea ref={aiFocusRef} value={aiForm.focus}
+                      onChange={e => setAiForm({ ...aiForm, focus: e.target.value })}
+                      rows={3}
+                      placeholder="e.g. Focus on file upload edge cases and concurrent user scenarios…"
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-violet-500 resize-none placeholder-slate-600" />
+                  </div>
+
+                  {/* Count */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Number of test cases</label>
+                    <div className="flex gap-2">
+                      {[3, 5, 7, 10].map(n => (
+                        <button key={n} type="button"
+                          onClick={() => setAiForm({ ...aiForm, count: String(n) })}
+                          className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                            aiForm.count === String(n)
+                              ? 'bg-violet-600 border-violet-500 text-white'
+                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white hover:border-slate-500'
+                          }`}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {aiError && (
+                    <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-sm text-red-300">{aiError}</div>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button type="button" onClick={closeAiPanel}
+                      className="px-4 py-2 text-sm text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors">
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={aiLoading || !aiReqId || aiTypes.length === 0}
+                      className="flex items-center gap-2 px-5 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white rounded-lg transition-colors">
+                      {aiLoading ? (
+                        <>
+                          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                          </svg>
+                          Generating…
+                        </>
+                      ) : (
+                        <><SparkIcon className="w-4 h-4" />Generate Test Cases</>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="px-5 py-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                      <svg className="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-medium text-emerald-300">
+                      {aiResult.created.length} test case{aiResult.created.length !== 1 ? 's' : ''} created successfully
+                    </p>
+                  </div>
+
+                  {aiReqId && (
+                    <div className="mb-4 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-400">
+                      Requirement: <span className="text-slate-200 font-medium">
+                        {(() => { const r = requirements.find(r => String(r.id) === String(aiReqId)); return r ? (r.title?.startsWith('AI: ') ? r.title.slice(4) : r.title) : ''; })()}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="space-y-3 mb-6">
+                    {aiResult.created.map((tc, i) => (
+                      <div key={tc.id || i} className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3">
+                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <AIBadge />
+                            <span className="text-sm font-semibold text-white leading-snug">
+                              {tc.title?.startsWith('AI: ') ? tc.title.slice(4) : tc.title}
+                            </span>
+                          </div>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                            tc.priority === 'High' ? 'bg-red-900/60 text-red-300' :
+                            tc.priority === 'Low' ? 'bg-green-900/60 text-green-300' :
+                            'bg-yellow-900/60 text-yellow-300'
+                          }`}>{tc.priority}</span>
+                        </div>
+                        {tc.preconditions && (
+                          <p className="text-xs text-slate-500 mt-1">
+                            <span className="text-slate-400 font-medium">Pre: </span>{tc.preconditions}
+                          </p>
+                        )}
+                        {(() => {
+                          try {
+                            const steps = JSON.parse(tc.test_steps || '[]');
+                            if (steps.length > 0) return (
+                              <p className="text-xs text-slate-500 mt-1">{steps.length} step{steps.length !== 1 ? 's' : ''}</p>
+                            );
+                          } catch { return null; }
+                        })()}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button onClick={() => { setAiResult(null); setAiForm({ focus: '', count: '5' }); setAiError(''); }}
+                      className="flex-1 py-2 text-sm font-medium border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 rounded-lg transition-colors">
+                      Generate More
+                    </button>
+                    <button onClick={closeAiPanel}
+                      className="flex-1 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors">
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Create / Edit Panel ── */}
       {showModal && (

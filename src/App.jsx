@@ -1042,7 +1042,7 @@ function App({ orgSlug = 'default' }) {
             )}
 
             {currentView === 'testcases' && (
-              <TestCases currentUser={currentUser} />
+              <TestCases currentUser={currentUser} orgInfo={orgInfo} />
             )}
 
             {currentView === 'taskboard' && (
