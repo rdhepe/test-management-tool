@@ -1553,6 +1553,22 @@ app.get('/suite-executions/:id/logs/stream', async (req, res) => {
   });
 });
 
+// GET /suite-executions/:id/logs — fetch stored or buffered log lines for a completed run
+app.get('/suite-executions/:id/logs', async (req, res) => {
+  const executionId = parseInt(req.params.id);
+  // Check in-memory buffer first (run still active or recently finished)
+  const entry = runLogs.get(executionId);
+  if (entry) return res.json(entry.lines);
+  // Fall back to persisted logs in DB
+  try {
+    const result = await pool.query('SELECT logs_json FROM suite_executions WHERE id=$1', [executionId]);
+    const row = result.rows[0];
+    res.json(row?.logs_json ? JSON.parse(row.logs_json) : []);
+  } catch (_) {
+    res.json([]);
+  }
+});
+
 // POST /run-suite/:suiteId - Execute all tests in a suite
 app.post('/run-suite/:suiteId', async (req, res) => {
   const suiteId = parseInt(req.params.suiteId);
@@ -1965,6 +1981,11 @@ export default defineConfig({
       });
     } catch (_) {}
   } finally {
+    // Persist log lines to DB before cleanup so historical runs can show logs
+    try {
+      const logLines = runLogs.get(suiteExecutionId)?.lines || [];
+      await pool.query('UPDATE suite_executions SET logs_json=$1 WHERE id=$2', [JSON.stringify(logLines), suiteExecutionId]);
+    } catch (_) {}
     finishLog(suiteExecutionId);  // Signal all SSE clients that the run is done
     // Cleanup: Remove temp directory
     if (tempDir) {

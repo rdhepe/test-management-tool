@@ -110,6 +110,19 @@ function SuiteExecutionDetail({ executionId, onBack }) {
       if (!resultsResponse.ok) throw new Error('Failed to fetch test results');
       const resultsData = await resultsResponse.json();
       setTestResults(resultsData);
+
+      // Load stored logs for completed runs (SSE handles live logs for running executions)
+      if (execData.status !== 'running') {
+        try {
+          const logsResponse = await fetch(`${API_URL}/suite-executions/${executionId}/logs`);
+          if (logsResponse.ok) {
+            const logsData = await logsResponse.json();
+            if (logsData.length > 0) {
+              setLiveLog(logsData);
+            }
+          }
+        } catch (_) {}
+      }
     } catch (err) {
       console.error('Failed to load execution details:', err);
       setError(err.message);

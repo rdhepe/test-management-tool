@@ -450,6 +450,9 @@ async function initDB() {
   await pool.query(`ALTER TABLE tasks ADD CONSTRAINT tasks_status_check CHECK (status IN ('New','In Progress','Completed','Done','Blocked'))`);
   await pool.query(`UPDATE tasks SET status = 'New' WHERE status NOT IN ('New','In Progress','Completed','Done','Blocked')`);
 
+  // Add logs_json column to suite_executions for CI log persistence
+  await pool.query(`ALTER TABLE suite_executions ADD COLUMN IF NOT EXISTS logs_json TEXT`);
+
   // Add created_by column to features, requirements, and test_cases
   await pool.query(`ALTER TABLE features ADD COLUMN IF NOT EXISTS created_by TEXT`);
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS created_by TEXT`);
@@ -678,7 +681,7 @@ const testSuiteOperations = {
 const suiteTestFileOperations = {
   getBySuiteId: async (suiteId) => {
     const r = await pool.query(
-      `SELECT stf.*, tf.name, tf.content FROM suite_test_files stf
+      `SELECT stf.*, tf.name as test_file_name, tf.content FROM suite_test_files stf
        JOIN test_files tf ON stf.test_file_id = tf.id
        WHERE stf.suite_id = $1`,
       [suiteId]
