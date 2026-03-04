@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { authFetch } from '../utils/api';
 import API_URL from '../apiUrl';
 
@@ -11,7 +11,27 @@ function Avatar({ username }) {
   );
 }
 
-function Requirements({ currentUser }) {
+function AIBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/20 text-violet-300 border border-violet-500/30 shrink-0">
+      <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+        <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1H6.5a2.5 2.5 0 010-5H8V9h4v1h1.5a2.5 2.5 0 010 5H12v1H8z" />
+      </svg>
+      AI
+    </span>
+  );
+}
+
+function SparkIcon({ className = 'w-4 h-4' }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+    </svg>
+  );
+}
+
+function Requirements({ currentUser, orgInfo }) {
+  const aiEnabled = orgInfo?.aiHealingEnabled === true || orgInfo?.aiHealingEnabled === 1;
   const [requirements, setRequirements] = useState([]);
   const [features, setFeatures] = useState([]);
   const [sprints, setSprints] = useState([]);
@@ -35,6 +55,15 @@ function Requirements({ currentUser }) {
   const [viewTab, setViewTab] = useState('details');
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
+
+  // AI generation panel
+  const [isAiOpen, setIsAiOpen] = useState(false);
+  const [aiFeatureId, setAiFeatureId] = useState('');
+  const [aiForm, setAiForm] = useState({ focus: '', count: '5' });
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiResult, setAiResult] = useState(null);
+  const aiDescRef = useRef(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -211,6 +240,39 @@ function Requirements({ currentUser }) {
       alert(`Failed to delete requirement: ${error.message}`);
     }
   };
+
+  // ---------- AI generation ----------
+  const openAiPanel = (featureId = '') => {
+    setAiFeatureId(featureId ? String(featureId) : '');
+    setAiForm({ focus: '', count: '5' });
+    setAiError('');
+    setAiResult(null);
+    setIsAiOpen(true);
+    setTimeout(() => aiDescRef.current?.focus(), 60);
+  };
+  const closeAiPanel = () => { setIsAiOpen(false); setAiResult(null); setAiError(''); };
+
+  const handleAiGenerate = async (e) => {
+    e.preventDefault();
+    if (!aiFeatureId) { setAiError('Please select a feature.'); return; }
+    setAiLoading(true);
+    setAiError('');
+    setAiResult(null);
+    try {
+      const res = await authFetch(`${API_URL}/requirements/generate-ai`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ featureId: aiFeatureId, focus: aiForm.focus.trim(), count: parseInt(aiForm.count) || 5 }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAiError(data.error || 'Generation failed.'); return; }
+      setAiResult(data);
+      await loadRequirements();
+    } catch { setAiError('Network error. Please try again.'); }
+    finally { setAiLoading(false); }
+  };
+
+  // --------- helpers -----------
 
   const handleViewRequirement = async (requirement) => {
     setViewingRequirement(requirement);
@@ -427,6 +489,15 @@ function Requirements({ currentUser }) {
               </svg>
               Create Requirement
             </button>
+            {aiEnabled && (
+              <button
+                onClick={() => openAiPanel()}
+                className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 text-white rounded-xl hover:bg-violet-500 transition-all duration-200 font-medium"
+              >
+                <SparkIcon className="w-4 h-4" />
+                Generate via AI
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -589,6 +660,18 @@ function Requirements({ currentUser }) {
                     </svg>
                     Add Requirement
                   </button>
+                  {aiEnabled && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openAiPanel(feature.id);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium transition-all duration-200 bg-violet-600 hover:bg-violet-500 text-white text-sm"
+                    >
+                      <SparkIcon className="w-4 h-4" />
+                      Generate via AI
+                    </button>
+                  )}
                 </div>
 
                 {/* Requirements List */}
@@ -621,8 +704,9 @@ function Requirements({ currentUser }) {
                                   }}>
                                     #{req.id}
                                   </span>
+                                  {req.title?.startsWith('AI: ') && <AIBadge />}
                                   <h4 className="font-medium" style={{ color: 'rgb(var(--text-primary))' }}>
-                                    {req.title}
+                                    {req.title?.startsWith('AI: ') ? req.title.slice(4) : req.title}
                                   </h4>
                                   <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border ${getPriorityBadgeClass(req.priority)}`}>
                                     {req.priority}
@@ -862,6 +946,163 @@ function Requirements({ currentUser }) {
                       ))}
                     </div>
                   )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── AI Generation Panel ── */}
+      {isAiOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={closeAiPanel} />
+          <div className="w-full max-w-xl bg-slate-900 border-l border-slate-700 h-full flex flex-col shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-violet-400">
+                  <SparkIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-white leading-tight">Generate Requirements via AI</h2>
+                  <p className="text-xs text-slate-500">Powered by GPT-4o</p>
+                </div>
+              </div>
+              <button onClick={closeAiPanel} className="p-1 text-slate-500 hover:text-white transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {!aiResult ? (
+                <form onSubmit={handleAiGenerate} className="px-5 py-5 space-y-5">
+                  <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 px-4 py-3 text-xs text-violet-300 leading-relaxed">
+                    AI will generate structured, testable requirements for the selected feature. Each will be saved with an <strong>AI</strong> badge.
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Feature <span className="text-red-400">*</span></label>
+                    <select value={aiFeatureId} onChange={e => setAiFeatureId(e.target.value)} required
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-violet-500">
+                      <option value="">Select a feature…</option>
+                      {features.map(f => (
+                        <option key={f.id} value={f.id}>
+                          {f.name?.startsWith('AI: ') ? `◆ ${f.name.slice(4)}` : f.name} — {f.priority}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      Focus area
+                      <span className="ml-1 text-slate-500 font-normal">(optional — narrow what aspects to cover)</span>
+                    </label>
+                    <textarea ref={aiDescRef} value={aiForm.focus}
+                      onChange={e => setAiForm({ ...aiForm, focus: e.target.value })}
+                      rows={4}
+                      placeholder="e.g. Focus on authentication edge cases, error handling, and accessibility requirements…"
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-violet-500 resize-none placeholder-slate-600" />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Number of requirements to generate</label>
+                    <div className="flex gap-2">
+                      {[3, 5, 7, 10].map(n => (
+                        <button key={n} type="button"
+                          onClick={() => setAiForm({ ...aiForm, count: String(n) })}
+                          className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                            aiForm.count === String(n)
+                              ? 'bg-violet-600 border-violet-500 text-white'
+                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white hover:border-slate-500'
+                          }`}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {aiError && (
+                    <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-sm text-red-300">{aiError}</div>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button type="button" onClick={closeAiPanel}
+                      className="px-4 py-2 text-sm text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors">
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={aiLoading || !aiFeatureId}
+                      className="flex items-center gap-2 px-5 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white rounded-lg transition-colors">
+                      {aiLoading ? (
+                        <>
+                          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                          </svg>
+                          Generating…
+                        </>
+                      ) : (
+                        <><SparkIcon className="w-4 h-4" />Generate Requirements</>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="px-5 py-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                      <svg className="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-medium text-emerald-300">
+                      {aiResult.created.length} requirement{aiResult.created.length !== 1 ? 's' : ''} created successfully
+                    </p>
+                  </div>
+
+                  {/* Feature context */}
+                  {aiFeatureId && (
+                    <div className="mb-4 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-400">
+                      Feature: <span className="text-slate-200 font-medium">
+                        {(() => { const f = features.find(f => String(f.id) === String(aiFeatureId)); return f ? (f.name?.startsWith('AI: ') ? f.name.slice(4) : f.name) : ''; })()}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="space-y-3 mb-6">
+                    {aiResult.created.map((r, i) => (
+                      <div key={r.id || i} className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3">
+                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <AIBadge />
+                            <span className="text-sm font-semibold text-white leading-snug">
+                              {r.title?.startsWith('AI: ') ? r.title.slice(4) : r.title}
+                            </span>
+                          </div>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                            r.priority === 'High' ? 'bg-red-900/60 text-red-300' :
+                            r.priority === 'Low' ? 'bg-green-900/60 text-green-300' :
+                            'bg-yellow-900/60 text-yellow-300'
+                          }`}>{r.priority}</span>
+                        </div>
+                        {r.description && (
+                          <p className="text-xs text-slate-400 leading-relaxed line-clamp-3">{r.description}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button onClick={() => { setAiResult(null); setAiForm({ focus: '', count: '5' }); setAiError(''); }}
+                      className="flex-1 py-2 text-sm font-medium border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 rounded-lg transition-colors">
+                      Generate More
+                    </button>
+                    <button onClick={closeAiPanel}
+                      className="flex-1 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors">
+                      Done
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

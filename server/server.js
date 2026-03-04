@@ -2660,6 +2660,92 @@ app.get('/requirements/:id', async (req, res) => {
   }
 });
 
+// POST /requirements/generate-ai — Generate requirements for a feature using GPT-4o (AI orgs only)
+app.post('/requirements/generate-ai', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+    const org = await organizationOperations.getById(orgId);
+    if (org?.ai_healing_enabled !== 1) {
+      return res.status(403).json({ error: 'AI requirement generation is only available for AI-enabled organizations.' });
+    }
+    const apiKey = org?.openai_api_key || process.env.OPENAI_API_KEY || '';
+    if (!apiKey) return res.status(400).json({ error: 'No OpenAI API key configured for this organization.' });
+
+    const { featureId, focus, count = 5 } = req.body;
+    if (!featureId) return res.status(400).json({ error: 'featureId is required.' });
+
+    const feature = await featureOperations.getById(featureId);
+    if (!feature) return res.status(404).json({ error: 'Feature not found.' });
+
+    const reqCount = Math.min(Math.max(parseInt(count) || 5, 1), 10);
+
+    const prompt = `You are a senior business analyst and QA architect. Generate ${reqCount} detailed, testable requirements for the following software feature.
+
+FEATURE NAME: ${feature.name}
+FEATURE DESCRIPTION: ${feature.description || '(no description provided)'}
+${focus ? `FOCUS AREA: ${focus}` : ''}
+
+Rules:
+- Each requirement must be a specific, verifiable, user-facing behaviour or system constraint.
+- Title: clear, concise action statement starting with a verb (e.g. "Allow users to…", "System must…"). Max 80 chars.
+- Description: 2–4 sentences. Include acceptance criteria hints (given/when/then style if applicable), edge cases, and any important constraints.
+- Priority: High / Medium / Low based on business impact.
+- Status: always "Draft".
+- Cover a realistic mix of priorities.
+- Do NOT add numbering or markdown — return ONLY valid JSON.
+
+Return a JSON array of exactly ${reqCount} objects:
+[
+  {
+    "title": "Requirement title",
+    "description": "Detailed description with acceptance criteria.",
+    "priority": "High|Medium|Low"
+  }
+]`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 2500 }),
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(502).json({ error: `OpenAI error ${response.status}: ${errText.slice(0, 200)}` });
+    }
+    const aiData = await response.json();
+    const raw = aiData.choices?.[0]?.message?.content || '';
+    const jsonStr = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+
+    let items;
+    try { items = JSON.parse(jsonStr); } catch {
+      return res.status(502).json({ error: 'AI returned invalid JSON.', raw });
+    }
+    if (!Array.isArray(items)) return res.status(502).json({ error: 'AI did not return an array.' });
+
+    const created = [];
+    const createdBy = req.session?.username || null;
+    for (const item of items) {
+      if (!item.title) continue;
+      const priority = ['High', 'Medium', 'Low'].includes(item.priority) ? item.priority : 'Medium';
+      const saved = await requirementOperations.create({
+        featureId,
+        title: `AI: ${item.title}`,
+        description: item.description || '',
+        priority,
+        status: 'Draft',
+        sprintId: null,
+        createdBy,
+      }, orgId);
+      created.push(saved);
+    }
+
+    res.status(201).json({ created });
+  } catch (error) {
+    console.error('generate-ai requirements error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /requirements - Create a new requirement
 app.post('/requirements', async (req, res) => {
   try {
