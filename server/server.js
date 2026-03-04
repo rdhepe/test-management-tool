@@ -1678,9 +1678,11 @@ ${userCode}
     const suiteFullyParallel = req.body && req.body.fullyParallel === true;
     const suiteScreenshotMode = (req.body && req.body.screenshotMode) || 'only-on-failure';
     // Load global variables and inject them into each test process via env
-    const suiteRunOrgId = req.session?.orgId || 1;
+    // Use suite.org_id as ground truth — CI calls may not carry a session,
+    // so falling back to req.session?.orgId would create defects under the
+    // wrong org and make them invisible on the Defects page.
+    const suiteRunOrgId = suite.org_id || req.session?.orgId || 1;
     const suiteOrgForHeal = await organizationOperations.getById(suiteRunOrgId);
-    const suiteAiHeal = suiteOrgForHeal?.ai_healing_enabled === 1;
     const suiteAiApiKey = suiteOrgForHeal?.openai_api_key || process.env.OPENAI_API_KEY || '';
     const suiteGlobalVarsEnv = await globalVariableOperations.getAllAsEnv(suiteRunOrgId);
 
@@ -1863,8 +1865,11 @@ export default defineConfig({
     }
 
     // ── AI Suite Healer ────────────────────────────────────────────────────
-    if (suiteAiHeal && failed > 0) {
-      pushLog(suiteExecutionId, `\n\uD83E\uDD16  AI Healer: ${failed} failing test(s) detected — attempting to fix...`);
+    // Always attempt healing if an API key exists — regardless of the
+    // ai_healing_enabled org setting.  Defects are only raised AFTER the
+    // healer has had exactly one attempt (see auto-bug block below).
+    if (failed > 0 && suiteAiApiKey) {
+      pushLog(suiteExecutionId, `\n\uD83E\uDD16  AI Healer: ${failed} failing test(s) — attempting fixes before raising defects...`);
       let healedCount = 0;
       for (let ri = 0; ri < testResults.length; ri++) {
         const tr = testResults[ri];
@@ -1965,15 +1970,16 @@ export default defineConfig({
       console.log('✓ Saved', testResults.length, 'test results to database');
 
       // ── Instant Bug Creation ─────────────────────────────────────────────
-      // For every FAIL/TIMEOUT test, automatically create a defect with all
-      // debugging artifacts (error message, logs, screenshot). Deduplicates
-      // so re-running the same failing test does NOT open a second ticket.
+      // Only raise defects for tests that STILL fail after the AI healer had
+      // its one attempt.  Tests the AI fixed (status=PASS / ai_heal_succeeded=true)
+      // are excluded.  Deduplicates on title so reruns don't flood the board.
       const failedForBugs = testResults
-        .map((tr, idx) => ({ ...tr, testFileId: suiteTestFiles[idx]?.test_file_id || null }))
+        .map((tr, idx) => ({ ...tr, testFileId: null }))   // test_file_ids are not test_case ids — keep null to avoid FK errors
         .filter(tr => tr.status === 'FAIL' || tr.status === 'TIMEOUT');
 
       if (failedForBugs.length > 0) {
-        pushLog(suiteExecutionId, `\n🐛  Auto Bug Creation: checking ${failedForBugs.length} failing test(s)...`);
+        const aiNote = suiteAiApiKey ? ' (AI heal attempted but could not fix)' : ' (no AI key — heal skipped)';
+        pushLog(suiteExecutionId, `\n🐛  Auto Bug Creation: ${failedForBugs.length} test(s) still failing${aiNote}...`);
         let bugsCreated = 0;
         for (const tr of failedForBugs) {
           const bugTitle = `[Auto] Test failed: ${tr.test_name}`;
@@ -1997,6 +2003,12 @@ export default defineConfig({
               .slice(-60)
               .join('\n');
 
+            const aiHealNote = tr.ai_healed
+              ? `AI Heal:      Attempted — fix did not resolve the failure`
+              : suiteAiApiKey
+                ? `AI Heal:      Attempted — could not locate test file`
+                : `AI Heal:      Skipped (no OpenAI API key configured)`;
+
             const description = [
               `Automated Test Failure Report`,
               ``,
@@ -2005,6 +2017,7 @@ export default defineConfig({
               `Test:         ${tr.test_name}`,
               `Result:       ${tr.status}`,
               `Duration:     ${tr.duration_ms}ms`,
+              aiHealNote,
               ``,
               `Error:`,
               tr.error_message || 'No error message captured',
