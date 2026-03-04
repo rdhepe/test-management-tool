@@ -77,7 +77,7 @@ function Defects({ currentUser }) {
         fetch(`${API_URL}/defects`, { headers }),
         fetch(`${API_URL}/test-cases`, { headers }),
         fetch(`${API_URL}/sprints`, { headers }),
-        fetch(`${API_URL}/users/list`, { headers }),
+        fetch(`${API_URL}/auth/team`, { headers }),
       ]);
       if (dRes.ok) setDefects(await dRes.json());
       if (tcRes.ok) setTestCases(await tcRes.json());
