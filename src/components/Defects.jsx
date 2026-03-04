@@ -51,6 +51,7 @@ function Defects({ currentUser }) {
   const [defectHistory, setDefectHistory] = useState([]);
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     loadAll();
@@ -104,7 +105,7 @@ function Defects({ currentUser }) {
       severity: defect.severity,
       status: defect.status,
       linkedTestCaseId: defect.linked_test_case_id || '',
-      sprintId: defect.sprint_id || '',
+      sprintId: defect.sprint_id ? String(defect.sprint_id) : '',
       screenshot: defect.screenshot || null,
       assignedTo: defect.assigned_to || ''
     });
@@ -116,6 +117,7 @@ function Defects({ currentUser }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.title.trim()) { alert('Please enter a defect title'); return; }
+    setSaving(true);
     const payload = {
       title: formData.title,
       description: formData.description,
@@ -138,6 +140,7 @@ function Defects({ currentUser }) {
         alert(`Error: ${d.error || 'Failed to save'}`);
       }
     } catch { alert('Failed to save defect'); }
+    finally { setSaving(false); }
   };
 
   const handleDelete = async (id) => {
@@ -543,7 +546,7 @@ function Defects({ currentUser }) {
             <select value={formData.sprintId} onChange={e => setFormData({ ...formData, sprintId: e.target.value })}
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-red-500">
               <option value="">— No Sprint —</option>
-              {sprints.map(sp => <option key={sp.id} value={sp.id}>{sp.name} ({sp.status})</option>)}
+              {sprints.map(sp => <option key={sp.id} value={String(sp.id)}>{sp.name} ({sp.status})</option>)}
             </select>
           </div>
 
@@ -582,9 +585,9 @@ function Defects({ currentUser }) {
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={closeForm}
               className="px-4 py-2 text-sm text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors">Cancel</button>
-            <button type="submit"
-              className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors">
-              {editingDefect ? 'Save Changes' : 'Create Defect'}
+            <button type="submit" disabled={saving}
+              className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors">
+              {saving ? 'Saving...' : editingDefect ? 'Save Changes' : 'Create Defect'}
             </button>
           </div>
         </form>
