@@ -1678,13 +1678,14 @@ ${userCode}
     const suiteFullyParallel = req.body && req.body.fullyParallel === true;
     const suiteScreenshotMode = (req.body && req.body.screenshotMode) || 'only-on-failure';
     // Load global variables and inject them into each test process via env
-    // Use suite.org_id as ground truth — CI calls may not carry a session,
-    // so falling back to req.session?.orgId would create defects under the
-    // wrong org and make them invisible on the Defects page.
-    const suiteRunOrgId = suite.org_id || req.session?.orgId || 1;
+    // Session orgId takes priority (interactive run — matches what the Defects
+    // page queries by).  For CI/headless calls with no session we fall back to
+    // suite.org_id so defects land in the correct org even without a cookie.
+    const suiteRunOrgId = req.session?.orgId || suite.org_id || 1;
     const suiteOrgForHeal = await organizationOperations.getById(suiteRunOrgId);
     const suiteAiApiKey = suiteOrgForHeal?.openai_api_key || process.env.OPENAI_API_KEY || '';
     const suiteGlobalVarsEnv = await globalVariableOperations.getAllAsEnv(suiteRunOrgId);
+    pushLog(suiteExecutionId, `⚙  Org: ${suiteOrgForHeal?.name || suiteRunOrgId} | AI healing: ${suiteOrgForHeal?.ai_healing_enabled === 1 ? 'enabled' : 'disabled'} | API key: ${suiteAiApiKey ? 'configured' : 'not set'}`);
 
     // Create playwright.config.ts — headless for Docker, headed for local
     const configContent = useDocker
@@ -1979,7 +1980,11 @@ export default defineConfig({
         .filter(tr => tr.status === 'FAIL' || tr.status === 'TIMEOUT');
 
       if (failedForBugs.length > 0) {
-        const aiNote = suiteAiHeal && suiteAiApiKey ? ' (AI heal attempted but could not fix)' : ' (AI healing not enabled for this org)';
+        const aiNote = !suiteAiHeal
+          ? ' (AI healing not enabled for this org)'
+          : !suiteAiApiKey
+            ? ' (AI healing enabled but no OpenAI API key configured)'
+            : ' (AI heal attempted but could not fix)';
         pushLog(suiteExecutionId, `\n🐛  Auto Bug Creation: ${failedForBugs.length} test(s) still failing${aiNote}...`);
         let bugsCreated = 0;
         for (const tr of failedForBugs) {
@@ -2004,11 +2009,13 @@ export default defineConfig({
               .slice(-60)
               .join('\n');
 
-            const aiHealNote = tr.ai_healed
-              ? `AI Heal:      Attempted — fix did not resolve the failure`
-              : suiteAiHeal
-                ? `AI Heal:      Attempted — could not locate test file`
-                : `AI Heal:      Skipped (AI healing not enabled for this organisation)`;
+            const aiHealNote = !suiteAiHeal
+              ? `AI Heal:      Skipped (AI healing not enabled for this organisation)`
+              : !suiteAiApiKey
+                ? `AI Heal:      Skipped (AI healing enabled but no OpenAI API key configured)`
+                : tr.ai_healed
+                  ? `AI Heal:      Attempted — fix did not resolve the failure`
+                  : `AI Heal:      Attempted — could not locate test file in temp workspace`;
 
             const description = [
               `Automated Test Failure Report`,
