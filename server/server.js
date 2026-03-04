@@ -425,6 +425,8 @@ app.get('/executions/stats', async (req, res) => {
 app.get('/release-readiness', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
+    const orgCheck = await organizationOperations.getById(orgId);
+    if (orgCheck?.ai_healing_enabled !== 1) return res.status(403).json({ error: 'Release Readiness is only available for AI-enabled organizations.' });
 
     // Last 10 completed suite runs
     const seRes = await pool.query(
@@ -528,6 +530,7 @@ app.post('/release-readiness/ai-summary', async (req, res) => {
   try {
     const orgId = req.session?.orgId || 1;
     const org   = await organizationOperations.getById(orgId);
+    if (org?.ai_healing_enabled !== 1) return res.status(403).json({ error: 'Release Readiness is only available for AI-enabled organizations.' });
     const apiKey = org?.openai_api_key || process.env.OPENAI_API_KEY || '';
     if (!apiKey) return res.status(400).json({ error: 'No OpenAI API key configured for this organization.' });
 
@@ -3558,7 +3561,7 @@ app.get('/public/org/:slug', async (req, res) => {
   try {
     const org = await organizationOperations.getBySlug(req.params.slug.toLowerCase());
     if (!org) return res.status(404).json({ error: 'Organization not found' });
-    res.json({ id: org.id, name: org.name, slug: org.slug, plan: org.plan });
+    res.json({ id: org.id, name: org.name, slug: org.slug, plan: org.plan, aiHealingEnabled: org.ai_healing_enabled === 1 });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

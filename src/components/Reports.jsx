@@ -1290,11 +1290,13 @@ const REPORTS = [
   },
 ];
 
-function Reports() {
+function Reports({ orgInfo }) {
   const [selectedReport, setSelectedReport] = useState('');
   const [selectedSprint, setSelectedSprint] = useState('');
   const [sprints, setSprints] = useState([]);
-  const report = REPORTS.find(r => r.id === selectedReport);
+  const aiEnabled = orgInfo?.aiHealingEnabled === true;
+  const visibleReports = REPORTS.filter(r => r.id !== 'release-readiness' || aiEnabled);
+  const report = visibleReports.find(r => r.id === selectedReport);
   const ReportComp = report?.component;
 
   useEffect(() => {
@@ -1317,7 +1319,7 @@ function Reports() {
             className="w-full pl-4 pr-10 py-2.5 bg-slate-800 border border-slate-600 text-white text-sm rounded-xl appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer hover:border-slate-500 transition-colors"
           >
             <option value="">-- Select a report --</option>
-            {REPORTS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+            {visibleReports.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
           </select>
           <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -1370,7 +1372,7 @@ function Reports() {
         <div className="flex-1">
           <p className="text-xs text-slate-500 uppercase font-semibold tracking-wider mb-4">Available Reports</p>
           <div className="grid grid-cols-3 gap-4">
-            {REPORTS.map(r => (
+            {visibleReports.map(r => (
               <button key={r.id} onClick={() => setSelectedReport(r.id)}
                 className="bg-slate-800 border border-slate-700 hover:border-indigo-500 rounded-xl p-5 text-left transition-all group flex flex-col min-h-[120px]">
                 <div className="flex items-center gap-3 mb-3 flex-shrink-0">

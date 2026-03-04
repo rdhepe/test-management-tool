@@ -1053,7 +1053,7 @@ function App({ orgSlug = 'default' }) {
             )}
 
             {currentView === 'reports' && (
-              <Reports />
+              <Reports orgInfo={orgInfo} />
             )}
 
             {currentView === 'userManagement' && ['admin', 'super_admin'].includes(currentUser?.role) && (
