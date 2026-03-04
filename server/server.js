@@ -479,19 +479,27 @@ Rules:
 - If element not found, use a more resilient selector or add explicit waits
 - fixedTestBody must be syntactically valid TypeScript`;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,
-      max_tokens: 4000,
-    }),
-  });
+  const healController = new AbortController();
+  const healTimeoutId = setTimeout(() => healController.abort(), 30000);
+  let response;
+  try {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 4000,
+      }),
+      signal: healController.signal,
+    });
+  } finally {
+    clearTimeout(healTimeoutId);
+  }
 
   if (!response.ok) {
     const errText = await response.text();
@@ -543,13 +551,21 @@ Respond with ONLY valid JSON — no markdown fences, no extra text:
   "actual_behavior": "What actually happened based on the error"
 }`;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 1000 }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  let response;
+  try {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 1000 }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
-  if (!response.ok) throw new Error(`OpenAI ${response.status}`);
+  if (!response.ok) throw new Error(`OpenAI ${response.status}: ${(await response.text()).slice(0, 200)}`);
   const data = await response.json();
   const raw = data.choices?.[0]?.message?.content?.trim() || '';
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
