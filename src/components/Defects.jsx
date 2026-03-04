@@ -105,7 +105,7 @@ function Defects({ currentUser }) {
       severity: defect.severity,
       status: defect.status,
       linkedTestCaseId: defect.linked_test_case_id || '',
-      sprintId: defect.sprint_id ? String(defect.sprint_id) : '',
+      sprintId: defect.sprint_id || '',
       screenshot: defect.screenshot || null,
       assignedTo: defect.assigned_to || ''
     });
@@ -543,10 +543,10 @@ function Defects({ currentUser }) {
 
           <div>
             <label className="block text-xs font-medium text-slate-300 mb-1">Assign to Sprint (Optional)</label>
-            <select value={formData.sprintId} onChange={e => setFormData({ ...formData, sprintId: e.target.value })}
+            <select value={formData.sprintId} onChange={e => setFormData(prev => ({ ...prev, sprintId: e.target.value }))}
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-red-500">
               <option value="">— No Sprint —</option>
-              {sprints.map(sp => <option key={sp.id} value={String(sp.id)}>{sp.name} ({sp.status})</option>)}
+              {sprints.map(sp => <option key={sp.id} value={sp.id}>{sp.name} ({sp.status})</option>)}
             </select>
           </div>
 
