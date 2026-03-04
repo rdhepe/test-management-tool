@@ -965,6 +965,277 @@ function TestExecutionSummaryReport({ sprintId = '' }) {
   );
 }
 
+// ─── 6. Release Readiness Score ──────────────────────────────────────────────
+
+const scoreColor = (s) =>
+  s >= 75 ? { text: 'text-green-400', ring: 'stroke-green-500', bg: 'bg-green-500/10', border: 'border-green-500/30', label: 'Ready' }
+  : s >= 50 ? { text: 'text-yellow-400', ring: 'stroke-yellow-500', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', label: 'Needs Work' }
+  : { text: 'text-red-400', ring: 'stroke-red-500', bg: 'bg-red-500/10', border: 'border-red-500/30', label: 'Not Ready' };
+
+function ScoreGauge({ score }) {
+  const R = 54;
+  const circ = 2 * Math.PI * R;
+  const filled = (score / 100) * circ;
+  const clr = scoreColor(score);
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative w-36 h-36">
+        <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r={R} fill="none" stroke="#334155" strokeWidth="10" />
+          <circle cx="60" cy="60" r={R} fill="none" className={clr.ring} strokeWidth="10"
+            strokeDasharray={`${filled} ${circ}`} strokeLinecap="round"
+            style={{ transition: 'stroke-dasharray 0.8s ease' }} />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className={`text-3xl font-bold ${clr.text}`}>{score}</span>
+          <span className="text-slate-400 text-xs font-medium">/ 100</span>
+        </div>
+      </div>
+      <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${clr.bg} ${clr.text} ${clr.border}`}>{clr.label}</span>
+    </div>
+  );
+}
+
+const verdictColors = {
+  'Ready': 'text-green-400 bg-green-500/10 border-green-500/30',
+  'Almost Ready': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+  'Needs Work': 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
+  'Not Ready': 'text-red-400 bg-red-500/10 border-red-500/30',
+};
+
+function ReleaseReadinessReport() {
+  const [metrics, setMetrics] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
+  const [aiError, setAiError] = useState(null);
+
+  const loadMetrics = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const r = await fetch(`${API_URL}/release-readiness`, {
+        headers: { 'x-auth-token': localStorage.getItem('auth_token') || '' }
+      });
+      if (!r.ok) throw new Error(`Server error ${r.status}`);
+      setMetrics(await r.json());
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { loadMetrics(); }, [loadMetrics]);
+
+  const runAI = async () => {
+    if (!metrics) return;
+    setAiLoading(true); setAiError(null); setAiResult(null);
+    try {
+      const r = await fetch(`${API_URL}/release-readiness/ai-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') || '' },
+        body: JSON.stringify({ metrics }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `Server error ${r.status}`);
+      setAiResult(data);
+    } catch (e) { setAiError(e.message); }
+    finally { setAiLoading(false); }
+  };
+
+  if (loading) return <LoadingState />;
+  if (error)   return <ErrorState msg={error} />;
+  if (!metrics) return null;
+
+  const { score, passRate, recentRunCount, totalTests, totalPassed,
+    criticalOpen, highOpen, mediumOpen, totalOpen, totalClosed,
+    activeSprint, sprintCompletion, sprintTotalReqs, sprintPassedTCs,
+    tcTotal, tcExecuted, tcCoverage } = metrics;
+
+  const clr = scoreColor(score);
+
+  return (
+    <div className="space-y-6">
+
+      {/* Header row: gauge + key metrics */}
+      <div className={`rounded-2xl border ${clr.border} ${clr.bg} p-6 flex flex-wrap items-center gap-8`}>
+        <ScoreGauge score={score} />
+
+        <div className="flex-1 min-w-0 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700">
+            <p className="text-xs text-slate-400 mb-1">Suite Pass Rate</p>
+            <p className={`text-2xl font-bold ${passRate !== null ? (passRate >= 80 ? 'text-green-400' : passRate >= 60 ? 'text-yellow-400' : 'text-red-400') : 'text-slate-500'}`}>
+              {passRate !== null ? `${passRate}%` : '—'}
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">{totalPassed}/{totalTests} tests · {recentRunCount} runs</p>
+          </div>
+
+          <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700">
+            <p className="text-xs text-slate-400 mb-1">Open Defects</p>
+            <p className={`text-2xl font-bold ${totalOpen > 0 ? 'text-red-400' : 'text-green-400'}`}>{totalOpen}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{criticalOpen} critical · {highOpen} high · {mediumOpen} medium</p>
+          </div>
+
+          <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700">
+            <p className="text-xs text-slate-400 mb-1">Sprint Progress</p>
+            {activeSprint
+              ? <>
+                  <p className={`text-2xl font-bold ${sprintCompletion >= 80 ? 'text-green-400' : sprintCompletion >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>{sprintCompletion}%</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{sprintPassedTCs}/{sprintTotalReqs} reqs · {activeSprint.name}</p>
+                </>
+              : <><p className="text-2xl font-bold text-slate-500">—</p><p className="text-xs text-slate-500 mt-0.5">No active sprint</p></>
+            }
+          </div>
+
+          <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700">
+            <p className="text-xs text-slate-400 mb-1">TC Coverage</p>
+            <p className={`text-2xl font-bold ${tcCoverage !== null ? (tcCoverage >= 70 ? 'text-green-400' : tcCoverage >= 40 ? 'text-yellow-400' : 'text-red-400') : 'text-slate-500'}`}>
+              {tcCoverage !== null ? `${tcCoverage}%` : '—'}
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">{tcExecuted}/{tcTotal} test cases executed</p>
+          </div>
+        </div>
+
+        <button onClick={loadMetrics}
+          className="ml-auto flex-shrink-0 p-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors" title="Refresh">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Score breakdown */}
+      <div>
+        <h3 className="text-xs uppercase text-slate-500 font-semibold tracking-wider mb-3">Score Breakdown</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: 'Base Score', pts: 20, max: 20, desc: 'Always awarded' },
+            { label: 'Test Pass Rate', pts: passRate !== null ? Math.round((passRate / 100) * 30) : 0, max: 30, desc: passRate !== null ? `${passRate}% × 30` : 'No run data' },
+            { label: 'Sprint Completion', pts: sprintCompletion !== null ? Math.round((sprintCompletion / 100) * 20) : 0, max: 20, desc: sprintCompletion !== null ? `${sprintCompletion}% × 20` : 'No active sprint' },
+            { label: 'TC Coverage', pts: tcCoverage !== null ? Math.round((tcCoverage / 100) * 10) : 0, max: 10, desc: tcCoverage !== null ? `${tcCoverage}% × 10` : 'No data' },
+            { label: 'Critical Defects', pts: -Math.min(40, criticalOpen * 15 + highOpen * 8), max: 0, desc: `${criticalOpen} crit (−15ea) + ${highOpen} high (−8ea)`, penalty: true },
+          ].map(({ label, pts, max, desc, penalty }) => (
+            <div key={label} className={`rounded-xl p-4 border ${penalty ? 'bg-red-500/5 border-red-500/20' : 'bg-slate-800 border-slate-700'}`}>
+              <p className="text-xs text-slate-400 mb-1">{label}</p>
+              <p className={`text-xl font-bold ${penalty ? 'text-red-400' : 'text-indigo-400'}`}>
+                {penalty ? pts : `+${pts}`} <span className="text-xs font-normal text-slate-500">/ {penalty ? '0' : max}</span>
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5 truncate" title={desc}>{desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Defect details */}
+      {(criticalOpen > 0 || highOpen > 0) && (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span className="text-sm font-semibold text-red-300">Blocking Defects</span>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {criticalOpen > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                <span className="text-2xl font-bold text-red-400">{criticalOpen}</span>
+                <span className="text-xs text-red-300">Critical<br/>Open</span>
+              </div>
+            )}
+            {highOpen > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+                <span className="text-2xl font-bold text-orange-400">{highOpen}</span>
+                <span className="text-xs text-orange-300">High<br/>Open</span>
+              </div>
+            )}
+            {mediumOpen > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                <span className="text-2xl font-bold text-yellow-400">{mediumOpen}</span>
+                <span className="text-xs text-yellow-300">Medium<br/>Open</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg ml-auto">
+              <span className="text-2xl font-bold text-slate-300">{totalClosed}</span>
+              <span className="text-xs text-slate-400">Resolved<br/>Total</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Summary panel */}
+      <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/5 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.346a3.006 3.006 0 01-.461 1.834l-.22.463a1 1 0 01-.9.558H9.388a1 1 0 01-.9-.558l-.22-.463a3.006 3.006 0 01-.461-1.834l-.347-.346z" />
+            </svg>
+            <span className="font-semibold text-white text-sm">AI Release Analysis</span>
+            {aiResult && (
+              <span className={`px-2 py-0.5 rounded-full text-xs border font-medium ${verdictColors[aiResult.verdict] || verdictColors['Needs Work']}`}>
+                {aiResult.verdict}
+              </span>
+            )}
+            {aiResult?.confidence && (
+              <span className="text-xs text-slate-500">Confidence: {aiResult.confidence}</span>
+            )}
+          </div>
+          <button onClick={runAI} disabled={aiLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors">
+            {aiLoading
+              ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> Analyzing…</>
+              : <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> {aiResult ? 'Re-analyze' : 'Run AI Analysis'}</>
+            }
+          </button>
+        </div>
+
+        {aiError && (
+          <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 text-red-300 text-sm">{aiError}</div>
+        )}
+
+        {!aiResult && !aiLoading && !aiError && (
+          <p className="text-slate-400 text-sm">Click <span className="text-indigo-300 font-medium">Run AI Analysis</span> to get GPT-4o powered recommendations on how to get your release ready.</p>
+        )}
+
+        {aiResult && (
+          <div className="space-y-4">
+            <p className="text-slate-300 text-sm leading-relaxed">{aiResult.summary}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {aiResult.risks?.length > 0 && (
+                <div className="rounded-xl bg-red-500/5 border border-red-500/20 p-4">
+                  <p className="text-xs font-semibold text-red-300 uppercase tracking-wider mb-2">Key Risks</p>
+                  <ul className="space-y-1.5">
+                    {aiResult.risks.map((r, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                        <svg className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {aiResult.actions?.length > 0 && (
+                <div className="rounded-xl bg-green-500/5 border border-green-500/20 p-4">
+                  <p className="text-xs font-semibold text-green-300 uppercase tracking-wider mb-2">Recommended Actions</p>
+                  <ul className="space-y-1.5">
+                    {aiResult.actions.map((a, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                        <svg className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        {a}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Reports Shell ────────────────────────────────────────────────────────────
 
 const REPORTS = [
@@ -1009,6 +1280,13 @@ const REPORTS = [
     description: 'Manual run history, suite execution stats and overall pass rates',
     icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
     component: TestExecutionSummaryReport,
+  },
+  {
+    id: 'release-readiness',
+    label: 'Release Readiness',
+    description: 'AI-powered score: pass rates, open defects, sprint completion and coverage',
+    icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>,
+    component: ReleaseReadinessReport,
   },
 ];
 

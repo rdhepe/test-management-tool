@@ -420,6 +420,169 @@ app.get('/executions/stats', async (req, res) => {
   }
 });
 
+// GET /release-readiness - Aggregate quality metrics and compute a release readiness score
+app.get('/release-readiness', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+
+    // Last 10 completed suite runs
+    const seRes = await pool.query(
+      `SELECT total_tests, passed, failed FROM suite_executions
+       WHERE org_id = $1 AND status = 'completed' ORDER BY created_at DESC LIMIT 10`,
+      [orgId]
+    );
+    const recentRuns = seRes.rows;
+    const totalTests  = recentRuns.reduce((a, r) => a + (parseInt(r.total_tests, 10) || 0), 0);
+    const totalPassed = recentRuns.reduce((a, r) => a + (parseInt(r.passed, 10) || 0), 0);
+    const passRate = totalTests > 0 ? Math.round((totalPassed / totalTests) * 100) : null;
+
+    // Defects grouped by severity + status
+    const defRes = await pool.query(
+      `SELECT severity, status, COUNT(*) as cnt FROM defects WHERE org_id = $1 GROUP BY severity, status`,
+      [orgId]
+    );
+    const defectGroups = defRes.rows;
+
+    const defOpen = (sev) => defectGroups
+      .filter(d => d.severity === sev && d.status === 'Open')
+      .reduce((s, d) => s + parseInt(d.cnt, 10), 0);
+
+    const criticalOpen = defOpen('Critical');
+    const highOpen     = defOpen('High');
+    const mediumOpen   = defOpen('Medium');
+    const totalOpen    = defectGroups.filter(d => d.status === 'Open').reduce((s, d) => s + parseInt(d.cnt, 10), 0);
+    const totalClosed  = defectGroups.filter(d => d.status !== 'Open').reduce((s, d) => s + parseInt(d.cnt, 10), 0);
+
+    // Active sprint
+    const sprintRes = await pool.query(
+      `SELECT * FROM sprints WHERE org_id = $1 AND status = 'Active' ORDER BY created_at DESC LIMIT 1`,
+      [orgId]
+    );
+    const activeSprint = sprintRes.rows[0] || null;
+
+    let sprintCompletion = null;
+    let sprintTotalReqs  = 0;
+    let sprintPassedTCs  = 0;
+    if (activeSprint) {
+      const [totalReqsRes, passedTCsRes] = await Promise.all([
+        pool.query(`SELECT COUNT(*) as c FROM requirements WHERE sprint_id = $1`, [activeSprint.id]),
+        pool.query(`SELECT COUNT(DISTINCT tc.id) as c FROM test_cases tc
+          INNER JOIN requirements r ON tc.requirement_id = r.id
+          INNER JOIN manual_test_runs mtr ON mtr.test_case_id = tc.id
+          WHERE r.sprint_id = $1 AND mtr.status IN ('Pass','Passed')`, [activeSprint.id])
+      ]);
+      sprintTotalReqs  = parseInt(totalReqsRes.rows[0].c, 10);
+      sprintPassedTCs  = parseInt(passedTCsRes.rows[0].c, 10);
+      sprintCompletion = sprintTotalReqs > 0 ? Math.round((sprintPassedTCs / sprintTotalReqs) * 100) : 0;
+    }
+
+    // Test cases with at least one execution
+    const tcCoverageRes = await pool.query(
+      `SELECT
+         COUNT(DISTINCT tc.id) as total,
+         COUNT(DISTINCT mtr.test_case_id) as executed
+       FROM test_cases tc
+       LEFT JOIN manual_test_runs mtr ON mtr.test_case_id = tc.id
+       INNER JOIN requirements r ON tc.requirement_id = r.id
+       WHERE r.organization_id = $1 OR r.organization_id IS NULL`,
+      [orgId]
+    );
+    const tcTotal    = parseInt(tcCoverageRes.rows[0].total, 10) || 0;
+    const tcExecuted = parseInt(tcCoverageRes.rows[0].executed, 10) || 0;
+    const tcCoverage = tcTotal > 0 ? Math.round((tcExecuted / tcTotal) * 100) : null;
+
+    // ── Score computation (0-100) ────────────────────────────────────────
+    let score = 20; // base
+
+    // Test pass rate  → 30 pts
+    if (passRate !== null) score += Math.round((passRate / 100) * 30);
+
+    // Critical/High open defect penalty  → -15 each critical, -8 each high (cap -40)
+    const defectPenalty = Math.min(40, criticalOpen * 15 + highOpen * 8);
+    score -= defectPenalty;
+
+    // Sprint test completion → 20 pts
+    if (sprintCompletion !== null) score += Math.round((sprintCompletion / 100) * 20);
+
+    // TC coverage bonus → up to 10 pts
+    if (tcCoverage !== null) score += Math.round((tcCoverage / 100) * 10);
+
+    score = Math.max(0, Math.min(100, score));
+
+    const metrics = { score, passRate, recentRunCount: recentRuns.length, totalTests, totalPassed,
+      criticalOpen, highOpen, mediumOpen, totalOpen, totalClosed,
+      activeSprint: activeSprint ? { id: activeSprint.id, name: activeSprint.name } : null,
+      sprintCompletion, sprintTotalReqs, sprintPassedTCs,
+      tcTotal, tcExecuted, tcCoverage };
+
+    res.json(metrics);
+  } catch (error) {
+    console.error('release-readiness error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /release-readiness/ai-summary - AI-powered release readiness analysis
+app.post('/release-readiness/ai-summary', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+    const org   = await organizationOperations.getById(orgId);
+    const apiKey = org?.openai_api_key || process.env.OPENAI_API_KEY || '';
+    if (!apiKey) return res.status(400).json({ error: 'No OpenAI API key configured for this organization.' });
+
+    const m = req.body.metrics || {};
+    const prompt = `You are a QA release readiness expert. Based on the following metrics, produce a concise JSON analysis.
+
+METRICS:
+- Release Readiness Score: ${m.score ?? '?'} / 100
+- Automated Suite Pass Rate: ${m.passRate !== null && m.passRate !== undefined ? m.passRate + '%' : 'No data'} (across ${m.recentRunCount ?? 0} recent suite runs, ${m.totalPassed ?? 0}/${m.totalTests ?? 0} tests passed)
+- Open Critical Defects: ${m.criticalOpen ?? 0}
+- Open High Defects: ${m.highOpen ?? 0}
+- Open Medium Defects: ${m.mediumOpen ?? 0}
+- Total Open Defects: ${m.totalOpen ?? 0}
+- Active Sprint: ${m.activeSprint ? m.activeSprint.name : 'None'}
+- Sprint Test Completion: ${m.sprintCompletion !== null && m.sprintCompletion !== undefined ? m.sprintCompletion + '%' : 'N/A'} (${m.sprintPassedTCs ?? 0}/${m.sprintTotalReqs ?? 0} requirements covered)
+- Test Case Coverage (manual): ${m.tcCoverage !== null && m.tcCoverage !== undefined ? m.tcCoverage + '%' : 'N/A'} (${m.tcExecuted ?? 0}/${m.tcTotal ?? 0} test cases executed)
+
+Return ONLY valid JSON (no markdown) with this exact shape:
+{
+  "verdict": "Not Ready | Needs Work | Almost Ready | Ready",
+  "summary": "2-3 sentence executive summary",
+  "risks": ["risk 1", "risk 2", "risk 3"],
+  "actions": ["action 1", "action 2", "action 3"],
+  "confidence": "Low | Medium | High"
+}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
+    let response;
+    try {
+      response = await fetch('https://api.openai.com/v1/chat/completions', {
+        signal: controller.signal,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 800 }),
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(502).json({ error: `OpenAI error ${response.status}: ${errText.slice(0, 200)}` });
+    }
+    const json = await response.json();
+    const raw  = json.choices?.[0]?.message?.content?.trim() || '{}';
+    // Strip possible markdown code fences
+    const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+    let aiResult;
+    try { aiResult = JSON.parse(cleaned); } catch { aiResult = { verdict: 'Unknown', summary: raw, risks: [], actions: [], confidence: 'Low' }; }
+    res.json(aiResult);
+  } catch (error) {
+    console.error('release-readiness/ai-summary error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /executions/:id - Get execution by ID
 app.get('/executions/:id', async (req, res) => {
   try {
