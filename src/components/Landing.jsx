@@ -603,34 +603,78 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ──────────── EVERYTHING INCLUDED ──────────── */}
+      {/* ──────────── PRICING ──────────── */}
       <section id="pricing" className="py-20 px-6 bg-slate-900/40 border-y border-slate-800">
-        <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-medium mb-6">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-            Everything in one licence. No add-on tiers.
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-medium mb-4">
+              Simple, transparent pricing
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-4">Pay per seat. Cancel anytime.</h2>
+            <p className="text-slate-400 text-lg max-w-xl mx-auto">All plans include a 14-day free trial. No credit card required to start.</p>
           </div>
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-4">One platform. Every feature.</h2>
-          <p className="text-slate-400 text-lg mb-12 max-w-xl mx-auto">No feature gating. No &ldquo;AI add-on&rdquo; upsells. Every team member gets the full platform — AI and all.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-12 text-left">
-            {includedItems.map(item => (
-              <div key={item} className="flex items-center gap-2.5 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3">
-                <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                <span className="text-sm text-slate-300">{item}</span>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                name: 'Starter', price: 12, color: 'slate', highlight: false,
+                seats: 'Up to 5 seats',
+                desc: 'Perfect for small QA teams getting started.',
+                features: ['Test case management','Manual test runs','Defect tracking','Sprint taskboard','Basic reports','Email support'],
+                ai: false,
+              },
+              {
+                name: 'Pro', price: 19, color: 'violet', highlight: true,
+                seats: 'Up to 20 seats',
+                desc: 'For teams that want AI to do the heavy lifting.',
+                features: ['Everything in Starter','AI Playwright script gen','AI test case generation','AI self-healing tests','Release readiness score','AI defect creation','Priority support'],
+                ai: true,
+              },
+              {
+                name: 'Business', price: 29, color: 'indigo', highlight: false,
+                seats: 'Unlimited seats',
+                desc: 'For scaling teams that need more power.',
+                features: ['Everything in Pro','Unlimited seats','Advanced analytics','Custom integrations','Audit logs','Dedicated onboarding','SLA support'],
+                ai: true,
+              },
+            ].map(plan => (
+              <div key={plan.name} className={`relative rounded-2xl border flex flex-col ${plan.highlight ? 'border-violet-500 bg-violet-950/30 shadow-xl shadow-violet-900/20' : 'border-slate-700 bg-slate-900'}`}>
+                {plan.highlight && (
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                    <span className="px-3 py-1 bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-xs font-bold rounded-full shadow-lg">Most Popular</span>
+                  </div>
+                )}
+                <div className="p-7 flex-1 flex flex-col gap-5">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-lg font-bold text-white">{plan.name}</h3>
+                      {plan.ai && <span className="px-2 py-0.5 bg-violet-500/15 border border-violet-500/30 text-violet-300 text-[10px] font-semibold rounded-full">AI</span>}
+                    </div>
+                    <p className="text-slate-500 text-xs">{plan.seats}</p>
+                  </div>
+                  <div>
+                    <span className="text-4xl font-extrabold text-white">${plan.price}</span>
+                    <span className="text-slate-400 text-sm ml-1">/seat/mo</span>
+                    <p className="text-slate-500 text-xs mt-1">${Math.round(plan.price * 10)}/seat/yr — save 2 months</p>
+                  </div>
+                  <p className="text-slate-400 text-sm">{plan.desc}</p>
+                  <ul className="space-y-2.5 flex-1">
+                    {plan.features.map(f => (
+                      <li key={f} className="flex items-center gap-2.5">
+                        <svg className={`w-4 h-4 shrink-0 ${plan.highlight ? 'text-violet-400' : 'text-emerald-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                        <span className="text-sm text-slate-300">{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <button onClick={() => setEnquiryOpen(true)}
+                    className={`w-full mt-2 flex items-center justify-center gap-2 px-5 py-3 font-semibold text-sm rounded-xl transition-all ${plan.highlight ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/25' : 'border border-slate-600 hover:border-slate-400 text-slate-300 hover:text-white'}`}>
+                    Get started
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                  </button>
+                </div>
               </div>
             ))}
           </div>
-          <div className="inline-flex flex-col sm:flex-row gap-4 items-center justify-center bg-slate-900 border border-slate-700 rounded-2xl px-8 py-6">
-            <div className="text-left">
-              <p className="text-white font-semibold text-lg">Ready to see the price?</p>
-              <p className="text-slate-400 text-sm">Licences are per-organisation, based on team size. Talk to us and we&apos;ll scope it in 10 minutes.</p>
-            </div>
-            <button onClick={() => setEnquiryOpen(true)}
-              className="flex-shrink-0 flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-sm rounded-xl transition-all shadow-lg shadow-indigo-600/25 whitespace-nowrap">
-              Get Pricing
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
-            </button>
-          </div>
+          <p className="text-center text-slate-600 text-sm mt-8">All plans include 14-day free trial · No credit card required · Cancel anytime</p>
         </div>
       </section>
 
