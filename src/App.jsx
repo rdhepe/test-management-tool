@@ -1034,7 +1034,7 @@ function App({ orgSlug = 'default' }) {
             )}
 
             {currentView === 'features' && (
-              <Features currentUser={currentUser} />
+              <Features currentUser={currentUser} orgInfo={orgInfo} />
             )}
 
             {currentView === 'requirements' && (

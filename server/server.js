@@ -2445,6 +2445,84 @@ app.get('/features/:id/requirements', async (req, res) => {
   }
 });
 
+// POST /features/generate-ai - Generate features from a URL + description using AI
+app.post('/features/generate-ai', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+    const org = await organizationOperations.getById(orgId);
+    if (org?.ai_healing_enabled !== 1) {
+      return res.status(403).json({ error: 'AI feature generation is only available for AI-enabled organizations.' });
+    }
+    const apiKey = org?.openai_api_key || process.env.OPENAI_API_KEY || '';
+    if (!apiKey) return res.status(400).json({ error: 'No OpenAI API key configured for this organization.' });
+
+    const { url, description, count = 5 } = req.body;
+    if (!description) return res.status(400).json({ error: 'description is required.' });
+
+    const featureCount = Math.min(Math.max(parseInt(count) || 5, 1), 10);
+
+    const prompt = `You are a senior product manager and QA architect. Analyse the following application details and generate ${featureCount} detailed, testable software features.
+
+APPLICATION URL: ${url || '(not provided)'}
+DESCRIPTION / FOCUS AREA: ${description}
+
+Rules:
+- Each feature must be a clear, testable capability of the application.
+- Name: short, precise, action-or-noun form (max 60 chars).
+- Description: 2–4 sentences covering what the feature does, key behaviours, and why it matters. Be specific and technical.
+- Priority: assign High / Medium / Low based on business impact and user value.
+- Cover a mix of priorities; avoid generating all the same priority.
+- Do NOT add numbering, markdown, or commentary — return ONLY valid JSON.
+
+Return a JSON array with exactly ${featureCount} objects:
+[
+  {
+    "name": "Feature name",
+    "description": "Detailed description of the feature.",
+    "priority": "High|Medium|Low"
+  }
+]`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 2000 }),
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(502).json({ error: `OpenAI error ${response.status}: ${errText.slice(0, 200)}` });
+    }
+    const aiData = await response.json();
+    const raw = aiData.choices?.[0]?.message?.content || '';
+    const jsonStr = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+
+    let features;
+    try { features = JSON.parse(jsonStr); } catch {
+      return res.status(502).json({ error: 'AI returned invalid JSON.', raw });
+    }
+    if (!Array.isArray(features)) return res.status(502).json({ error: 'AI did not return an array.' });
+
+    const created = [];
+    const createdBy = req.session?.username || null;
+    for (const f of features) {
+      if (!f.name) continue;
+      const priority = ['High', 'Medium', 'Low'].includes(f.priority) ? f.priority : 'Medium';
+      const saved = await featureOperations.create({
+        name: `AI: ${f.name}`,
+        description: f.description || '',
+        priority,
+        created_by: createdBy,
+      }, orgId);
+      created.push(saved);
+    }
+
+    res.status(201).json({ created });
+  } catch (error) {
+    console.error('generate-ai features error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /features - Create a new feature
 app.post('/features', async (req, res) => {
   try {

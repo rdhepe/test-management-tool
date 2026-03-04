@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { authFetch } from '../utils/api';
 import API_URL from '../apiUrl';
 
@@ -23,7 +23,28 @@ function RightPanel({ open, onClose, children }) {
   );
 }
 
-function Features({ currentUser }) {
+function AIBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/20 text-violet-300 border border-violet-500/30 shrink-0">
+      <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+        <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1H6.5a2.5 2.5 0 010-5H8V9h4v1h1.5a2.5 2.5 0 010 5H12v1H8z" />
+      </svg>
+      AI
+    </span>
+  );
+}
+
+function SparkIcon({ className = 'w-4 h-4' }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+    </svg>
+  );
+}
+
+function Features({ currentUser, orgInfo }) {
+  const aiEnabled = orgInfo?.ai_healing_enabled === 1 || orgInfo?.ai_healing_enabled === true;
+
   const [features, setFeatures] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -43,6 +64,14 @@ function Features({ currentUser }) {
   const [featureHistory, setFeatureHistory] = useState([]);
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
+
+  // AI panel
+  const [isAiOpen, setIsAiOpen] = useState(false);
+  const [aiForm, setAiForm] = useState({ url: '', description: '', count: '5' });
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiResult, setAiResult] = useState(null);
+  const descRef = useRef(null);
 
   useEffect(() => { loadFeatures(); }, []);
 
@@ -100,6 +129,36 @@ function Features({ currentUser }) {
     } catch { alert('Failed to delete feature'); }
   };
 
+  // ---------- AI generation ----------
+  const openAiPanel = () => {
+    setAiForm({ url: '', description: '', count: '5' });
+    setAiError('');
+    setAiResult(null);
+    setIsAiOpen(true);
+    setTimeout(() => descRef.current?.focus(), 60);
+  };
+  const closeAiPanel = () => { setIsAiOpen(false); setAiResult(null); setAiError(''); };
+
+  const handleAiGenerate = async (e) => {
+    e.preventDefault();
+    if (!aiForm.description.trim()) { setAiError('Please describe what features you are looking for.'); return; }
+    setAiLoading(true);
+    setAiError('');
+    setAiResult(null);
+    try {
+      const res = await authFetch(`${API_URL}/features/generate-ai`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: aiForm.url.trim(), description: aiForm.description.trim(), count: parseInt(aiForm.count) || 5 }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAiError(data.error || 'Generation failed.'); return; }
+      setAiResult(data);
+      await loadFeatures();
+    } catch { setAiError('Network error. Please try again.'); }
+    finally { setAiLoading(false); }
+  };
+
   // ---------- View panel ----------
   const openView = async (feature) => {
     setViewingFeature(feature);
@@ -147,6 +206,8 @@ function Features({ currentUser }) {
     High: 'bg-red-900/60 text-red-300', Medium: 'bg-yellow-900/60 text-yellow-300', Low: 'bg-green-900/60 text-green-300'
   })[p] || 'bg-slate-700 text-slate-300';
 
+  const isAiFeature = (name) => name?.startsWith('AI: ');
+
   const filteredFeatures = features.filter(f => {
     const s = searchQuery.toLowerCase();
     return (f.name.toLowerCase().includes(s) || (f.description || '').toLowerCase().includes(s))
@@ -161,9 +222,19 @@ function Features({ currentUser }) {
       {/* Page header */}
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold text-white">Features</h1>
-        <button onClick={openCreate} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
-          + New Feature
-        </button>
+        <div className="flex items-center gap-2">
+          {aiEnabled && (
+            <button onClick={openAiPanel}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors text-sm font-medium">
+              <SparkIcon />
+              New Feature via AI
+            </button>
+          )}
+          <button onClick={openCreate}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm font-medium">
+            + New Feature
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -199,7 +270,12 @@ function Features({ currentUser }) {
               <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-400">No features found. Create your first feature to get started.</td></tr>
             ) : filteredFeatures.map(feature => (
               <tr key={feature.id} className="hover:bg-slate-700">
-                <td className="px-6 py-4 text-white font-medium">{feature.name}</td>
+                <td className="px-6 py-4 font-medium">
+                  <div className="flex items-center gap-2">
+                    {isAiFeature(feature.name) && <AIBadge />}
+                    <span className="text-white">{isAiFeature(feature.name) ? feature.name.slice(4) : feature.name}</span>
+                  </div>
+                </td>
                 <td className="px-6 py-4 text-slate-300 max-w-xs text-sm">
                   {feature.description ? (feature.description.length > 80 ? feature.description.slice(0, 80) + '…' : feature.description) : '—'}
                 </td>
@@ -238,9 +314,12 @@ function Features({ currentUser }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityBadge(f.priority)}`}>{f.priority}</span>
+                    {isAiFeature(f.name) && <AIBadge />}
                     <span className="text-xs text-slate-500">#{f.id}</span>
                   </div>
-                  <h2 className="text-base font-semibold text-white leading-snug">{f.name}</h2>
+                  <h2 className="text-base font-semibold text-white leading-snug">
+                    {isAiFeature(f.name) ? f.name.slice(4) : f.name}
+                  </h2>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button onClick={() => { closeView(); openEdit(f); }}
@@ -375,6 +454,145 @@ function Features({ currentUser }) {
             </>
           );
         })()}
+      </RightPanel>
+
+      {/* ── AI Generation Panel ── */}
+      <RightPanel open={isAiOpen} onClose={closeAiPanel}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-violet-400">
+              <SparkIcon className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-white leading-tight">Generate Features via AI</h2>
+              <p className="text-xs text-slate-500">Powered by GPT-4o</p>
+            </div>
+          </div>
+          <button onClick={closeAiPanel} className="p-1 text-slate-500 hover:text-white transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* Input form */}
+          {!aiResult && (
+            <form onSubmit={handleAiGenerate} className="px-5 py-5 space-y-5">
+              <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 px-4 py-3 text-xs text-violet-300 leading-relaxed">
+                Describe the application and the features you want AI to discover. Each feature will be saved with an <strong>AI</strong> badge so you can distinguish them from manually created ones.
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Application URL
+                  <span className="ml-1 text-slate-500 font-normal">(optional — helps AI understand context)</span>
+                </label>
+                <input type="url" value={aiForm.url}
+                  onChange={e => setAiForm({ ...aiForm, url: e.target.value })}
+                  placeholder="https://yourapp.com"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-violet-500 placeholder-slate-600" />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  What features are you looking for? <span className="text-red-400">*</span>
+                </label>
+                <textarea ref={descRef} value={aiForm.description}
+                  onChange={e => setAiForm({ ...aiForm, description: e.target.value })}
+                  rows={5} required
+                  placeholder="e.g. I need features for a B2B SaaS project management tool focusing on team collaboration, task tracking, and reporting…"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-violet-500 resize-none placeholder-slate-600" />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">Number of features to generate</label>
+                <div className="flex gap-2">
+                  {[3, 5, 7, 10].map(n => (
+                    <button key={n} type="button"
+                      onClick={() => setAiForm({ ...aiForm, count: String(n) })}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                        aiForm.count === String(n)
+                          ? 'bg-violet-600 border-violet-500 text-white'
+                          : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white hover:border-slate-500'
+                      }`}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {aiError && (
+                <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-sm text-red-300">{aiError}</div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={closeAiPanel}
+                  className="px-4 py-2 text-sm text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors">
+                  Cancel
+                </button>
+                <button type="submit" disabled={aiLoading || !aiForm.description.trim()}
+                  className="flex items-center gap-2 px-5 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white rounded-lg transition-colors">
+                  {aiLoading ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                      </svg>
+                      Generating…
+                    </>
+                  ) : (
+                    <><SparkIcon />Generate Features</>
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Results */}
+          {aiResult && (
+            <div className="px-5 py-5">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                  <svg className="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-emerald-300">
+                  {aiResult.created.length} feature{aiResult.created.length !== 1 ? 's' : ''} created successfully
+                </p>
+              </div>
+
+              <div className="space-y-3 mb-6">
+                {aiResult.created.map((f, i) => (
+                  <div key={f.id || i} className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3">
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <AIBadge />
+                        <span className="text-sm font-semibold text-white truncate">
+                          {f.name?.startsWith('AI: ') ? f.name.slice(4) : f.name}
+                        </span>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${priorityBadge(f.priority)}`}>{f.priority}</span>
+                    </div>
+                    {f.description && (
+                      <p className="text-xs text-slate-400 leading-relaxed line-clamp-3">{f.description}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={() => { setAiResult(null); setAiForm({ url: '', description: '', count: '5' }); setAiError(''); }}
+                  className="flex-1 py-2 text-sm font-medium border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 rounded-lg transition-colors">
+                  Generate More
+                </button>
+                <button onClick={closeAiPanel}
+                  className="flex-1 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors">
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </RightPanel>
 
       {/* ── Create / Edit Panel ── */}
