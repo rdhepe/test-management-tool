@@ -2728,13 +2728,13 @@ Return a JSON array of exactly ${reqCount} objects:
       if (!item.title) continue;
       const priority = ['High', 'Medium', 'Low'].includes(item.priority) ? item.priority : 'Medium';
       const saved = await requirementOperations.create({
-        featureId,
+        feature_id: featureId,
         title: `AI: ${item.title}`,
         description: item.description || '',
         priority,
         status: 'Draft',
-        sprintId: null,
-        createdBy,
+        sprint_id: null,
+        created_by: createdBy,
       }, orgId);
       created.push(saved);
     }
