@@ -1963,6 +1963,86 @@ export default defineConfig({
       }
 
       console.log('✓ Saved', testResults.length, 'test results to database');
+
+      // ── Instant Bug Creation ─────────────────────────────────────────────
+      // For every FAIL/TIMEOUT test, automatically create a defect with all
+      // debugging artifacts (error message, logs, screenshot). Deduplicates
+      // so re-running the same failing test does NOT open a second ticket.
+      const failedForBugs = testResults
+        .map((tr, idx) => ({ ...tr, testFileId: suiteTestFiles[idx]?.test_file_id || null }))
+        .filter(tr => tr.status === 'FAIL' || tr.status === 'TIMEOUT');
+
+      if (failedForBugs.length > 0) {
+        pushLog(suiteExecutionId, `\n🐛  Auto Bug Creation: checking ${failedForBugs.length} failing test(s)...`);
+        let bugsCreated = 0;
+        for (const tr of failedForBugs) {
+          const bugTitle = `[Auto] Test failed: ${tr.test_name}`;
+          try {
+            // Deduplication: skip if an Open or In Progress defect with this exact
+            // title already exists in this org — avoids flooding the board on reruns.
+            const dupCheck = await pool.query(
+              `SELECT id FROM defects WHERE title = $1 AND status IN ('Open','In Progress') AND org_id = $2 LIMIT 1`,
+              [bugTitle, suiteRunOrgId]
+            );
+            if (dupCheck.rows.length > 0) {
+              pushLog(suiteExecutionId, `  ⏭  Skipped "${tr.test_name}" — open defect #${dupCheck.rows[0].id} already exists`);
+              continue;
+            }
+
+            // Build rich description with every debugging artifact we have
+            const logSnippet = (stdout + '\n' + stderr)
+              .split('\n')
+              .map(l => l.trim())
+              .filter(Boolean)
+              .slice(-60)
+              .join('\n');
+
+            const description = [
+              `Automated Test Failure Report`,
+              ``,
+              `Suite:        ${suite.name}`,
+              `Execution ID: #${suiteExecutionId}`,
+              `Test:         ${tr.test_name}`,
+              `Result:       ${tr.status}`,
+              `Duration:     ${tr.duration_ms}ms`,
+              ``,
+              `Error:`,
+              tr.error_message || 'No error message captured',
+              ``,
+              logSnippet ? `Execution Logs (last 60 lines):\n${logSnippet}` : ''
+            ].filter(l => l !== undefined).join('\n').trim();
+
+            const severity = tr.status === 'TIMEOUT' ? 'Medium' : 'High';
+            const screenshotData = tr.screenshot_base64
+              ? `data:image/png;base64,${tr.screenshot_base64}`
+              : null;
+
+            const defect = await defectOperations.create({
+              title: bugTitle,
+              description,
+              severity,
+              status: 'Open',
+              linked_test_case_id: tr.testFileId || null,
+              sprint_id: null,
+              screenshot: screenshotData,
+              created_by: 'system (auto)',
+              assigned_to: null
+            }, suiteRunOrgId);
+
+            bugsCreated++;
+            pushLog(suiteExecutionId, `  🐛 Created defect #${defect.id} for "${tr.test_name}"`);
+          } catch (bugErr) {
+            pushLog(suiteExecutionId, `  ⚠️  Could not create defect for "${tr.test_name}": ${bugErr.message}`);
+          }
+        }
+        if (bugsCreated > 0) {
+          pushLog(suiteExecutionId, `🐛  ${bugsCreated} new defect(s) auto-created — check the Defects page`);
+        } else {
+          pushLog(suiteExecutionId, `🐛  All failing tests already have open defects — no duplicates created`);
+        }
+      }
+      // ────────────────────────────────────────────────────────────────────
+
       pushLog(suiteExecutionId, `\n🏁  Done — ${passed} passed, ${failed} failed`);
     } catch (dbError) {
       console.error('Failed to update suite execution in database:', dbError.message);

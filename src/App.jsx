@@ -1024,6 +1024,7 @@ function App({ orgSlug = 'default' }) {
               <SuiteExecutionDetail
                 executionId={selectedSuiteExecutionId}
                 onBack={handleBackFromSuiteExecutionDetail}
+                onNavigateToDefects={() => setCurrentView('defects')}
               />
             )}
 

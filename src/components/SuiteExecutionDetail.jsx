@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 
 import API_URL from '../apiUrl';
 
-function SuiteExecutionDetail({ executionId, onBack }) {
+function SuiteExecutionDetail({ executionId, onBack, onNavigateToDefects }) {
   const [execution, setExecution] = useState(null);
   const [testResults, setTestResults] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -484,6 +484,25 @@ function SuiteExecutionDetail({ executionId, onBack }) {
           {/* Results Tab */}
           {activeTab === 'results' && (
             <div>
+              {/* Auto-created Defects Banner */}
+              {execution?.status !== 'running' && (metrics?.failed || 0) > 0 && (
+                <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-red-900/20 border border-red-700/40 rounded-xl">
+                  <span className="text-lg">🐛</span>
+                  <div className="flex-1">
+                    <span className="text-sm font-medium text-red-300">
+                      {metrics.failed} failing test{metrics.failed !== 1 ? 's' : ''} automatically created defect{metrics.failed !== 1 ? 's' : ''}
+                    </span>
+                    <span className="text-xs text-slate-400 ml-2">with error logs &amp; screenshots attached</span>
+                  </div>
+                  <button
+                    onClick={() => onNavigateToDefects?.()}
+                    className="ml-auto px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors duration-200 whitespace-nowrap"
+                  >
+                    View Defects
+                  </button>
+                </div>
+              )}
+
               {/* Search Bar */}
               <div className="mb-4">
                 <div className="relative">
