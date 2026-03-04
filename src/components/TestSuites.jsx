@@ -102,7 +102,7 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
     try {
       const response = await fetch(`${API_URL}/test-suites`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') || '' },
         body: JSON.stringify({
           moduleId: parseInt(selectedModule),
           name: suiteName,
@@ -222,7 +222,7 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
 
       const response = await fetch(`${API_URL}/run-suite/${suite.id}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') || '' },
         body: JSON.stringify({ workers: pwWorkersSuite, fullyParallel: pwFullyParallelSuite, screenshotMode: screenshotModeSuite }),
       });
 
@@ -277,7 +277,7 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
 
       const response = await fetch(`${API_URL}/run-suite/${suite.id}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') || '' },
         body: JSON.stringify({ useDocker: true, workers: pwWorkersCI, fullyParallel: pwFullyParallelCI, screenshotMode: screenshotModeCI }),
       });
 
@@ -363,7 +363,7 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
     try {
       const response = await fetch(`${API_URL}/test-suites/${selectedSuiteForManage.id}/test-files`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') || '' },
         body: JSON.stringify({ testFileIds: [testFileId] })
       });
 
