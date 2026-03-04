@@ -43,7 +43,7 @@ function SparkIcon({ className = 'w-4 h-4' }) {
 }
 
 function Features({ currentUser, orgInfo }) {
-  const aiEnabled = orgInfo?.ai_healing_enabled === 1 || orgInfo?.ai_healing_enabled === true;
+  const aiEnabled = orgInfo?.aiHealingEnabled === true || orgInfo?.aiHealingEnabled === 1;
 
   const [features, setFeatures] = useState([]);
   const [loading, setLoading] = useState(true);
