@@ -282,30 +282,29 @@ app.post('/test-files/generate-ai-script', async (req, res) => {
     const { instruction, testName = 'generated test', currentContent = '' } = req.body;
     if (!instruction?.trim()) return res.status(400).json({ error: 'instruction is required.' });
 
-    const prompt = `You are an expert Playwright automation engineer. Generate a complete, production-ready Playwright test script based on the user instruction.
+    const prompt = `You are an expert Playwright automation engineer. Generate Playwright step code for the INSIDE of a test function body ONLY.
 
-FRAMEWORK RULES (MUST FOLLOW EXACTLY):
-1. Base import is ALWAYS first: import { test, expect } from '@playwright/test';
-2. Test signature is ALWAYS: test(TEST_NAME, async ({ page, request, browser, context, browserName }) => {
-3. If extra things from @playwright/test are needed (e.g. devices), add them to the same import line.
-4. If a THIRD-PARTY npm package is needed (e.g. @faker-js/faker, csv-parse, dayjs), add a SEPARATE import line AFTER the @playwright/test import.
-5. For every third-party import, add a comment on the line immediately before it: // INSTALL: npm install <package-name>
-6. Use modern Playwright locator APIs: getByRole, getByLabel, getByPlaceholder, getByText, getByTestId — prefer over raw CSS/XPath.
-7. Always await every Playwright call.
-8. Add clear inline comments explaining each logical block.
-9. Include meaningful assertions using expect().
-10. Handle navigation load states with await page.waitForLoadState() or expect with appropriate timeouts.
-11. Close the test with }); on its own line.
+CRITICAL RULES — READ CAREFULLY:
+1. Do NOT include any import statements in "script". The runtime already provides: page, request, browser, context, browserName, test, expect.
+2. Do NOT include the test() wrapper — no test('...', async ...) line and no closing });
+3. Generate ONLY the step code that goes inside the test body: await statements, assertions, variables, comments.
+4. The runtime wraps your output automatically: test(name, async ({ page, request, browser, context, browserName }) => { YOUR_SCRIPT });
+5. Use modern Playwright locator APIs: getByRole, getByLabel, getByPlaceholder, getByText, getByTestId — prefer over raw CSS/XPath.
+6. Always await every Playwright call.
+7. Add clear inline comments explaining each logical block.
+8. Include meaningful assertions using expect().
+9. Handle navigation load states with await page.waitForLoadState() or appropriate timeouts.
+10. If you need a third-party npm package (NOT from @playwright/test), list its import statements in "extraImports" and package name(s) in "npmNote". The user must add these to their module imports config.
 
-${currentContent ? `EXISTING FILE CONTENT (for reference):\n\`\`\`\n${currentContent.slice(0, 2000)}\n\`\`\`` : ''}
+${currentContent ? `EXISTING FILE CONTENT (for context/reference):\n\`\`\`\n${currentContent.slice(0, 2000)}\n\`\`\`` : ''}
 
 USER INSTRUCTION: ${instruction.trim()}
-TEST NAME: ${testName.trim()}
 
 Return ONLY valid JSON (no markdown code fences):
 {
-  "script": "<full script starting with imports then the test(...) block>",
-  "npmNote": "<space-separated npm package names to install, e.g. @faker-js/faker csv-parse — empty string if none needed>"
+  "script": "<step code only — no imports, no test() wrapper>",
+  "extraImports": "<import statement(s) for any third-party packages needed, or empty string>",
+  "npmNote": "<space-separated npm package names to install, or empty string>"
 }`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
