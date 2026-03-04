@@ -1593,6 +1593,13 @@ app.post('/run-suite/:suiteId', async (req, res) => {
       });
     }
 
+    // Capture everything we need from req NOW — before res.json() is called.
+    // After the response is sent Express may release the req object and any
+    // in-flight reads of req.session / req.body inside setImmediate will return
+    // undefined, causing the org to silently fall back to 1.
+    const capturedOrgId = req.session?.orgId || suite.org_id || 1;
+    const capturedBody   = req.body || {};
+
     // 3. Create execution record immediately — gives the frontend an ID right away
     //    so the user can navigate to the detail page before tests finish.
     const suiteExecution = await suiteExecutionOperations.create({
@@ -1603,7 +1610,7 @@ app.post('/run-suite/:suiteId', async (req, res) => {
       failed: 0,
       duration_ms: 0,
       report_path: null
-    }, req.session?.orgId || 1);
+    }, capturedOrgId);
     const suiteExecutionId = suiteExecution.id;
 
     // Initialize real-time log buffer — must be done before res.json() so a
@@ -1673,15 +1680,13 @@ ${userCode}
     await fs.writeFile(path.join(tempDir, 'package.json'), packageJsonContent, 'utf8');
 
     // Determine execution mode
-    const useDocker = req.body && req.body.useDocker === true;
-    const suiteWorkers = (req.body && req.body.workers) ? req.body.workers : 1;
-    const suiteFullyParallel = req.body && req.body.fullyParallel === true;
-    const suiteScreenshotMode = (req.body && req.body.screenshotMode) || 'only-on-failure';
-    // Load global variables and inject them into each test process via env
-    // Session orgId takes priority (interactive run — matches what the Defects
-    // page queries by).  For CI/headless calls with no session we fall back to
-    // suite.org_id so defects land in the correct org even without a cookie.
-    const suiteRunOrgId = req.session?.orgId || suite.org_id || 1;
+    const useDocker = capturedBody.useDocker === true;
+    const suiteWorkers = capturedBody.workers ? capturedBody.workers : 1;
+    const suiteFullyParallel = capturedBody.fullyParallel === true;
+    const suiteScreenshotMode = capturedBody.screenshotMode || 'only-on-failure';
+    // Use the orgId captured before res.json() — accessing req.session inside
+    // setImmediate is unreliable after the response has been sent.
+    const suiteRunOrgId = capturedOrgId;
     const suiteOrgForHeal = await organizationOperations.getById(suiteRunOrgId);
     const suiteAiApiKey = suiteOrgForHeal?.openai_api_key || process.env.OPENAI_API_KEY || '';
     const suiteGlobalVarsEnv = await globalVariableOperations.getAllAsEnv(suiteRunOrgId);
