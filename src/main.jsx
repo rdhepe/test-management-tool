@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import App from './App.jsx'
+import Landing from './components/Landing.jsx'
 import SprintDetailPage from './components/SprintDetailPage.jsx'
 import './index.css'
 
@@ -18,8 +19,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
-        {/* Root → redirect to default org */}
-        <Route path="/" element={<Navigate to="/org/default" replace />} />
+        {/* Root → Landing page */}
+        <Route path="/" element={<Landing />} />
         {/* Per-org app (login + full app) */}
         <Route path="/org/:slug" element={<OrgEntry />} />
         {/* Catch-all */}
