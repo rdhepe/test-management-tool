@@ -6,7 +6,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, enquiryOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations } = require('./db');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -4413,6 +4413,98 @@ app.delete('/wiki/pages/:id', requireAuth, async (req, res) => {
 // Health check endpoint
 app.get('/health', async (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// ─── Platform Feature Requests ───────────────────────────────────────────────
+// POST /platform-feedback — any authenticated user can submit a feature request
+app.post('/platform-feedback', requireAuth, async (req, res) => {
+  const { title, description } = req.body;
+  if (!title || !description) return res.status(400).json({ error: 'title and description are required' });
+  try {
+    const record = await platformFeedbackOperations.create({
+      title,
+      description,
+      submitted_by: req.session.username,
+      org_slug: req.session.orgSlug || null,
+      org_id: req.session.orgId || null
+    });
+    res.status(201).json(record);
+  } catch (err) {
+    console.error('platform-feedback create error:', err);
+    res.status(500).json({ error: 'Failed to save feature request' });
+  }
+});
+
+// GET /platform-feedback — super_admin only
+app.get('/platform-feedback', requireAuth, async (req, res) => {
+  if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const rows = await platformFeedbackOperations.getAll();
+    res.json(rows);
+  } catch (err) {
+    console.error('platform-feedback fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch feature requests' });
+  }
+});
+
+// PATCH /platform-feedback/:id/status — super_admin only
+app.patch('/platform-feedback/:id/status', requireAuth, async (req, res) => {
+  if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Forbidden' });
+  const { status } = req.body;
+  if (!status) return res.status(400).json({ error: 'status required' });
+  try {
+    await platformFeedbackOperations.updateStatus(req.params.id, status);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update status' });
+  }
+});
+
+// ─── Platform Bug Reports ─────────────────────────────────────────────────────
+// POST /platform-bug-reports — any authenticated user can submit a bug report
+app.post('/platform-bug-reports', requireAuth, async (req, res) => {
+  const { title, description, steps, severity } = req.body;
+  if (!title || !description) return res.status(400).json({ error: 'title and description are required' });
+  try {
+    const record = await platformBugReportOperations.create({
+      title,
+      description,
+      steps: steps || null,
+      severity: severity || 'medium',
+      submitted_by: req.session.username,
+      org_slug: req.session.orgSlug || null,
+      org_id: req.session.orgId || null
+    });
+    res.status(201).json(record);
+  } catch (err) {
+    console.error('platform-bug-reports create error:', err);
+    res.status(500).json({ error: 'Failed to save bug report' });
+  }
+});
+
+// GET /platform-bug-reports — super_admin only
+app.get('/platform-bug-reports', requireAuth, async (req, res) => {
+  if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const rows = await platformBugReportOperations.getAll();
+    res.json(rows);
+  } catch (err) {
+    console.error('platform-bug-reports fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch bug reports' });
+  }
+});
+
+// PATCH /platform-bug-reports/:id/status — super_admin only
+app.patch('/platform-bug-reports/:id/status', requireAuth, async (req, res) => {
+  if (req.session.role !== 'super_admin') return res.status(403).json({ error: 'Forbidden' });
+  const { status } = req.body;
+  if (!status) return res.status(400).json({ error: 'status required' });
+  try {
+    await platformBugReportOperations.updateStatus(req.params.id, status);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update status' });
+  }
 });
 
 app.listen(PORT, () => {

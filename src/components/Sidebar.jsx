@@ -9,6 +9,7 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
     globalVariables: 'Global Variables', playwrightConfig: 'Config', executions: 'Single Runs',
     suiteExecutionDetail: 'Suite Runs', defects: 'Defects', reports: 'Reports',
     userManagement: 'Users', orgManagement: 'Organizations', tutorial: 'Guide',
+    enquiries: 'Enquiries', featureRequests: 'Feature Requests', bugReports: 'Bug Reports',
   };
   const activeItem = VIEW_TO_NAME[currentView] || 'Dashboard';
 
@@ -215,6 +216,22 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
             </svg>
           ),
           view: 'enquiries'
+        }, {
+          name: 'Feature Requests',
+          icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m1.636 6.364l.707-.707M12 21v-1M12 7a5 5 0 00-5 5 5 5 0 0010 0 5 5 0 00-5-5z" />
+            </svg>
+          ),
+          view: 'featureRequests'
+        }, {
+          name: 'Bug Reports',
+          icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          ),
+          view: 'bugReports'
         }] : []),
       ]
     }] : []),

@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
 import API_URL from '../apiUrl';
+import FeedbackModal from './FeedbackModal';
+import BugReportModal from './BugReportModal';
 
 function Navbar({ theme, onToggleTheme, currentUser, onLogout, onNavigate }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [showBugReport, setShowBugReport] = useState(false);
 
   const handleLogout = async () => {
     const token = localStorage.getItem('auth_token');
@@ -23,6 +27,7 @@ function Navbar({ theme, onToggleTheme, currentUser, onLogout, onNavigate }) {
     : 'bg-blue-500/20 text-blue-400 border border-blue-500/30';
 
   return (
+    <>
     <nav className="h-[60px] border-b flex items-center justify-between px-6 relative z-50" style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
       {/* App Name */}
       <div className="flex items-center">
@@ -31,6 +36,34 @@ function Navbar({ theme, onToggleTheme, currentUser, onLogout, onNavigate }) {
 
       {/* Right Section */}
       <div className="flex items-center gap-3">
+        {/* Feature Request Button */}
+        {currentUser && (
+          <button
+            onClick={() => setShowFeedback(true)}
+            className="p-2 rounded-lg transition-all duration-200 button-scale hover:ring-2 hover:ring-indigo-500"
+            style={{ backgroundColor: 'rgb(var(--bg-secondary))' }}
+            title="Request a Feature"
+          >
+            <svg className="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m1.636 6.364l.707-.707M12 21v-1M12 7a5 5 0 00-5 5 5 5 0 0010 0 5 5 0 00-5-5z" />
+            </svg>
+          </button>
+        )}
+
+        {/* Report a Bug Button */}
+        {currentUser && (
+          <button
+            onClick={() => setShowBugReport(true)}
+            className="p-2 rounded-lg transition-all duration-200 button-scale hover:ring-2 hover:ring-rose-500"
+            style={{ backgroundColor: 'rgb(var(--bg-secondary))' }}
+            title="Report a Bug"
+          >
+            <svg className="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+        )}
+
         {/* Theme Toggle */}
         <button
           onClick={onToggleTheme}
@@ -111,6 +144,10 @@ function Navbar({ theme, onToggleTheme, currentUser, onLogout, onNavigate }) {
         )}
       </div>
     </nav>
+
+    {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} currentUser={currentUser} />}
+    {showBugReport && <BugReportModal onClose={() => setShowBugReport(false)} currentUser={currentUser} />}
+    </>
   );
 }
 

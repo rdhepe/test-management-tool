@@ -505,6 +505,36 @@ async function initDB() {
     )
   `);
 
+  // Platform feature requests (submitted by users from within the app)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS platform_feedback (
+      id            SERIAL PRIMARY KEY,
+      title         TEXT NOT NULL,
+      description   TEXT NOT NULL,
+      submitted_by  TEXT NOT NULL,
+      org_slug      TEXT,
+      org_id        INTEGER,
+      status        TEXT NOT NULL DEFAULT 'open',
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Platform bug reports (submitted by users from within the app)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS platform_bug_reports (
+      id            SERIAL PRIMARY KEY,
+      title         TEXT NOT NULL,
+      description   TEXT NOT NULL,
+      steps         TEXT,
+      severity      TEXT NOT NULL DEFAULT 'medium',
+      submitted_by  TEXT NOT NULL,
+      org_slug      TEXT,
+      org_id        INTEGER,
+      status        TEXT NOT NULL DEFAULT 'open',
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   await seedDefaultOrg();
   await seedDefaultUsers();
   console.log('Database initialised');
@@ -1837,6 +1867,46 @@ const enquiryOperations = {
 };
 
 // ---------------------------------------------------------------------------
+// Platform Feedback (Feature Requests) Operations
+// ---------------------------------------------------------------------------
+const platformFeedbackOperations = {
+  create: async ({ title, description, submitted_by, org_slug, org_id }) => {
+    const r = await pool.query(
+      `INSERT INTO platform_feedback (title, description, submitted_by, org_slug, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [title, description, submitted_by, org_slug || null, org_id || null]
+    );
+    return r.rows[0];
+  },
+  getAll: async () => {
+    const r = await pool.query('SELECT * FROM platform_feedback ORDER BY created_at DESC');
+    return r.rows;
+  },
+  updateStatus: async (id, status) => {
+    await pool.query('UPDATE platform_feedback SET status=$1 WHERE id=$2', [status, id]);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Platform Bug Reports Operations
+// ---------------------------------------------------------------------------
+const platformBugReportOperations = {
+  create: async ({ title, description, steps, severity, submitted_by, org_slug, org_id }) => {
+    const r = await pool.query(
+      `INSERT INTO platform_bug_reports (title, description, steps, severity, submitted_by, org_slug, org_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [title, description, steps || null, severity || 'medium', submitted_by, org_slug || null, org_id || null]
+    );
+    return r.rows[0];
+  },
+  getAll: async () => {
+    const r = await pool.query('SELECT * FROM platform_bug_reports ORDER BY created_at DESC');
+    return r.rows;
+  },
+  updateStatus: async (id, status) => {
+    await pool.query('UPDATE platform_bug_reports SET status=$1 WHERE id=$2', [status, id]);
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Initialise on startup
 // ---------------------------------------------------------------------------
 initDB().catch((err) => {
@@ -1881,5 +1951,7 @@ module.exports = {
   wikiOperations,
   settingsOperations,
   globalVariableOperations,
-  enquiryOperations
+  enquiryOperations,
+  platformFeedbackOperations,
+  platformBugReportOperations
 };

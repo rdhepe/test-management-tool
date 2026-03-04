@@ -28,6 +28,8 @@ import Reports from './components/Reports';
 import Tutorial from './components/Tutorial';
 import OrgManagement from './components/OrgManagement';
 import Enquiries from './components/Enquiries';
+import FeatureRequests from './components/FeatureRequests';
+import BugReports from './components/BugReports';
 
 import API_URL from './apiUrl';
 
@@ -788,6 +790,14 @@ function App({ orgSlug = 'default' }) {
       setCurrentView('enquiries');
       setSelectedModule(null);
       setSelectedTestFile(null);
+    } else if (view === 'featureRequests') {
+      setCurrentView('featureRequests');
+      setSelectedModule(null);
+      setSelectedTestFile(null);
+    } else if (view === 'bugReports') {
+      setCurrentView('bugReports');
+      setSelectedModule(null);
+      setSelectedTestFile(null);
     } else if (view === 'tutorial') {
       setCurrentView('tutorial');
       setSelectedModule(null);
@@ -1072,6 +1082,14 @@ function App({ orgSlug = 'default' }) {
 
             {currentView === 'enquiries' && currentUser?.role === 'super_admin' && (
               <Enquiries />
+            )}
+
+            {currentView === 'featureRequests' && currentUser?.role === 'super_admin' && (
+              <FeatureRequests />
+            )}
+
+            {currentView === 'bugReports' && currentUser?.role === 'super_admin' && (
+              <BugReports />
             )}
 
             {currentView === 'tutorial' && (
