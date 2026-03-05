@@ -1088,21 +1088,21 @@ app.post('/run-test', async (req, res) => {
 
         // Before dependencies
         for (const dep of (execOrder.before || [])) {
-          const depFile = await testFileOperations.getById(dep.id);
+          const depFile = await testFileOperations.getById(dep.dependency_file_id);
           if (depFile && depFile.content) {
-            filesToRun.push({ label: 'before', name: dep.name, content: depFile.content });
+            filesToRun.push({ label: 'before', name: dep.dependency_name || depFile.name, content: depFile.content });
           }
         }
 
         // Main test — use the live editor code (may have unsaved changes)
-        const mainName = execOrder.main ? execOrder.main.name : 'Main Test';
+        const mainName = execOrder.self ? execOrder.self.name : 'Main Test';
         filesToRun.push({ label: 'main', name: mainName, content: code });
 
         // After dependencies
         for (const dep of (execOrder.after || [])) {
-          const depFile = await testFileOperations.getById(dep.id);
+          const depFile = await testFileOperations.getById(dep.dependency_file_id);
           if (depFile && depFile.content) {
-            filesToRun.push({ label: 'after', name: dep.name, content: depFile.content });
+            filesToRun.push({ label: 'after', name: dep.dependency_name || depFile.name, content: depFile.content });
           }
         }
 
