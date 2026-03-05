@@ -532,38 +532,63 @@ app.get('/release-readiness', async (req, res) => {
     let sprintTotalReqs  = 0;
     let sprintPassedTCs  = 0;
     if (activeSprint) {
-      const [totalReqsRes, passedTCsRes] = await Promise.all([
+      const [totalReqsRes, passedReqsRes] = await Promise.all([
         pool.query(`SELECT COUNT(*) as c FROM requirements WHERE sprint_id = $1`, [activeSprint.id]),
-        pool.query(`SELECT COUNT(DISTINCT tc.id) as c FROM test_cases tc
-          INNER JOIN requirements r ON tc.requirement_id = r.id
-          INNER JOIN manual_test_runs mtr ON mtr.test_case_id = tc.id
-          WHERE r.sprint_id = $1 AND mtr.status IN ('Pass','Passed')`, [activeSprint.id])
+        pool.query(
+          `SELECT COUNT(DISTINCT r.id) as c FROM requirements r
+           INNER JOIN test_cases tc ON tc.requirement_id = r.id
+           INNER JOIN manual_test_runs mtr ON mtr.test_case_id = tc.id
+           WHERE r.sprint_id = $1 AND mtr.status IN ('Passed')
+             AND mtr.created_at = (
+               SELECT MAX(m2.created_at) FROM manual_test_runs m2 WHERE m2.test_case_id = tc.id
+             )`,
+          [activeSprint.id]
+        )
       ]);
       sprintTotalReqs  = parseInt(totalReqsRes.rows[0].c, 10);
-      sprintPassedTCs  = parseInt(passedTCsRes.rows[0].c, 10);
-      sprintCompletion = sprintTotalReqs > 0 ? Math.round((sprintPassedTCs / sprintTotalReqs) * 100) : 0;
+      sprintPassedTCs  = parseInt(passedReqsRes.rows[0].c, 10);
+      sprintCompletion = sprintTotalReqs > 0 ? Math.min(100, Math.round((sprintPassedTCs / sprintTotalReqs) * 100)) : 0;
     }
 
-    // Test cases with at least one execution
+    // Test cases with at least one execution (org-scoped correctly)
     const tcCoverageRes = await pool.query(
       `SELECT
          COUNT(DISTINCT tc.id) as total,
          COUNT(DISTINCT mtr.test_case_id) as executed
        FROM test_cases tc
        LEFT JOIN manual_test_runs mtr ON mtr.test_case_id = tc.id
-       INNER JOIN requirements r ON tc.requirement_id = r.id
-       WHERE r.organization_id = $1 OR r.organization_id IS NULL`,
+       WHERE tc.org_id = $1`,
       [orgId]
     );
     const tcTotal    = parseInt(tcCoverageRes.rows[0].total, 10) || 0;
     const tcExecuted = parseInt(tcCoverageRes.rows[0].executed, 10) || 0;
     const tcCoverage = tcTotal > 0 ? Math.round((tcExecuted / tcTotal) * 100) : null;
 
+    // Manual test run pass rate (used as passRate fallback when no suite runs)
+    let manualPassRate = null;
+    const manualRunRes = await pool.query(
+      `SELECT test_case_id, status, created_at FROM manual_test_runs WHERE org_id = $1`,
+      [orgId]
+    );
+    if (manualRunRes.rows.length > 0) {
+      const latestByTc = {};
+      manualRunRes.rows.forEach(r => {
+        const prev = latestByTc[r.test_case_id];
+        if (!prev || new Date(r.created_at) > new Date(prev.created_at)) latestByTc[r.test_case_id] = r;
+      });
+      const latestRuns = Object.values(latestByTc);
+      const mPassed = latestRuns.filter(r => r.status === 'Passed').length;
+      manualPassRate = latestRuns.length > 0 ? Math.round((mPassed / latestRuns.length) * 100) : null;
+    }
+
+    // Use suite pass rate if available, otherwise manual run pass rate
+    const effectivePassRate = passRate !== null ? passRate : manualPassRate;
+
     // ── Score computation (0-100) ────────────────────────────────────────
     let score = 20; // base
 
-    // Test pass rate  → 30 pts
-    if (passRate !== null) score += Math.round((passRate / 100) * 30);
+    // Test pass rate  → 30 pts (uses manual run pass rate if no suite data)
+    if (effectivePassRate !== null) score += Math.round((effectivePassRate / 100) * 30);
 
     // Critical/High open defect penalty  → -15 each critical, -8 each high (cap -40)
     const defectPenalty = Math.min(40, criticalOpen * 15 + highOpen * 8);
@@ -577,7 +602,8 @@ app.get('/release-readiness', async (req, res) => {
 
     score = Math.max(0, Math.min(100, score));
 
-    const metrics = { score, passRate, recentRunCount: recentRuns.length, totalTests, totalPassed,
+    const metrics = { score, passRate: effectivePassRate, passRateSource: passRate !== null ? 'suite' : (manualPassRate !== null ? 'manual' : null),
+      recentRunCount: recentRuns.length, totalTests, totalPassed,
       criticalOpen, highOpen, mediumOpen, totalOpen, totalClosed,
       activeSprint: activeSprint ? { id: activeSprint.id, name: activeSprint.name } : null,
       sprintCompletion, sprintTotalReqs, sprintPassedTCs,

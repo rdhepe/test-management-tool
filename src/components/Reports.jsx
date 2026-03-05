@@ -1069,7 +1069,7 @@ function ReleaseReadinessReport() {
   if (error)   return <ErrorState msg={error} />;
   if (!metrics) return null;
 
-  const { score, passRate, recentRunCount, totalTests, totalPassed,
+  const { score, passRate, passRateSource, recentRunCount, totalTests, totalPassed,
     criticalOpen, highOpen, mediumOpen, totalOpen, totalClosed,
     activeSprint, sprintCompletion, sprintTotalReqs, sprintPassedTCs,
     tcTotal, tcExecuted, tcCoverage } = metrics;
@@ -1085,11 +1085,11 @@ function ReleaseReadinessReport() {
 
         <div className="flex-1 min-w-0 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700">
-            <p className="text-xs text-slate-400 mb-1">Suite Pass Rate</p>
+            <p className="text-xs text-slate-400 mb-1">{passRateSource === 'manual' ? 'Manual Run Pass Rate' : 'Suite Pass Rate'}</p>
             <p className={`text-2xl font-bold ${passRate !== null ? (passRate >= 80 ? 'text-green-400' : passRate >= 60 ? 'text-yellow-400' : 'text-red-400') : 'text-slate-500'}`}>
               {passRate !== null ? `${passRate}%` : '—'}
             </p>
-            <p className="text-xs text-slate-500 mt-0.5">{totalPassed}/{totalTests} tests · {recentRunCount} runs</p>
+            <p className="text-xs text-slate-500 mt-0.5">{passRateSource === 'suite' ? `${totalPassed}/${totalTests} tests · ${recentRunCount} runs` : passRateSource === 'manual' ? 'Based on latest run per TC' : 'No run history'}</p>
           </div>
 
           <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700">
@@ -1103,7 +1103,7 @@ function ReleaseReadinessReport() {
             {activeSprint
               ? <>
                   <p className={`text-2xl font-bold ${sprintCompletion >= 80 ? 'text-green-400' : sprintCompletion >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>{sprintCompletion}%</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{sprintPassedTCs}/{sprintTotalReqs} reqs · {activeSprint.name}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{sprintPassedTCs}/{sprintTotalReqs} reqs passing · {activeSprint.name}</p>
                 </>
               : <><p className="text-2xl font-bold text-slate-500">—</p><p className="text-xs text-slate-500 mt-0.5">No active sprint</p></>
             }
@@ -1131,11 +1131,11 @@ function ReleaseReadinessReport() {
         <h3 className="text-xs uppercase text-slate-500 font-semibold tracking-wider mb-3">Score Breakdown</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: 'Base Score', pts: 20, max: 20, desc: 'Always awarded' },
-            { label: 'Test Pass Rate', pts: passRate !== null ? Math.round((passRate / 100) * 30) : 0, max: 30, desc: passRate !== null ? `${passRate}% × 30` : 'No run data' },
-            { label: 'Sprint Completion', pts: sprintCompletion !== null ? Math.round((sprintCompletion / 100) * 20) : 0, max: 20, desc: sprintCompletion !== null ? `${sprintCompletion}% × 20` : 'No active sprint' },
-            { label: 'TC Coverage', pts: tcCoverage !== null ? Math.round((tcCoverage / 100) * 10) : 0, max: 10, desc: tcCoverage !== null ? `${tcCoverage}% × 10` : 'No data' },
-            { label: 'Critical Defects', pts: -Math.min(40, criticalOpen * 15 + highOpen * 8), max: 0, desc: `${criticalOpen} crit (−15ea) + ${highOpen} high (−8ea)`, penalty: true },
+            { label: 'Base Score',        pts: 20,                                                                          max: 20, desc: 'Always awarded' },
+            { label: 'Test Pass Rate',    pts: passRate !== null ? Math.round((passRate / 100) * 30) : 0,                    max: 30, desc: passRate !== null ? `${passRate}% × 30 (${passRateSource === 'manual' ? 'manual runs' : 'suite runs'})` : 'No run data' },
+            { label: 'Sprint Completion', pts: sprintCompletion !== null ? Math.min(20, Math.round((sprintCompletion / 100) * 20)) : 0, max: 20, desc: sprintCompletion !== null ? `${sprintCompletion}% × 20 (${sprintPassedTCs}/${sprintTotalReqs} reqs passing)` : 'No active sprint' },
+            { label: 'TC Coverage',       pts: tcCoverage !== null ? Math.min(10, Math.round((tcCoverage / 100) * 10)) : 0,  max: 10, desc: tcCoverage !== null ? `${tcCoverage}% × 10` : 'No data' },
+            { label: 'Critical Defects',  pts: -Math.min(40, criticalOpen * 15 + highOpen * 8),                              max: 0,  desc: `${criticalOpen} crit (−15ea) + ${highOpen} high (−8ea)`, penalty: true },
           ].map(({ label, pts, max, desc, penalty }) => (
             <div key={label} className={`rounded-xl p-4 border ${penalty ? 'bg-red-500/5 border-red-500/20' : 'bg-slate-800 border-slate-700'}`}>
               <p className="text-xs text-slate-400 mb-1">{label}</p>
