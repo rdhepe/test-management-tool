@@ -304,7 +304,10 @@ function App({ orgSlug = 'default' }) {
   useEffect(() => {
     const loadRequirements = async () => {
       try {
-        const response = await fetch(`${API_URL}/requirements`);
+        const authToken = localStorage.getItem('auth_token');
+        const response = await fetch(`${API_URL}/requirements`, {
+          headers: authToken ? { 'x-auth-token': authToken } : {},
+        });
         const requirementsData = await response.json();
         setRequirements(requirementsData);
       } catch (error) {
