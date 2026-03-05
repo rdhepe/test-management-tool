@@ -14,7 +14,7 @@ const useReportData = (endpoints) => {
       setLoading(true);
       setError(null);
       const results = await Promise.all(
-        endpoints.map(e => fetch(`${API_URL}${e}`).then(r => r.json()))
+        endpoints.map(e => authFetch(`${API_URL}${e}`).then(r => r.json()))
       );
       setData(results);
     } catch (err) {

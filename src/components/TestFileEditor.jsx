@@ -254,7 +254,7 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
             </button>
           )}
 
-          {/* Edit Requirement Button */}}
+          {/* Edit Requirement Button */}
           <button
             onClick={() => setIsEditRequirementModalOpen(true)}
             className="px-3 py-1.5 rounded-lg text-sm font-medium transition-all bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-1.5"
