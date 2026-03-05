@@ -630,7 +630,8 @@ app.post('/release-readiness/ai-summary', async (req, res) => {
 
 METRICS:
 - Release Readiness Score: ${m.score ?? '?'} / 100
-- Automated Suite Pass Rate: ${m.passRate !== null && m.passRate !== undefined ? m.passRate + '%' : 'No data'} (across ${m.recentRunCount ?? 0} recent suite runs, ${m.totalPassed ?? 0}/${m.totalTests ?? 0} tests passed)
+- Automated Suite Pass Rate: ${m.passRateSource === 'suite' ? `${m.passRate}% (across ${m.recentRunCount ?? 0} recent suite runs, ${m.totalPassed ?? 0}/${m.totalTests ?? 0} tests passed)` : 'No automated suite runs recorded'}
+- Manual Test Run Pass Rate: ${m.passRateSource === 'manual' ? `${m.passRate}% (latest run per test case)` : m.passRateSource === 'suite' ? 'N/A — using suite data' : 'No data'}
 - Open Critical Defects: ${m.criticalOpen ?? 0}
 - Open High Defects: ${m.highOpen ?? 0}
 - Open Medium Defects: ${m.mediumOpen ?? 0}

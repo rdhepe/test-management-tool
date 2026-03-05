@@ -1034,13 +1034,20 @@ function ReleaseReadinessReport() {
   useEffect(() => { loadMetrics(); }, [loadMetrics]);
 
   const runAI = async () => {
-    if (!metrics) return;
     setAiLoading(true); setAiError(null); setAiResult(null);
     try {
+      // Always re-fetch fresh metrics so AI sees the latest suite runs / scores
+      const mr = await fetch(`${API_URL}/release-readiness`, {
+        headers: { 'x-auth-token': localStorage.getItem('auth_token') || '' }
+      });
+      if (!mr.ok) throw new Error(`Server error ${mr.status}`);
+      const freshMetrics = await mr.json();
+      setMetrics(freshMetrics);
+
       const r = await fetch(`${API_URL}/release-readiness/ai-summary`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') || '' },
-        body: JSON.stringify({ metrics }),
+        body: JSON.stringify({ metrics: freshMetrics }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || `Server error ${r.status}`);
