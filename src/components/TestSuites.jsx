@@ -13,7 +13,6 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
   const [availableTestFiles, setAvailableTestFiles] = useState([]);
   const [selectedSuite, setSelectedSuite] = useState(null);
   const [suiteTestFiles, setSuiteTestFiles] = useState([]);
-  const [runningSuiteId, setRunningSuiteId] = useState(null);
   const [runningDockerSuiteId, setRunningDockerSuiteId] = useState(null);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [executionHistory, setExecutionHistory] = useState([]);
@@ -189,62 +188,6 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
   const handleBackToList = () => {
     setSelectedSuite(null);
     setSuiteTestFiles([]);
-  };
-
-  const handleRunSuite = async (suite, event) => {
-    // Stop propagation to prevent row click
-    event.stopPropagation();
-    
-    if (suite.test_file_count === 0) {
-      alert('This suite has no test files to run');
-      return;
-    }
-
-    setRunningSuiteId(suite.id);
-
-    try {
-      let pwWorkersSuite = 1;
-      let pwFullyParallelSuite = false;
-      try {
-        const pwCfg = localStorage.getItem('playwright_config');
-        if (pwCfg) {
-          const parsed = JSON.parse(pwCfg);
-          pwFullyParallelSuite = parsed.executionMode === 'parallel';
-          pwWorkersSuite = pwFullyParallelSuite ? (parsed.workers || 2) : 1;
-        }
-      } catch {}
-
-      let screenshotModeSuite = 'only-on-failure';
-      try {
-        const pwCfg = JSON.parse(localStorage.getItem('playwright_config') || '{}');
-        screenshotModeSuite = pwCfg.screenshotMode || 'only-on-failure';
-      } catch {}
-
-      const response = await fetch(`${API_URL}/run-suite/${suite.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') || '' },
-        body: JSON.stringify({ workers: pwWorkersSuite, fullyParallel: pwFullyParallelSuite, screenshotMode: screenshotModeSuite }),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log('Suite execution result:', result);
-        
-        // Navigate to suite execution detail page
-        if (result.suite_execution_id && onNavigateToSuiteExecution) {
-          onNavigateToSuiteExecution(result.suite_execution_id);
-        }
-      } else {
-        const errorText = await response.text();
-        console.error('Suite execution error:', errorText);
-        alert(`Failed to run suite: ${response.status} ${response.statusText}`);
-      }
-    } catch (error) {
-      console.error('Error running suite:', error);
-      alert(`Failed to run suite: ${error.message}`);
-    } finally {
-      setRunningSuiteId(null);
-    }
   };
 
   const handleRunHeadlessSuite = async (suite, event) => {
@@ -652,31 +595,8 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={(e) => handleRunSuite(suite, e)}
-                        disabled={runningSuiteId === suite.id || runningDockerSuiteId === suite.id}
-                        className="px-3 py-1 bg-green-500 text-white text-sm rounded-xl hover:bg-green-600 transition-all duration-200 disabled:bg-slate-600 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-green-500/50 disabled:shadow-none"
-                      >
-                        {runningSuiteId === suite.id ? (
-                          <>
-                            <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Running...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            Run Suite
-                          </>
-                        )}
-                      </button>
-                      <button
                         onClick={(e) => handleRunHeadlessSuite(suite, e)}
-                        disabled={runningSuiteId === suite.id || runningDockerSuiteId === suite.id}
+                        disabled={runningDockerSuiteId === suite.id}
                         title="Run headlessly (CI mode) — no browser window, like Azure DevOps / GitHub Actions"
                         className="px-3 py-1 bg-cyan-600 text-white text-sm rounded-xl hover:bg-cyan-700 transition-all duration-200 disabled:bg-slate-600 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-cyan-600/40 disabled:shadow-none"
                       >
