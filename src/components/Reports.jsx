@@ -257,29 +257,43 @@ function TraceabilityReport({ sprintId = '' }) {
 // ─── 2. Test Coverage Report ──────────────────────────────────────────────────
 
 function TestCoverageReport({ sprintId = '' }) {
-  const { data, loading, error } = useReportData(['/features', '/requirements', '/test-cases']);
+  const { data, loading, error } = useReportData(['/features', '/requirements', '/test-cases', '/manual-test-runs']);
   if (loading) return <LoadingState />;
   if (error) return <ErrorState msg={error} />;
-  const [features, allRequirements, testCases] = data;
+  const [features, allRequirements, testCases, allRuns] = data;
   const requirements = sprintId
     ? allRequirements.filter(r => String(r.sprint_id) === String(sprintId))
     : allRequirements;
 
+  // Latest run result per test case
+  const latestRunByTcId = {};
+  (Array.isArray(allRuns) ? allRuns : []).forEach(run => {
+    const prev = latestRunByTcId[run.test_case_id];
+    if (!prev || new Date(run.created_at) > new Date(prev.created_at)) {
+      latestRunByTcId[run.test_case_id] = run;
+    }
+  });
+
+  const getRunStatus = (tcId) => latestRunByTcId[tcId]?.status || 'Not Run';
+
   const reqsWithTC = requirements.filter(r => testCases.some(tc => tc.requirement_id === r.id)).length;
   const globalCoverage = requirements.length > 0 ? Math.round((reqsWithTC / requirements.length) * 100) : 0;
-  const passed = testCases.filter(tc => tc.status === 'Pass' || tc.status === 'Passed').length;
-  const failed = testCases.filter(tc => tc.status === 'Fail' || tc.status === 'Failed').length;
-  const blocked = testCases.filter(tc => tc.status === 'Blocked').length;
-  const notRun = testCases.length - passed - failed - blocked;
+
+  // Count by latest run status
+  const passed  = testCases.filter(tc => getRunStatus(tc.id) === 'Pass').length;
+  const failed  = testCases.filter(tc => getRunStatus(tc.id) === 'Fail').length;
+  const blocked = testCases.filter(tc => getRunStatus(tc.id) === 'Blocked').length;
+  const notRun  = testCases.filter(tc => getRunStatus(tc.id) === 'Not Run').length;
 
   const featureRows = features.map(f => {
     const reqs = requirements.filter(r => r.feature_id === f.id);
     const tcs = testCases.filter(tc => reqs.some(r => r.id === tc.requirement_id));
     const covReqs = reqs.filter(r => testCases.some(tc => tc.requirement_id === r.id));
-    const p = tcs.filter(tc => tc.status === 'Pass' || tc.status === 'Passed').length;
-    const fa = tcs.filter(tc => tc.status === 'Fail' || tc.status === 'Failed').length;
-    const bl = tcs.filter(tc => tc.status === 'Blocked').length;
-    return { ...f, reqs, tcs, covReqs, p, fa, bl, nr: tcs.length - p - fa - bl };
+    const p  = tcs.filter(tc => getRunStatus(tc.id) === 'Pass').length;
+    const fa = tcs.filter(tc => getRunStatus(tc.id) === 'Fail').length;
+    const bl = tcs.filter(tc => getRunStatus(tc.id) === 'Blocked').length;
+    const nr = tcs.filter(tc => getRunStatus(tc.id) === 'Not Run').length;
+    return { ...f, reqs, tcs, covReqs, p, fa, bl, nr };
   });
 
   return (
@@ -288,10 +302,10 @@ function TestCoverageReport({ sprintId = '' }) {
         <StatCard label="Req Coverage" value={`${globalCoverage}%`} sub={`${reqsWithTC}/${requirements.length} reqs`}
           color={globalCoverage >= 80 ? 'text-green-400' : globalCoverage >= 50 ? 'text-yellow-400' : 'text-red-400'}
           border={globalCoverage >= 80 ? 'border-green-500/30' : globalCoverage >= 50 ? 'border-yellow-500/30' : 'border-red-500/30'} />
-        <StatCard label="Passed" value={passed} sub={`${testCases.length > 0 ? Math.round((passed/testCases.length)*100) : 0}%`} color="text-green-400" border="border-green-500/30" />
-        <StatCard label="Failed" value={failed} sub={`${testCases.length > 0 ? Math.round((failed/testCases.length)*100) : 0}%`} color="text-red-400" border="border-red-500/30" />
-        <StatCard label="Blocked" value={blocked} color="text-orange-400" border="border-orange-500/30" />
-        <StatCard label="Not Run" value={notRun} color="text-slate-400" />
+        <StatCard label="Passed" value={passed} sub={`${testCases.length > 0 ? Math.round((passed/testCases.length)*100) : 0}% of TCs`} color="text-green-400" border="border-green-500/30" />
+        <StatCard label="Failed" value={failed} sub={`${testCases.length > 0 ? Math.round((failed/testCases.length)*100) : 0}% of TCs`} color="text-red-400" border="border-red-500/30" />
+        <StatCard label="Blocked" value={blocked} sub={`${testCases.length > 0 ? Math.round((blocked/testCases.length)*100) : 0}% of TCs`} color="text-orange-400" border="border-orange-500/30" />
+        <StatCard label="Not Run" value={notRun} sub={`${testCases.length > 0 ? Math.round((notRun/testCases.length)*100) : 0}% of TCs`} color="text-slate-400" />
       </div>
 
       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
