@@ -280,8 +280,8 @@ function TestCoverageReport({ sprintId = '' }) {
   const globalCoverage = requirements.length > 0 ? Math.round((reqsWithTC / requirements.length) * 100) : 0;
 
   // Count by latest run status
-  const passed  = testCases.filter(tc => getRunStatus(tc.id) === 'Pass').length;
-  const failed  = testCases.filter(tc => getRunStatus(tc.id) === 'Fail').length;
+  const passed  = testCases.filter(tc => getRunStatus(tc.id) === 'Passed').length;
+  const failed  = testCases.filter(tc => getRunStatus(tc.id) === 'Failed').length;
   const blocked = testCases.filter(tc => getRunStatus(tc.id) === 'Blocked').length;
   const notRun  = testCases.filter(tc => getRunStatus(tc.id) === 'Not Run').length;
 
@@ -289,8 +289,8 @@ function TestCoverageReport({ sprintId = '' }) {
     const reqs = requirements.filter(r => r.feature_id === f.id);
     const tcs = testCases.filter(tc => reqs.some(r => r.id === tc.requirement_id));
     const covReqs = reqs.filter(r => testCases.some(tc => tc.requirement_id === r.id));
-    const p  = tcs.filter(tc => getRunStatus(tc.id) === 'Pass').length;
-    const fa = tcs.filter(tc => getRunStatus(tc.id) === 'Fail').length;
+    const p  = tcs.filter(tc => getRunStatus(tc.id) === 'Passed').length;
+    const fa = tcs.filter(tc => getRunStatus(tc.id) === 'Failed').length;
     const bl = tcs.filter(tc => getRunStatus(tc.id) === 'Blocked').length;
     const nr = tcs.filter(tc => getRunStatus(tc.id) === 'Not Run').length;
     return { ...f, reqs, tcs, covReqs, p, fa, bl, nr };
@@ -553,19 +553,29 @@ function DefectAnalysisReport({ sprintId = '' }) {
 // ─── 4. Sprint Progress ───────────────────────────────────────────────────────
 
 function SprintProgressReport({ sprintId = '' }) {
-  const { data, loading, error } = useReportData(['/sprints', '/requirements', '/test-cases', '/defects']);
+  const { data, loading, error } = useReportData(['/sprints', '/requirements', '/test-cases', '/defects', '/manual-test-runs']);
   const [expanded, setExpanded] = useState(null);
   if (loading) return <LoadingState />;
   if (error) return <ErrorState msg={error} />;
-  const [sprints, requirements, testCases, defects] = data;
+  const [sprints, requirements, testCases, defects, allRuns] = data;
+
+  // Latest run result per test case
+  const latestRunByTcId = {};
+  (Array.isArray(allRuns) ? allRuns : []).forEach(run => {
+    const prev = latestRunByTcId[run.test_case_id];
+    if (!prev || new Date(run.created_at) > new Date(prev.created_at)) {
+      latestRunByTcId[run.test_case_id] = run;
+    }
+  });
+  const getRunStatus = (tcId) => latestRunByTcId[tcId]?.status || 'Not Run';
 
   const sprintRows = sprints.map(s => {
     const reqs = requirements.filter(r => r.sprint_id === s.id);
     const tcs = testCases.filter(tc => reqs.some(r => r.id === tc.requirement_id));
-    const passed = tcs.filter(tc => tc.status === 'Pass' || tc.status === 'Passed').length;
-    const failed = tcs.filter(tc => tc.status === 'Fail' || tc.status === 'Failed').length;
-    const blocked = tcs.filter(tc => tc.status === 'Blocked').length;
-    const notRun = tcs.length - passed - failed - blocked;
+    const passed  = tcs.filter(tc => getRunStatus(tc.id) === 'Passed').length;
+    const failed  = tcs.filter(tc => getRunStatus(tc.id) === 'Failed').length;
+    const blocked = tcs.filter(tc => getRunStatus(tc.id) === 'Blocked').length;
+    const notRun  = tcs.filter(tc => getRunStatus(tc.id) === 'Not Run').length;
     const sd = defects.filter(d => d.sprint_id === s.id);
     const manual = tcs.filter(tc => tc.type === 'Manual').length;
     const auto = tcs.filter(tc => tc.type === 'Automated').length;
