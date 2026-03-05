@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-
 import API_URL from '../apiUrl';
+import { authFetch } from '../utils/api';
 
 const getStatusBadgeClass = (status) => {
   switch (status) {
@@ -122,13 +122,13 @@ function SprintDetailPage() {
       return;
     }
     Promise.all([
-      fetch(`${API_URL}/sprints/${sprintId}`).then(r => r.json()),
-      fetch(`${API_URL}/requirements`).then(r => r.json()),
-      fetch(`${API_URL}/test-cases`).then(r => r.json()),
-      fetch(`${API_URL}/defects`).then(r => r.json()),
-      fetch(`${API_URL}/executions`).then(r => r.json()),
-      fetch(`${API_URL}/manual-test-runs`).then(r => r.json()),
-      fetch(`${API_URL}/tasks?sprintId=${sprintId}`).then(r => r.json()),
+      authFetch(`${API_URL}/sprints/${sprintId}`).then(r => r.json()),
+      authFetch(`${API_URL}/requirements`).then(r => r.json()),
+      authFetch(`${API_URL}/test-cases`).then(r => r.json()),
+      authFetch(`${API_URL}/defects`).then(r => r.json()),
+      authFetch(`${API_URL}/executions`).then(r => r.json()),
+      authFetch(`${API_URL}/manual-test-runs`).then(r => r.json()),
+      authFetch(`${API_URL}/tasks?sprintId=${sprintId}`).then(r => r.json()),
       fetchSuiteExecutions(),
       fetchModules(),
     ]).then(([sprintData, reqs, tcs, defs, execs, manualRuns, taskData]) => {

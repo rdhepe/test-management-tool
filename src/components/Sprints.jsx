@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import API_URL from '../apiUrl';
+import { authFetch } from '../utils/api';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
@@ -40,9 +41,9 @@ function Sprints() {
 
   const fetchSprints = async () => {
     try {
-      const response = await fetch(`${API_URL}/sprints`);
+      const response = await authFetch(`${API_URL}/sprints`);
       const data = await response.json();
-      setSprints(data);
+      setSprints(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching sprints:', error);
     }
@@ -50,7 +51,7 @@ function Sprints() {
 
   const fetchAllTasks = async () => {
     try {
-      const response = await fetch(`${API_URL}/tasks`);
+      const response = await authFetch(`${API_URL}/tasks`);
       const data = await response.json();
       setTasks(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -185,13 +186,13 @@ function Sprints() {
 
     try {
       if (editingSprint) {
-        await fetch(`${API_URL}/sprints/${editingSprint.id}`, {
+        await authFetch(`${API_URL}/sprints/${editingSprint.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
       } else {
-        await fetch(`${API_URL}/sprints`, {
+        await authFetch(`${API_URL}/sprints`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -208,7 +209,7 @@ function Sprints() {
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this sprint?')) {
       try {
-        await fetch(`${API_URL}/sprints/${id}`, {
+        await authFetch(`${API_URL}/sprints/${id}`, {
           method: 'DELETE'
         });
         fetchSprints();

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-
 import API_URL from '../apiUrl';
+import { authFetch } from '../utils/api';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -1300,7 +1300,7 @@ function Reports({ orgInfo }) {
   const ReportComp = report?.component;
 
   useEffect(() => {
-    fetch(`${API_URL}/sprints`).then(r => r.json()).then(setSprints).catch(() => {});
+    authFetch(`${API_URL}/sprints`).then(r => r.json()).then(d => setSprints(Array.isArray(d) ? d : [])).catch(() => {});
   }, []);
 
   return (

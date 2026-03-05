@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import API_URL from '../apiUrl';
+import { authFetch } from '../utils/api';
 
 const STATUSES = ['New', 'In Progress', 'Completed', 'Done'];
 const PRIORITIES = ['Low', 'Medium', 'High', 'Critical'];
@@ -91,7 +92,7 @@ export default function Taskboard({ currentUser }) {
   useEffect(() => {
     async function loadSprints() {
       try {
-        const res = await fetch(`${API_URL}/sprints`);
+        const res = await authFetch(`${API_URL}/sprints`);
         if (!res.ok) return;
         const data = await res.json();
         setSprints(data);
@@ -105,16 +106,13 @@ export default function Taskboard({ currentUser }) {
     }
     async function loadUsers() {
       try {
-        const token = localStorage.getItem('auth_token');
-        const res = await fetch(`${API_URL}/auth/team`, {
-          headers: token ? { 'x-auth-token': token } : {},
-        });
+        const res = await authFetch(`${API_URL}/auth/team`);
         if (res.ok) setUsers(await res.json());
       } catch { /* ignore */ }
     }
     async function loadRequirements() {
       try {
-        const res = await fetch(`${API_URL}/requirements`);
+        const res = await authFetch(`${API_URL}/requirements`);
         if (res.ok) setRequirements(await res.json());
       } catch { /* ignore */ }
     }
@@ -130,7 +128,7 @@ export default function Taskboard({ currentUser }) {
         const url = selectedSprint
           ? `${API_URL}/tasks?sprintId=${selectedSprint}`
           : `${API_URL}/tasks`;
-        const res = await fetch(url);
+        const res = await authFetch(url);
         if (!res.ok) return;
         const data = await res.json();
         setTasks(data);
@@ -288,7 +286,7 @@ export default function Taskboard({ currentUser }) {
   };
 
   const handleDelete = async (id) => {
-    await fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
+    await authFetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
     setDeleteConfirm(null);
     refresh();
   };
