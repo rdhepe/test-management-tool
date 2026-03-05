@@ -716,8 +716,8 @@ function AutomationCoverageReport({ sprintId = '' }) {
     <div className="space-y-6">
       <div className="grid grid-cols-4 gap-3">
         <StatCard label="Total Test Cases" value={filteredTCs.length} />
-        <StatCard label="Automated" value={pureAutomated} sub={`${pureAutoPct}%`} color="text-green-400" border="border-green-500/30" />
-        <StatCard label="Manual + Mapped" value={manualMapped} sub={`${mappedPct}% linked to test file`} color="text-indigo-400" border="border-indigo-500/30" />
+        <StatCard label="Automated" value={totalCovered} sub={`${globalCov}% linked to test file`} color="text-green-400" border="border-green-500/30" />
+        <StatCard label="Manual Only" value={manualOnly} sub={manualOnly > 0 ? `${filteredTCs.length > 0 ? Math.round((manualOnly / filteredTCs.length) * 100) : 0}% not covered` : 'All covered'} color="text-yellow-400" border="border-yellow-500/30" />
         <StatCard label="Automation Coverage" value={`${globalCov}%`}
           color={globalCov >= 70 ? 'text-green-400' : globalCov >= 40 ? 'text-yellow-400' : 'text-red-400'}
           border={globalCov >= 70 ? 'border-green-500/30' : globalCov >= 40 ? 'border-yellow-500/30' : 'border-red-500/30'} />
@@ -727,28 +727,18 @@ function AutomationCoverageReport({ sprintId = '' }) {
         <h3 className="text-sm font-semibold text-white mb-3">Overall Distribution</h3>
         <div className="flex h-8 rounded-lg overflow-hidden mb-3">
           {filteredTCs.length > 0 && <>
-            <div className="bg-green-500 flex items-center justify-center text-xs text-white font-bold" style={{ width: `${pureAutoPct}%` }}>
-              {pureAutoPct >= 8 && `${pureAutoPct}%`}
-            </div>
-            <div className="bg-indigo-500 flex items-center justify-center text-xs text-white font-bold" style={{ width: `${mappedPct}%` }}>
-              {mappedPct >= 8 && `${mappedPct}%`}
+            <div className="bg-green-500 flex items-center justify-center text-xs text-white font-bold" style={{ width: `${globalCov}%` }}>
+              {globalCov >= 8 && `${globalCov}%`}
             </div>
             <div className="bg-yellow-500 flex items-center justify-center text-xs text-white font-bold flex-1">
-              {(100 - pureAutoPct - mappedPct) >= 8 && `${100 - pureAutoPct - mappedPct}%`}
+              {(100 - globalCov) >= 8 && `${100 - globalCov}%`}
             </div>
           </>}
         </div>
         <div className="flex gap-6 text-xs">
-          <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-green-500 flex-shrink-0" />Automated ({pureAutomated})</span>
-          <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-indigo-500 flex-shrink-0" />Manual + Linked Test File ({manualMapped})</span>
+          <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-green-500 flex-shrink-0" />Automated ({totalCovered})</span>
           <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-yellow-500 flex-shrink-0" />Manual only ({manualOnly})</span>
         </div>
-        {manualMapped > 0 && (
-          <p className="text-xs text-slate-400 mt-3 border-t border-slate-700 pt-3">
-            <span className="text-indigo-400 font-medium">{manualMapped} manual test {manualMapped === 1 ? 'case is' : 'cases are'} linked to an automation test file</span> — counted as covered.
-            Total coverage includes both automated test cases and manual test cases with a mapped test file.
-          </p>
-        )}
       </div>
 
       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
@@ -756,19 +746,14 @@ function AutomationCoverageReport({ sprintId = '' }) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-slate-700"><tr>
-              {['Feature', 'Total TCs', 'Automated', 'Manual + Mapped', 'Manual Only', 'Coverage', 'Visual'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase">{h}</th>)}
+              {['Feature', 'Total TCs', 'Automated', 'Manual Only', 'Coverage', 'Visual'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-300 uppercase">{h}</th>)}
             </tr></thead>
             <tbody className="divide-y divide-slate-700">
               {featureRows.map(f => (
                 <tr key={f.id} className="hover:bg-slate-700/40">
                   <td className="px-4 py-3 text-white font-medium">{f.name}</td>
                   <td className="px-4 py-3 text-slate-300">{f.tcs.length}</td>
-                  <td className="px-4 py-3 text-green-400 font-semibold">{f.automated}</td>
-                  <td className="px-4 py-3">
-                    {f.manualMapped > 0
-                      ? <span className="inline-flex items-center gap-1 text-indigo-400 font-semibold">{f.manualMapped} <span className="px-1.5 py-0.5 bg-indigo-500/15 border border-indigo-500/30 rounded text-xs">mapped</span></span>
-                      : <span className="text-slate-600">0</span>}
-                  </td>
+                  <td className="px-4 py-3 text-green-400 font-semibold">{f.covered}</td>
                   <td className="px-4 py-3 text-yellow-400">{f.manualOnly}</td>
                   <td className="px-4 py-3">
                     {f.cov === null ? <span className="text-slate-500 text-xs">No TCs</span>
@@ -777,8 +762,7 @@ function AutomationCoverageReport({ sprintId = '' }) {
                   <td className="px-4 py-3 w-36">
                     {f.cov !== null && (
                       <div className="flex h-2 rounded-full overflow-hidden bg-slate-700">
-                        <div className="bg-green-500" style={{ width: `${f.tcs.length > 0 ? (f.automated / f.tcs.length) * 100 : 0}%` }} />
-                        <div className="bg-indigo-500" style={{ width: `${f.tcs.length > 0 ? (f.manualMapped / f.tcs.length) * 100 : 0}%` }} />
+                        <div className="bg-green-500" style={{ width: `${f.tcs.length > 0 ? (f.covered / f.tcs.length) * 100 : 0}%` }} />
                       </div>
                     )}
                   </td>
