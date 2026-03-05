@@ -134,8 +134,24 @@ function TestCases({ currentUser, orgInfo }) {
       }
     };
 
+    const handleFeatureDeleted = () => {
+      fetchTestCases();
+      fetchRequirements();
+    };
+
+    const handleRequirementDeleted = () => {
+      fetchTestCases();
+      fetchRequirements();
+    };
+
     window.addEventListener('navigateToTestCase', handleTestCaseNavigation);
-    return () => window.removeEventListener('navigateToTestCase', handleTestCaseNavigation);
+    window.addEventListener('featureDeleted', handleFeatureDeleted);
+    window.addEventListener('requirementDeleted', handleRequirementDeleted);
+    return () => {
+      window.removeEventListener('navigateToTestCase', handleTestCaseNavigation);
+      window.removeEventListener('featureDeleted', handleFeatureDeleted);
+      window.removeEventListener('requirementDeleted', handleRequirementDeleted);
+    };
   }, [testCases]);
 
   const fetchTestCases = async () => {

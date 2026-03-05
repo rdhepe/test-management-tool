@@ -231,6 +231,7 @@ function Requirements({ currentUser, orgInfo }) {
 
       if (response.ok) {
         await loadRequirements();
+        window.dispatchEvent(new CustomEvent('requirementDeleted', { detail: { requirementId: id } }));
       } else {
         const errorData = await response.json();
         alert(`Failed to delete requirement: ${errorData.error}`);

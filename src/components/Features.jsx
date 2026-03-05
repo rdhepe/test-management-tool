@@ -124,7 +124,10 @@ function Features({ currentUser, orgInfo }) {
     if (!confirm('Delete this feature? All associated requirements and test cases will also be deleted.')) return;
     try {
       const res = await authFetch(`${API_URL}/features/${id}`, { method: 'DELETE' });
-      if (res.ok) { await loadFeatures(); }
+      if (res.ok) {
+        await loadFeatures();
+        window.dispatchEvent(new CustomEvent('featureDeleted', { detail: { featureId: id } }));
+      }
       else { const d = await res.json(); alert(`Error: ${d.error || 'Failed to delete'}`); }
     } catch { alert('Failed to delete feature'); }
   };
