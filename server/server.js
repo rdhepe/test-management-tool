@@ -3580,9 +3580,9 @@ app.get('/defects/:id/history', async (req, res) => {
 // =============== SPRINTS ENDPOINTS ===============
 
 // Get all sprints
-app.get('/sprints', async (req, res) => {
+app.get('/sprints', requireAuth, async (req, res) => {
   try {
-    const sprints = await sprintOperations.getAll(req.session?.orgId || 1);
+    const sprints = await sprintOperations.getAll(req.session.orgId);
     res.json(sprints);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -3590,7 +3590,7 @@ app.get('/sprints', async (req, res) => {
 });
 
 // Get sprint by id
-app.get('/sprints/:id', async (req, res) => {
+app.get('/sprints/:id', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const sprint = await sprintOperations.getByIdWithMetrics(id);
@@ -3606,7 +3606,7 @@ app.get('/sprints/:id', async (req, res) => {
 });
 
 // Create new sprint
-app.post('/sprints', async (req, res) => {
+app.post('/sprints', requireAuth, async (req, res) => {
   try {
     const { name, goal, startDate, endDate, status } = req.body;
     
@@ -3626,7 +3626,7 @@ app.post('/sprints', async (req, res) => {
       start_date: startDate,
       end_date: endDate,
       status
-    }, req.session?.orgId || 1);
+    }, req.session.orgId);
     
     res.status(201).json(sprint);
   } catch (error) {
@@ -3635,7 +3635,7 @@ app.post('/sprints', async (req, res) => {
 });
 
 // Update sprint
-app.put('/sprints/:id', async (req, res) => {
+app.put('/sprints/:id', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { name, goal, startDate, endDate, status } = req.body;
@@ -3671,7 +3671,7 @@ app.put('/sprints/:id', async (req, res) => {
 });
 
 // Delete sprint
-app.delete('/sprints/:id', async (req, res) => {
+app.delete('/sprints/:id', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     
@@ -3714,25 +3714,25 @@ const sessions = new Map(); // token -> { userId, username, role, orgId, ... }
 })();
 
 // ===== Task Routes =====
-app.get('/tasks', async (req, res) => {
+app.get('/tasks', requireAuth, async (req, res) => {
   try {
     const { sprintId } = req.query;
-    const orgId = req.session?.orgId || 1;
+    const orgId = req.session.orgId;
     const tasks = sprintId ? await taskOperations.getBySprintId(parseInt(sprintId)) : await taskOperations.getAll(orgId);
     res.json(tasks);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.post('/tasks', async (req, res) => {
+app.post('/tasks', requireAuth, async (req, res) => {
   try {
     const { title, description, sprintId, assigneeId, status, priority, createdBy, startDate, endDate, plannedHours, completedHours, requirementId } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
-    const task = await taskOperations.create({ title, description, sprintId, assigneeId, status, priority, createdBy, startDate, endDate, plannedHours, completedHours, requirementId }, req.session?.orgId || 1);
+    const task = await taskOperations.create({ title, description, sprintId, assigneeId, status, priority, createdBy, startDate, endDate, plannedHours, completedHours, requirementId }, req.session.orgId);
     res.status(201).json(task);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.put('/tasks/:id', async (req, res) => {
+app.put('/tasks/:id', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const existing = await taskOperations.getById(id);
@@ -3770,7 +3770,7 @@ app.put('/tasks/:id', async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.delete('/tasks/:id', async (req, res) => {
+app.delete('/tasks/:id', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (!await taskOperations.getById(id)) return res.status(404).json({ error: 'Task not found' });
@@ -3780,29 +3780,29 @@ app.delete('/tasks/:id', async (req, res) => {
 });
 
 // Task comments
-app.get('/tasks/:id/comments', async (req, res) => {
+app.get('/tasks/:id/comments', requireAuth, async (req, res) => {
   try {
     const comments = await taskCommentOperations.getByTaskId(parseInt(req.params.id));
     res.json(comments);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.post('/tasks/:id/comments', async (req, res) => {
+app.post('/tasks/:id/comments', requireAuth, async (req, res) => {
   try {
     const { content } = req.body;
     if (!content?.trim()) return res.status(400).json({ error: 'Content is required' });
     const comment = await taskCommentOperations.create({
       taskId: parseInt(req.params.id),
-      authorId: req.session?.userId || null,
-      authorName: req.session?.username || null,
+      authorId: req.session.userId,
+      authorName: req.session.username,
       content: content.trim(),
-    }, req.session?.orgId || 1);
+    }, req.session.orgId);
     res.status(201).json(comment);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 // Task history
-app.get('/tasks/:id/history', async (req, res) => {
+app.get('/tasks/:id/history', requireAuth, async (req, res) => {
   try {
     const history = await taskHistoryOperations.getByTaskId(parseInt(req.params.id));
     res.json(history);
