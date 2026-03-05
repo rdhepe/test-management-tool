@@ -28,7 +28,10 @@ function TestDependencies({ testFile, moduleId, onClose, onUpdate }) {
 
   const loadDependencies = async () => {
     try {
-      const response = await fetch(`${API_URL}/test-files/${testFile.id}/dependencies`);
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/test-files/${testFile.id}/dependencies`, {
+        headers: token ? { 'x-auth-token': token } : {},
+      });
       const data = await response.json();
       
       const before = data.filter(d => d.dependency_type === 'before');
@@ -42,7 +45,10 @@ function TestDependencies({ testFile, moduleId, onClose, onUpdate }) {
 
   const loadModules = async () => {
     try {
-      const response = await fetch(`${API_URL}/modules`);
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/modules`, {
+        headers: token ? { 'x-auth-token': token } : {},
+      });
       const data = await response.json();
       setModules(data);
       // Set default module to current module
@@ -56,7 +62,10 @@ function TestDependencies({ testFile, moduleId, onClose, onUpdate }) {
 
   const loadAvailableTests = async (modId) => {
     try {
-      const response = await fetch(`${API_URL}/modules/${modId}/test-files`);
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/modules/${modId}/test-files`, {
+        headers: token ? { 'x-auth-token': token } : {},
+      });
       const data = await response.json();
       // Filter out the current test file only if it's from the same module
       const tests = modId === moduleId?.toString() 
@@ -77,7 +86,7 @@ function TestDependencies({ testFile, moduleId, onClose, onUpdate }) {
     try {
       const response = await fetch(`${API_URL}/test-files/${testFile.id}/dependencies`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('auth_token') ? { 'x-auth-token': localStorage.getItem('auth_token') } : {}) },
         body: JSON.stringify({
           dependencyFileId: parseInt(selectedTest),
           dependencyType: dependencyType,
@@ -106,7 +115,7 @@ function TestDependencies({ testFile, moduleId, onClose, onUpdate }) {
     try {
       const response = await fetch(`${API_URL}/test-files/${testFile.id}/dependencies`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('auth_token') ? { 'x-auth-token': localStorage.getItem('auth_token') } : {}) },
         body: JSON.stringify({
           dependencyFileId: dependencyFileId,
           dependencyType: type

@@ -40,7 +40,10 @@ function ModuleDetailView({ module, onCreateTestFile, onTestFileClick, selectedT
       const depsMap = {};
       for (const testFile of module.testFiles) {
         try {
-          const response = await fetch(`${API_URL}/test-files/${testFile.id}/dependencies`);
+          const token = localStorage.getItem('auth_token');
+          const response = await fetch(`${API_URL}/test-files/${testFile.id}/dependencies`, {
+            headers: token ? { 'x-auth-token': token } : {},
+          });
           const deps = await response.json();
           depsMap[testFile.id] = {
             hasBefore: deps.some(d => d.dependency_type === 'before'),
