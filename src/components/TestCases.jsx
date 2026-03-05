@@ -107,7 +107,8 @@ function TestCases({ currentUser, orgInfo }) {
     type: 'Manual',
     priority: 'Medium',
     status: 'Draft',
-    requirementId: ''
+    requirementId: '',
+    sprintId: ''
   });
 
   useEffect(() => {
@@ -247,7 +248,8 @@ function TestCases({ currentUser, orgInfo }) {
       priority: 'Medium',
       status: 'Draft',
       requirementId: requirementId || '',
-      testFileId: ''
+      testFileId: '',
+      sprintId: ''
     });
     setShowModal(true);
   };
@@ -298,7 +300,8 @@ function TestCases({ currentUser, orgInfo }) {
       priority: testCase.priority,
       status: testCase.status,
       requirementId: testCase.requirement_id || '',
-      testFileId: testCase.test_file_id || ''
+      testFileId: testCase.test_file_id || '',
+      sprintId: testCase.sprint_id || ''
     });
     setShowModal(true);
   };
@@ -388,6 +391,7 @@ function TestCases({ currentUser, orgInfo }) {
       priority: formData.priority,
       status: formData.status,
       requirementId: formData.requirementId ? parseInt(formData.requirementId) : null,
+      sprintId: formData.sprintId ? parseInt(formData.sprintId) : null,
       testFileId: formData.testFileId ? parseInt(formData.testFileId) : null
     };
 
@@ -1983,6 +1987,22 @@ function TestCases({ currentUser, orgInfo }) {
                       ))}
                     </select>
                   </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                      Sprint (Optional)
+                    </label>
+                    <select
+                      value={formData.sprintId}
+                      onChange={(e) => setFormData({ ...formData, sprintId: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="">No Sprint</option>
+                      {sprints.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 {formData.type === 'Manual' && (
@@ -2102,6 +2122,13 @@ function TestCases({ currentUser, orgInfo }) {
                   <div>
                     <h3 className="text-sm font-medium text-slate-300 mb-2">Requirement</h3>
                     <p className="text-white">{viewingTestCase.requirement_title}</p>
+                  </div>
+                )}
+
+                {viewingTestCase.sprint_name && (
+                  <div>
+                    <h3 className="text-sm font-medium text-slate-300 mb-2">Sprint</h3>
+                    <p className="text-white">{viewingTestCase.sprint_name}</p>
                   </div>
                 )}
 

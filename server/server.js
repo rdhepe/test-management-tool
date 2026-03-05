@@ -3156,6 +3156,7 @@ app.post('/test-cases', async (req, res) => {
     
     const testCase = await testCaseOperations.create({
       requirement_id: requirementId || null,
+      sprint_id: req.body.sprintId || null,
       title,
       description,
       preconditions,
@@ -3205,8 +3206,10 @@ app.put('/test-cases/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invalid status. Must be Draft, Ready, or Deprecated' });
     }
     
+    const { sprintId } = req.body;
     const testCase = await testCaseOperations.update(id, {
       requirement_id: requirementId !== undefined ? (requirementId || null) : existing.requirement_id,
+      sprint_id: sprintId !== undefined ? (sprintId || null) : existing.sprint_id,
       title,
       description,
       preconditions,

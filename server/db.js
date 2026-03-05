@@ -482,6 +482,9 @@ async function initDB() {
   await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS created_by TEXT`);
   await pool.query(`ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS created_by TEXT`);
 
+  // Add sprint_id to test_cases
+  await pool.query(`ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS sprint_id INTEGER REFERENCES sprints(id) ON DELETE SET NULL`);
+
   // Add created_by and assigned_to to defects
   await pool.query(`ALTER TABLE defects ADD COLUMN IF NOT EXISTS created_by TEXT`);
   await pool.query(`ALTER TABLE defects ADD COLUMN IF NOT EXISTS assigned_to TEXT`);
@@ -1012,8 +1015,9 @@ const requirementOperations = {
 const testCaseOperations = {
   getAll: async (orgId = 1) => {
     const r = await pool.query(
-      `SELECT tc.*, r.title as requirement_title FROM test_cases tc
+      `SELECT tc.*, r.title as requirement_title, s.name as sprint_name FROM test_cases tc
        LEFT JOIN requirements r ON tc.requirement_id = r.id
+       LEFT JOIN sprints s ON tc.sprint_id = s.id
        WHERE tc.org_id = $1 ORDER BY tc.created_at ASC`,
       [orgId]
     );
@@ -1022,8 +1026,9 @@ const testCaseOperations = {
 
   getById: async (id) => {
     const r = await pool.query(
-      `SELECT tc.*, r.title as requirement_title FROM test_cases tc
+      `SELECT tc.*, r.title as requirement_title, s.name as sprint_name FROM test_cases tc
        LEFT JOIN requirements r ON tc.requirement_id = r.id
+       LEFT JOIN sprints s ON tc.sprint_id = s.id
        WHERE tc.id = $1`,
       [id]
     );
@@ -1038,20 +1043,20 @@ const testCaseOperations = {
     return r.rows;
   },
 
-  create: async ({ requirement_id, title, description, preconditions, test_steps, expected_result, type = 'Manual', priority = 'Medium', status = 'Draft', test_file_id, created_by }, orgId = 1) => {
+  create: async ({ requirement_id, sprint_id, title, description, preconditions, test_steps, expected_result, type = 'Manual', priority = 'Medium', status = 'Draft', test_file_id, created_by }, orgId = 1) => {
     const r = await pool.query(
-      `INSERT INTO test_cases (requirement_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id, created_by, org_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-      [requirement_id || null, title, description || null, preconditions || null, test_steps || null, expected_result || null, type, priority, status, test_file_id || null, created_by || null, orgId]
+      `INSERT INTO test_cases (requirement_id, sprint_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id, created_by, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+      [requirement_id || null, sprint_id || null, title, description || null, preconditions || null, test_steps || null, expected_result || null, type, priority, status, test_file_id || null, created_by || null, orgId]
     );
     return testCaseOperations.getById(r.rows[0].id);
   },
 
-  update: async (id, { requirement_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id }) => {
+  update: async (id, { requirement_id, sprint_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id }) => {
     await pool.query(
-      `UPDATE test_cases SET requirement_id=$1, title=$2, description=$3, preconditions=$4, test_steps=$5,
-       expected_result=$6, type=$7, priority=$8, status=$9, test_file_id=$10, updated_at=NOW() WHERE id=$11`,
-      [requirement_id || null, title, description || null, preconditions || null, test_steps || null, expected_result || null, type, priority, status, test_file_id || null, id]
+      `UPDATE test_cases SET requirement_id=$1, sprint_id=$2, title=$3, description=$4, preconditions=$5, test_steps=$6,
+       expected_result=$7, type=$8, priority=$9, status=$10, test_file_id=$11, updated_at=NOW() WHERE id=$12`,
+      [requirement_id || null, sprint_id || null, title, description || null, preconditions || null, test_steps || null, expected_result || null, type, priority, status, test_file_id || null, id]
     );
     return testCaseOperations.getById(id);
   },
