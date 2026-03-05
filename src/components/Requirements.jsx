@@ -63,6 +63,7 @@ function Requirements({ currentUser, orgInfo }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const [aiResult, setAiResult] = useState(null);
+  const [aiCancelling, setAiCancelling] = useState(false);
   const aiDescRef = useRef(null);
 
   // Form state
@@ -251,7 +252,17 @@ function Requirements({ currentUser, orgInfo }) {
     setIsAiOpen(true);
     setTimeout(() => aiDescRef.current?.focus(), 60);
   };
-  const closeAiPanel = () => { setIsAiOpen(false); setAiResult(null); setAiError(''); };
+  const closeAiPanel = () => { setIsAiOpen(false); setAiResult(null); setAiError(''); setAiCancelling(false); };
+
+  const handleAiCancel = async () => {
+    if (!aiResult?.created?.length) { closeAiPanel(); return; }
+    setAiCancelling(true);
+    try {
+      await Promise.all(aiResult.created.map(r => authFetch(`${API_URL}/requirements/${r.id}`, { method: 'DELETE' })));
+      await loadRequirements();
+    } catch { /* best effort */ }
+    finally { setAiCancelling(false); closeAiPanel(); }
+  };
 
   const handleAiGenerate = async (e) => {
     e.preventDefault();
@@ -1102,6 +1113,10 @@ function Requirements({ currentUser, orgInfo }) {
                     <button onClick={() => { setAiResult(null); setAiForm({ focus: '', count: '5' }); setAiError(''); }}
                       className="flex-1 py-2 text-sm font-medium border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 rounded-lg transition-colors">
                       Generate More
+                    </button>
+                    <button onClick={handleAiCancel} disabled={aiCancelling}
+                      className="flex-1 py-2 text-sm font-medium border border-red-800/60 text-red-400 hover:text-red-300 hover:border-red-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                      {aiCancelling ? 'Discarding…' : 'Discard'}
                     </button>
                     <button onClick={closeAiPanel}
                       className="flex-1 py-2 text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors">
