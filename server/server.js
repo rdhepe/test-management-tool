@@ -600,6 +600,10 @@ app.get('/release-readiness', async (req, res) => {
     // TC coverage bonus → up to 10 pts
     if (tcCoverage !== null) score += Math.round((tcCoverage / 100) * 10);
 
+    // Automated suite runs bonus → up to 20 pts (only awarded when suite runs exist)
+    const suiteBonus = passRate !== null ? Math.round((passRate / 100) * 20) : 0;
+    score += suiteBonus;
+
     score = Math.max(0, Math.min(100, score));
 
     const metrics = { score, passRate: effectivePassRate, passRateSource: passRate !== null ? 'suite' : (manualPassRate !== null ? 'manual' : null),
@@ -607,7 +611,7 @@ app.get('/release-readiness', async (req, res) => {
       criticalOpen, highOpen, mediumOpen, totalOpen, totalClosed,
       activeSprint: activeSprint ? { id: activeSprint.id, name: activeSprint.name } : null,
       sprintCompletion, sprintTotalReqs, sprintPassedTCs,
-      tcTotal, tcExecuted, tcCoverage };
+      tcTotal, tcExecuted, tcCoverage, suiteBonus };
 
     res.json(metrics);
   } catch (error) {
