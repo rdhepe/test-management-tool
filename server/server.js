@@ -578,10 +578,10 @@ app.post('/test-files/:id/dependencies', async (req, res) => {
     }
     
     const dependency = await testFileDependencyOperations.add({
-      testFileId: parseInt(req.params.id),
-      dependencyFileId,
-      dependencyType,
-      executionOrder: executionOrder || 0
+      test_file_id: parseInt(req.params.id),
+      dependency_file_id: dependencyFileId,
+      dependency_type: dependencyType,
+      execution_order: executionOrder || 0
     });
     
     res.json(dependency);
@@ -599,10 +599,9 @@ app.delete('/test-files/:id/dependencies', async (req, res) => {
       return res.status(400).json({ error: 'dependencyFileId and dependencyType are required' });
     }
     
-    await testFileDependencyOperations.remove(
-      parseInt(req.params.id),
-      dependencyFileId,
-      dependencyType
+    await pool.query(
+      'DELETE FROM test_file_dependencies WHERE test_file_id = $1 AND dependency_file_id = $2 AND dependency_type = $3',
+      [parseInt(req.params.id), dependencyFileId, dependencyType]
     );
     
     res.json({ success: true });
