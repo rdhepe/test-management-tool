@@ -3042,26 +3042,27 @@ app.post('/test-cases/generate-ai', async (req, res) => {
     if (!requirement) return res.status(404).json({ error: 'Requirement not found.' });
 
     const tcCount = Math.min(Math.max(parseInt(count) || 5, 1), 10);
-    const typesLabel = testTypes.length > 0 ? testTypes.join(', ') : 'Happy Path, Negative/Error, Boundary Value';
+    const typesLabel = testTypes.length > 0 ? testTypes.join(', ') : 'Happy Path';
 
-    const prompt = `You are a senior QA engineer. Generate ${tcCount} detailed, executable manual test cases for the following software requirement.
+    const prompt = `You are a senior QA engineer. Generate up to ${tcCount} detailed, executable manual test cases for the following software requirement.
 
 REQUIREMENT TITLE: ${requirement.title?.replace(/^AI:\s*/, '')}
 REQUIREMENT DESCRIPTION: ${requirement.description || '(no description provided)'}
 ${focus ? `FOCUS AREA: ${focus}` : ''}
 
-TEST TYPES TO COVER (distribute across): ${typesLabel}
+TEST TYPES — GENERATE ONLY THESE TYPES: ${typesLabel}
 
-Rules:
-- Title: concise, action-oriented, prefixed with the test type in brackets e.g. "[Happy Path] Login with valid credentials". Max 90 chars.
+STRICT RULES:
+- ONLY generate test cases that belong to the exact test type(s) listed above. Do NOT add any other test type to fill the count.
+- If you can only produce fewer than ${tcCount} meaningful test cases for these specific type(s), return fewer — do NOT pad with unrelated types.
+- Title: concise, action-oriented, prefixed with the test type in brackets e.g. "[Security] SQL injection on login form". Max 90 chars.
 - Preconditions: 1–2 sentences of setup needed before executing steps.
 - Steps: 3–7 steps, each with a clear action and expected result.
 - Priority: High / Medium / Low based on risk.
 - Type: always "Manual".
-- Cover a realistic mix of the requested test types.
 - Do NOT add numbering or markdown — return ONLY valid JSON.
 
-Return a JSON array of exactly ${tcCount} objects:
+Return a JSON array of at most ${tcCount} objects:
 [
   {
     "title": "[Type] Test case title",
@@ -3117,7 +3118,12 @@ Return a JSON array of exactly ${tcCount} objects:
       created.push(saved);
     }
 
-    res.status(201).json({ created });
+    res.status(201).json({
+      created,
+      note: created.length < tcCount
+        ? `Only ${created.length} test case${created.length === 1 ? '' : 's'} could be generated for the selected type${testTypes.length === 1 ? '' : 's'} (${typesLabel}). Try reducing the count or selecting additional types to generate more.`
+        : null,
+    });
   } catch (error) {
     console.error('generate-ai test-cases error:', error);
     res.status(500).json({ error: error.message });

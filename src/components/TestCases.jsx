@@ -1735,6 +1735,15 @@ function TestCases({ currentUser, orgInfo }) {
                     </p>
                   </div>
 
+                  {aiResult.note && (
+                    <div className="mb-4 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-start gap-2">
+                      <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="text-xs text-amber-300 leading-relaxed">{aiResult.note}</p>
+                    </div>
+                  )}
+
                   {aiReqId && (
                     <div className="mb-4 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-400">
                       Requirement: <span className="text-slate-200 font-medium">
