@@ -24,7 +24,10 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
   const [aiError, setAiError] = useState('');
   const [aiResult, setAiResult] = useState(null); // { script, npmNote, extraImports }
   const [aiScriptCopied, setAiScriptCopied] = useState(false);
+  const [aiPhaseMsg, setAiPhaseMsg] = useState('');
+  const [aiCrawlMeta, setAiCrawlMeta] = useState(null); // { crawledUrls, elementsFound }
   const aiInstructionRef = useRef(null);
+  const aiPhaseTimerRef = useRef(null);
   
   // Configure Monaco Editor to disable TypeScript errors
   useEffect(() => {
@@ -157,10 +160,27 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
     setAiLoading(true);
     setAiError('');
     setAiResult(null);
+    setAiCrawlMeta(null);
+
+    // Cycle through phase labels so the user sees what's happening
+    const phases = [
+      'Parsing your instructions…',
+      'Launching browser…',
+      'Crawling pages & inspecting elements…',
+      'Analyzing real DOM data…',
+      'Generating accurate code…',
+    ];
+    let phaseIdx = 0;
+    setAiPhaseMsg(phases[0]);
+    aiPhaseTimerRef.current = setInterval(() => {
+      phaseIdx = Math.min(phaseIdx + 1, phases.length - 1);
+      setAiPhaseMsg(phases[phaseIdx]);
+    }, 4000);
+
     try {
       const token = localStorage.getItem('auth_token');
       const currentContent = editorRef.current ? editorRef.current.getValue() : (testFile?.content || '');
-      const res = await fetch(`${API_URL}/test-files/generate-ai-script`, {
+      const res = await fetch(`${API_URL}/test-files/smart-generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { 'x-auth-token': token } : {}) },
         body: JSON.stringify({
@@ -171,9 +191,13 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
       });
       const data = await res.json();
       if (!res.ok) { setAiError(data.error || 'Generation failed.'); return; }
+      setAiCrawlMeta({ crawledUrls: data.crawledUrls || [], elementsFound: data.elementsFound || 0 });
       setAiResult(data);
     } catch { setAiError('Network error. Please try again.'); }
-    finally { setAiLoading(false); }
+    finally {
+      clearInterval(aiPhaseTimerRef.current);
+      setAiLoading(false);
+    }
   };
 
   const applyScriptToEditor = () => {
@@ -673,7 +697,7 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
                 </div>
                 <div>
                   <h2 className="text-base font-semibold text-white leading-tight">AI Playwright Script Generator</h2>
-                  <p className="text-xs text-slate-500">Powered by GPT-4o · Follows your project's Playwright framework</p>
+                  <p className="text-xs text-slate-500">Powered by GPT-4o · Live-crawls pages for real selectors</p>
                 </div>
               </div>
               <button onClick={closeAiPanel} className="p-1 text-slate-500 hover:text-white transition-colors">
@@ -686,7 +710,7 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
                 <form onSubmit={handleAiGenerate} className="px-5 py-5 space-y-4">
 
                   <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 px-4 py-3 text-xs text-violet-300 leading-relaxed">
-                    Describe what you want the test to do in plain English. AI will generate a complete Playwright script following your framework's structure (<code className="text-violet-200 bg-violet-900/40 px-1 rounded">import &#123; test, expect &#125; from '@playwright/test'</code> + async test block).
+                    Describe your test in plain English. AI will <span className="text-violet-200 font-medium">navigate to any URLs you mention</span>, inspect the real page elements, then generate a Playwright script using accurate selectors — no more guessing.
                   </div>
 
                   {/* Instruction */}
@@ -749,7 +773,7 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
                           </svg>
-                          Generating script…
+                          {aiPhaseMsg || 'Working…'}
                         </>
                       ) : (
                         <>
@@ -764,6 +788,22 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
                 </form>
               ) : (
                 <div className="px-5 py-5">
+
+                  {/* Crawl summary badge */}
+                  {aiCrawlMeta && aiCrawlMeta.crawledUrls.length > 0 && (
+                    <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+                      <div className="flex items-start gap-2">
+                        <svg className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4" />
+                        </svg>
+                        <div>
+                          <p className="text-xs font-semibold text-emerald-300 mb-0.5">Live crawl completed — selectors based on real DOM</p>
+                          <p className="text-xs text-emerald-200/70">{aiCrawlMeta.elementsFound} interactive elements inspected across {aiCrawlMeta.crawledUrls.length} page{aiCrawlMeta.crawledUrls.length !== 1 ? 's' : ''}: {aiCrawlMeta.crawledUrls.join(', ')}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Context note */}
                   <div className="mb-4 rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-3">

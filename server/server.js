@@ -269,6 +269,166 @@ app.get('/modules/:id/test-files', async (req, res) => {
   }
 });
 
+// POST /test-files/smart-generate — Live-crawl pages with Playwright then generate script using real element data
+app.post('/test-files/smart-generate', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+    const org = await organizationOperations.getById(orgId);
+    if (org?.ai_healing_enabled !== 1)
+      return res.status(403).json({ error: 'AI script generation is only available for AI-enabled organizations.' });
+    const apiKey = org?.openai_api_key || process.env.OPENAI_API_KEY || '';
+    if (!apiKey) return res.status(400).json({ error: 'No OpenAI API key configured.' });
+
+    const { instruction, testName = 'generated test', currentContent = '' } = req.body;
+    if (!instruction?.trim()) return res.status(400).json({ error: 'instruction is required.' });
+
+    // ── Phase 1: extract URLs from the instruction ──────────────────────
+    const parseRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: `Extract every URL (with full scheme) from the test description below. Add https:// if missing. Return ONLY a JSON array of strings — no markdown. If none found return [].\n\n${instruction.trim()}` }],
+        temperature: 0, max_tokens: 300,
+      }),
+    });
+    const parseData = await parseRes.json();
+    const parseRaw = (parseData.choices?.[0]?.message?.content || '[]').replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    let urls = [];
+    try { const parsed = JSON.parse(parseRaw); if (Array.isArray(parsed)) urls = parsed; } catch {}
+
+    // ── Phase 2: crawl each URL with Playwright ──────────────────────────
+    const { chromium } = require('@playwright/test');
+    const pageSnapshots = {};
+
+    if (urls.length > 0) {
+      let browser;
+      try {
+        browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
+        const context = await browser.newContext({
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          viewport: { width: 1280, height: 900 },
+        });
+        for (const url of urls.slice(0, 4)) {
+          const page = await context.newPage();
+          try {
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            await page.waitForTimeout(1500);
+            const title = await page.title().catch(() => '');
+            const elements = await page.evaluate(() => {
+              const seen = new Set();
+              return Array.from(document.querySelectorAll(
+                'a,button,input,select,textarea,[role="button"],[role="link"],[role="textbox"],[role="searchbox"],[role="combobox"],[role="menuitem"],label'
+              ))
+                .filter(el => {
+                  const r = el.getBoundingClientRect();
+                  return r.width > 0 && r.height > 0;
+                })
+                .slice(0, 150)
+                .map(el => {
+                  const text = (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+                  const key = el.tagName + '|' + (el.id || el.getAttribute('name') || el.getAttribute('placeholder') || text).slice(0, 40);
+                  if (seen.has(key)) return null;
+                  seen.add(key);
+                  return {
+                    tag:         el.tagName.toLowerCase(),
+                    type:        el.getAttribute('type') || '',
+                    id:          el.id || '',
+                    name:        el.getAttribute('name') || '',
+                    placeholder: el.getAttribute('placeholder') || '',
+                    text,
+                    ariaLabel:   el.getAttribute('aria-label') || '',
+                    role:        el.getAttribute('role') || '',
+                    href:        el.tagName === 'A' ? (el.getAttribute('href') || '') : '',
+                    dataTestId:  el.getAttribute('data-testid') || el.getAttribute('data-test-id') || el.getAttribute('data-cy') || '',
+                  };
+                })
+                .filter(Boolean);
+            });
+            pageSnapshots[url] = { url, title, elements };
+          } catch (err) {
+            console.warn(`smart-generate crawl failed for ${url}:`, err.message);
+            pageSnapshots[url] = { url, title: '', elements: [], error: err.message };
+          } finally {
+            await page.close().catch(() => {});
+          }
+        }
+        await context.close().catch(() => {});
+      } catch (browserErr) {
+        console.warn('smart-generate browser error:', browserErr.message);
+      } finally {
+        if (browser) await browser.close().catch(() => {});
+      }
+    }
+
+    // ── Phase 3: build prompt with real element data → generate code ─────
+    const elementContext = Object.values(pageSnapshots)
+      .filter(p => p.elements?.length > 0)
+      .map(p => {
+        const rows = p.elements.map(e => {
+          const parts = [
+            e.tag,
+            e.type        && `type="${e.type}"`,
+            e.id          && `id="${e.id}"`,
+            e.name        && `name="${e.name}"`,
+            e.placeholder && `placeholder="${e.placeholder}"`,
+            e.ariaLabel   && `aria-label="${e.ariaLabel}"`,
+            e.role        && `role="${e.role}"`,
+            e.dataTestId  && `data-testid="${e.dataTestId}"`,
+            e.text        && `text="${e.text}"`,
+          ].filter(Boolean).join(' ');
+          return `  <${parts}>`;
+        }).join('\n');
+        return `PAGE: ${p.url} (title: "${p.title}")\nINTERACTIVE ELEMENTS (${p.elements.length} found):\n${rows}`;
+      }).join('\n\n');
+
+    const totalElements = Object.values(pageSnapshots).reduce((s, p) => s + (p.elements?.length || 0), 0);
+
+    const prompt = `You are an expert Playwright automation engineer. Generate Playwright step code for the INSIDE of a test function body ONLY.
+
+${elementContext ? `LIVE-CRAWLED PAGE DATA — Use these REAL element attributes for your locators. Do NOT invent selectors that are not present below.\n\n${elementContext}\n\n` : ''}\
+CRITICAL RULES:
+1. Do NOT include import statements. Do NOT include a test() wrapper.
+2. Use the crawled element data above to build locators: prefer getByRole, getByLabel, getByPlaceholder, getByText, getByTestId — match aria-label, placeholder, text, id, name, or data-testid exactly as shown in the crawl data.
+3. Always await every Playwright call.
+4. Add clear inline comments for each logical block.
+5. Include meaningful expect() assertions.
+6. Use page.waitForLoadState('networkidle') after navigations.
+${currentContent ? `EXISTING FILE CONTENT:\n\`\`\`\n${currentContent.slice(0, 2000)}\n\`\`\`` : ''}
+
+USER INSTRUCTION: ${instruction.trim()}
+
+Return ONLY valid JSON (no markdown):
+{ "script": "<step code only>", "extraImports": "", "npmNote": "" }`;
+
+    const genRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 4000 }),
+    });
+    if (!genRes.ok) {
+      const errText = await genRes.text();
+      return res.status(502).json({ error: `OpenAI error ${genRes.status}: ${errText.slice(0, 200)}` });
+    }
+    const genData = await genRes.json();
+    const raw = (genData.choices?.[0]?.message?.content || '').replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    let result;
+    try { result = JSON.parse(raw); } catch {
+      return res.status(502).json({ error: 'AI returned invalid JSON.', raw });
+    }
+    res.json({
+      script:        result.script || '',
+      npmNote:       result.npmNote || '',
+      extraImports:  result.extraImports || '',
+      crawledUrls:   Object.keys(pageSnapshots),
+      elementsFound: totalElements,
+    });
+  } catch (error) {
+    console.error('smart-generate error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /test-files/generate-ai-script — Generate a Playwright script from natural language (AI orgs only)
 app.post('/test-files/generate-ai-script', async (req, res) => {
   try {
