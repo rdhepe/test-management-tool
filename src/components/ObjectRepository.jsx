@@ -33,53 +33,69 @@ function folderPath(folders, id) {
 // ─── FormRow ─────────────────────────────────────────────────────────────────
 
 function FormRow({ form, setForm, error: formErr, onSave, onCancel, saveLabel, flatFolders }) {
+  const inputCls = 'w-full px-2.5 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500';
   return (
-    <tr className="bg-slate-800/60">
-      <td colSpan={6} className="px-4 py-3">
-        <div className="grid grid-cols-4 gap-3 mb-2">
+    <tr className="bg-slate-800/60 border-b border-indigo-500/30">
+      {/* PAGE / OBJECT — two stacked inputs */}
+      <td className="px-4 py-2 align-top">
+        <div className="flex flex-col gap-1.5">
           <input
-            placeholder="PageName (e.g. LoginPage)"
+            placeholder="PageName"
             value={form.page_name}
             onChange={e => setForm(f => ({ ...f, page_name: e.target.value }))}
-            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            className={inputCls}
           />
           <input
-            placeholder="objectName (e.g. emailInput)"
+            placeholder="objectName"
             value={form.object_name}
             onChange={e => setForm(f => ({ ...f, object_name: e.target.value }))}
-            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-          />
-          <input
-            placeholder="Selector (e.g. #email)"
-            value={form.selector}
-            onChange={e => setForm(f => ({ ...f, selector: e.target.value }))}
-            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
-          />
-          <input
-            placeholder="Description (optional)"
-            value={form.description}
-            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            className={inputCls}
           />
         </div>
-        <div className="mb-2">
-          <select
-            value={form.folder_id ?? ''}
-            onChange={e => setForm(f => ({ ...f, folder_id: e.target.value ? parseInt(e.target.value) : null }))}
-            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white focus:outline-none focus:border-indigo-500 w-72"
-          >
-            <option value="">— No folder —</option>
-            {flatFolders.map(ff => (
-              <option key={ff.id} value={ff.id}>
-                {'\u00a0\u00a0'.repeat(ff.depth)}{ff.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        {formErr && <p className="text-red-400 text-xs mb-2">{formErr}</p>}
-        <div className="flex gap-2">
-          <button onClick={onSave} className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors">{saveLabel}</button>
-          <button onClick={onCancel} className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-medium rounded-lg transition-colors">Cancel</button>
+      </td>
+      {/* SELECTOR */}
+      <td className="px-4 py-2 align-top">
+        <input
+          placeholder="e.g. #email or .btn"
+          value={form.selector}
+          onChange={e => setForm(f => ({ ...f, selector: e.target.value }))}
+          className={`${inputCls} font-mono`}
+        />
+      </td>
+      {/* DESCRIPTION */}
+      <td className="px-4 py-2 align-top">
+        <input
+          placeholder="Optional description"
+          value={form.description}
+          onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+          className={inputCls}
+        />
+      </td>
+      {/* FOLDER */}
+      <td className="px-4 py-2 align-top">
+        <select
+          value={form.folder_id ?? ''}
+          onChange={e => setForm(f => ({ ...f, folder_id: e.target.value ? parseInt(e.target.value) : null }))}
+          className={inputCls}
+        >
+          <option value="">— None —</option>
+          {flatFolders.map(ff => (
+            <option key={ff.id} value={ff.id}>
+              {'\u00a0\u00a0'.repeat(ff.depth)}{ff.name}
+            </option>
+          ))}
+        </select>
+      </td>
+      {/* REFERENCE — empty */}
+      <td className="px-4 py-2" />
+      {/* ACTIONS — save / cancel + error */}
+      <td className="px-4 py-2 align-top">
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex gap-1.5">
+            <button onClick={onSave} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap">{saveLabel}</button>
+            <button onClick={onCancel} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-medium rounded-lg transition-colors">Cancel</button>
+          </div>
+          {formErr && <p className="text-red-400 text-[11px] text-right">{formErr}</p>}
         </div>
       </td>
     </tr>
