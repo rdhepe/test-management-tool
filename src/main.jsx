@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import App from './App.jsx'
 import Landing from './components/Landing.jsx'
+import Docs from './components/Docs.jsx'
 import SprintDetailPage from './components/SprintDetailPage.jsx'
 import './index.css'
 
@@ -21,6 +22,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <Routes>
         {/* Root → Landing page */}
         <Route path="/" element={<Landing />} />
+        {/* Public docs */}
+        <Route path="/docs" element={<Docs />} />
         {/* Per-org app (login + full app) */}
         <Route path="/org/:slug" element={<OrgEntry />} />
         {/* Catch-all */}

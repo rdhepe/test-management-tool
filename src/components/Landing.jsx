@@ -333,6 +333,7 @@ export default function Landing() {
             <a href="#ai" className="hover:text-white transition-colors">AI Capabilities</a>
             <a href="#how" className="hover:text-white transition-colors">How it works</a>
             <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
+            <a href="/docs" className="hover:text-white transition-colors">Docs</a>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setEnquiryOpen(true)}
@@ -737,6 +738,7 @@ export default function Landing() {
               <a href="#ai" className="hover:text-slate-300 transition-colors">AI</a>
               <a href="#how" className="hover:text-slate-300 transition-colors">How it works</a>
               <a href="#pricing" className="hover:text-slate-300 transition-colors">Pricing</a>
+              <a href="/docs" className="hover:text-slate-300 transition-colors">Docs</a>
               <button onClick={() => setEnquiryOpen(true)} className="hover:text-indigo-400 transition-colors">Contact</button>
             </div>
           </div>
