@@ -2207,23 +2207,72 @@ app.post('/run-suite/:suiteId', async (req, res) => {
       }
     } catch (_) {}
 
-    // 3. For each test file, wrap in Playwright template and save
+    // 3. For each test file, resolve before/after dependencies then wrap in Playwright template and save
     const testFilePromises = suiteTestFiles.map(async (suiteTestFile, index) => {
-      const userCode = suiteTestFile.test_file_content || '';
-      
+      // Build execution order: before deps → main → after deps (same logic as /run-test)
+      let filesToRun = [];
+
+      if (suiteTestFile.test_file_id) {
+        try {
+          const execOrder = await testFileDependencyOperations.getExecutionOrder(parseInt(suiteTestFile.test_file_id));
+
+          // Before dependencies
+          for (const dep of (execOrder.before || [])) {
+            const depFile = await testFileOperations.getById(dep.dependency_file_id);
+            if (depFile && depFile.content) {
+              filesToRun.push({ label: 'before', name: dep.dependency_name || depFile.name, content: depFile.content });
+            }
+          }
+
+          // Main test — use the saved content from the suite record
+          const mainName = execOrder.self ? execOrder.self.name : suiteTestFile.test_file_name;
+          filesToRun.push({ label: 'main', name: mainName, content: suiteTestFile.test_file_content || '' });
+
+          // After dependencies
+          for (const dep of (execOrder.after || [])) {
+            const depFile = await testFileOperations.getById(dep.dependency_file_id);
+            if (depFile && depFile.content) {
+              filesToRun.push({ label: 'after', name: dep.dependency_name || depFile.name, content: depFile.content });
+            }
+          }
+        } catch (depErr) {
+          console.warn(`Could not resolve dependencies for "${suiteTestFile.test_file_name}", running main only:`, depErr.message);
+          filesToRun.push({ label: 'main', name: suiteTestFile.test_file_name, content: suiteTestFile.test_file_content || '' });
+        }
+      } else {
+        filesToRun.push({ label: 'main', name: suiteTestFile.test_file_name, content: suiteTestFile.test_file_content || '' });
+      }
+
+      // Combine all steps into one test block so they share the same browser/page
+      const combinedSteps = filesToRun
+        .map(f => {
+          const indented = f.content.trim().split('\n').join('\n  ');
+          return `  // ── ${f.name} (${f.label}) ──\n  ${indented}`;
+        })
+        .join('\n\n');
+
+      const combinedTestName = filesToRun.length > 1
+        ? filesToRun.map(f => f.name).join(' → ')
+        : suiteTestFile.test_file_name;
+
+      // Log the execution order when dependencies are present
+      if (filesToRun.length > 1) {
+        pushLog(suiteExecutionId, `📋 ${suiteTestFile.test_file_name} execution order: ${filesToRun.map((f, i) => `${i + 1}. ${f.name} (${f.label})`).join(', ')}`);
+      }
+
       const testContent = `import { test, expect } from '@playwright/test';${suiteModuleImportBlock}
-test('${suiteTestFile.test_file_name}', async ({ page, request, browser, context, browserName }) => {
-${userCode}
+test('${combinedTestName}', async ({ page, request, browser, context, browserName }) => {
+${combinedSteps}
 });
 `;
 
       const fileName = `test-${index + 1}-${suiteTestFile.test_file_name.replace(/[^a-zA-Z0-9]/g, '_')}.spec.ts`;
       const testFilePath = path.join(tempDir, fileName);
       await fs.writeFile(testFilePath, testContent, 'utf8');
-      
+
       return {
         fileName,
-        testName: suiteTestFile.test_file_name
+        testName: combinedTestName
       };
     });
 
