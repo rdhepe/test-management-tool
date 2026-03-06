@@ -11,6 +11,7 @@ RUN cd server && npm install --omit=dev --ignore-scripts
 RUN cd server && npx playwright install --with-deps chromium
 
 # Copy everything and build the Vite frontend
+# bust-cache: 2026-03-06
 COPY . .
 RUN npm run build
 
