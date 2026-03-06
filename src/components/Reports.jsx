@@ -1060,10 +1060,11 @@ function ReleaseReadinessReport() {
   if (error)   return <ErrorState msg={error} />;
   if (!metrics) return null;
 
-  const { score, passRate, passRateSource, recentRunCount, totalTests, totalPassed, suitePassRate,
+  const { score, manualPassRate, suitePassRate,
     criticalOpen, highOpen, mediumOpen, totalOpen, totalClosed,
     activeSprint, sprintCompletion, sprintTotalReqs, sprintPassedTCs,
-    tcTotal, tcExecuted, tcCoverage, suiteBonus = 0 } = metrics;
+    tcTotal, tcExecuted, tcCoverage, suiteBonus = 0,
+    recentRunCount = 0, totalTests = 0, totalPassed = 0 } = metrics;
 
   const clr = scoreColor(score);
 
@@ -1076,11 +1077,11 @@ function ReleaseReadinessReport() {
 
         <div className="flex-1 min-w-0 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700">
-            <p className="text-xs text-slate-400 mb-1">{passRateSource === 'suite' ? 'Suite Pass Rate' : passRateSource === 'manual' ? 'Manual Run Pass Rate' : 'Pass Rate'}</p>
-            <p className={`text-2xl font-bold ${passRate !== null ? (passRate >= 80 ? 'text-green-400' : passRate >= 60 ? 'text-yellow-400' : 'text-red-400') : 'text-slate-500'}`}>
-              {passRate !== null ? `${passRate}%` : '—'}
+            <p className="text-xs text-slate-400 mb-1">Manual Run Pass Rate</p>
+            <p className={`text-2xl font-bold ${manualPassRate !== null ? (manualPassRate >= 80 ? 'text-green-400' : manualPassRate >= 60 ? 'text-yellow-400' : 'text-red-400') : 'text-slate-500'}`}>
+              {manualPassRate !== null ? `${manualPassRate}%` : '—'}
             </p>
-            <p className="text-xs text-slate-500 mt-0.5">{passRateSource === 'suite' ? `${totalPassed}/${totalTests} tests · ${recentRunCount} runs` : passRateSource === 'manual' ? 'Based on latest run per TC' : 'No run history'}</p>
+            <p className="text-xs text-slate-500 mt-0.5">Based on latest run per TC</p>
           </div>
 
           <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700">
@@ -1122,12 +1123,12 @@ function ReleaseReadinessReport() {
         <h3 className="text-xs uppercase text-slate-500 font-semibold tracking-wider mb-3">Score Breakdown</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: 'Base Score',           pts: 20,                                                                          max: 20, desc: 'Always awarded' },
-            { label: 'Test Pass Rate',         pts: passRate !== null ? Math.round((passRate / 100) * 30) : 0,                    max: 30, desc: passRate !== null ? `${passRate}% × 30 (${passRateSource === 'manual' ? 'manual runs' : 'suite runs'})` : 'No run data' },
+            { label: 'Base Score',           pts: 20,                                                                                    max: 20, desc: 'Always awarded' },
+            { label: 'Manual Test Pass Rate',  pts: manualPassRate !== null ? Math.round((manualPassRate / 100) * 30) : 0,               max: 30, desc: manualPassRate !== null ? `${manualPassRate}% × 30 (latest run per TC)` : 'No manual run data' },
             { label: 'Sprint Completion',      pts: sprintCompletion !== null ? Math.min(20, Math.round((sprintCompletion / 100) * 20)) : 0, max: 20, desc: sprintCompletion !== null ? `${sprintCompletion}% × 20 (${sprintPassedTCs}/${sprintTotalReqs} reqs passing)` : 'No active sprint' },
-            { label: 'TC Coverage',            pts: tcCoverage !== null ? Math.min(10, Math.round((tcCoverage / 100) * 10)) : 0,  max: 10, desc: tcCoverage !== null ? `${tcCoverage}% × 10` : 'No data' },
-            { label: 'Automated Suite Runs',   pts: suiteBonus,  max: 20, desc: recentRunCount > 0 ? `${suitePassRate}% suite pass rate × 20 (${recentRunCount} runs)` : 'Run an automated suite to earn +20 pts' },
-            { label: 'Critical Defects',       pts: -Math.min(40, criticalOpen * 15 + highOpen * 8),                              max: 0,  desc: `${criticalOpen} crit (−15ea) + ${highOpen} high (−8ea)`, penalty: true },
+            { label: 'TC Coverage',            pts: tcCoverage !== null ? Math.min(10, Math.round((tcCoverage / 100) * 10)) : 0,          max: 10, desc: tcCoverage !== null ? `${tcCoverage}% × 10` : 'No data' },
+            { label: 'Automated Suite Runs',   pts: suiteBonus, max: 20, desc: suitePassRate !== null ? `${suitePassRate}% × 20 (latest run: ${totalPassed}/${totalTests})` : 'Run an automated suite to earn +20 pts' },
+            { label: 'Critical Defects',       pts: -Math.min(40, criticalOpen * 15 + highOpen * 8),                                      max: 0,  desc: `${criticalOpen} crit (−15ea) + ${highOpen} high (−8ea)`, penalty: true },
           ].map(({ label, pts, max, desc, penalty }) => (
             <div key={label} className={`rounded-xl p-4 border ${penalty ? 'bg-red-500/5 border-red-500/20' : 'bg-slate-800 border-slate-700'}`}>
               <p className="text-xs text-slate-400 mb-1">{label}</p>
@@ -1143,9 +1144,9 @@ function ReleaseReadinessReport() {
       {/* How to reach 100 */}
       {score < 100 && (() => {
         const tips = [];
-        if (recentRunCount === 0) tips.push({ pts: 20, action: 'Run an automated suite', detail: 'Go to Test Suites → pick a suite → click Run. Unlocks the full +20 pts bonus.' });
-        else if (suiteBonus < 20) tips.push({ pts: 20 - suiteBonus, action: 'Fix failing automated suite tests', detail: `Your suite pass rate is ${suitePassRate}%. Heal or fix failing tests to earn the remaining ${20 - suiteBonus} pts.` });
-        if (passRate !== null && passRate < 100) tips.push({ pts: 30 - Math.round((passRate / 100) * 30), action: 'Fix failing manual test cases', detail: `Pass rate is ${passRate}%. Re-run failed test cases with a passing result to recover up to ${30 - Math.round((passRate / 100) * 30)} pts.` });
+        if (suitePassRate === null) tips.push({ pts: 20, action: 'Run an automated suite', detail: 'Go to Test Suites → pick a suite → click Run. Unlocks the full +20 pts bonus.' });
+        else if (suiteBonus < 20) tips.push({ pts: 20 - suiteBonus, action: 'Fix failing automated suite tests', detail: `Your latest suite run pass rate is ${suitePassRate}%. Fix or heal failing tests to earn the remaining ${20 - suiteBonus} pts.` });
+        if (manualPassRate !== null && manualPassRate < 100) tips.push({ pts: 30 - Math.round((manualPassRate / 100) * 30), action: 'Fix failing manual test cases', detail: `Manual pass rate is ${manualPassRate}%. Re-run failed test cases with a passing result to recover up to ${30 - Math.round((manualPassRate / 100) * 30)} pts.` });
         if (tcCoverage !== null && tcCoverage < 100) tips.push({ pts: 10 - Math.min(10, Math.round((tcCoverage / 100) * 10)), action: `Execute all test cases`, detail: `${tcTotal - tcExecuted} test case(s) have never been run. Log a manual run result for each to earn up to ${10 - Math.min(10, Math.round((tcCoverage / 100) * 10))} pts.` });
         if (!activeSprint) tips.push({ pts: 20, action: 'Create an active sprint with linked requirements', detail: 'Sprint completion is worth +20 pts. Create a sprint, link requirements with test cases, and mark them as passing.' });
         else if (sprintCompletion !== null && sprintCompletion < 100) tips.push({ pts: 20 - Math.min(20, Math.round((sprintCompletion / 100) * 20)), action: 'Pass all sprint requirements', detail: `${sprintTotalReqs - sprintPassedTCs} requirement(s) are not yet passing. Execute their linked test cases to recover ${20 - Math.min(20, Math.round((sprintCompletion / 100) * 20))} pts.` });

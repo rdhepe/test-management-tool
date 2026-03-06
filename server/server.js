@@ -678,16 +678,17 @@ app.get('/release-readiness', async (req, res) => {
     const orgCheck = await organizationOperations.getById(orgId);
     if (orgCheck?.ai_healing_enabled !== 1) return res.status(403).json({ error: 'Release Readiness is only available for AI-enabled organizations.' });
 
-    // Last 10 completed suite runs (status is stored as 'PASS' or 'FAIL' by the runner)
+    // Latest completed suite run only (status is stored as 'PASS' or 'FAIL' by the runner)
     const seRes = await pool.query(
       `SELECT total_tests, passed, failed FROM suite_executions
-       WHERE org_id = $1 AND status IN ('PASS', 'FAIL', 'completed') ORDER BY created_at DESC LIMIT 10`,
+       WHERE org_id = $1 AND status IN ('PASS', 'FAIL', 'completed') ORDER BY created_at DESC LIMIT 1`,
       [orgId]
     );
     const recentRuns = seRes.rows;
-    const totalTests  = recentRuns.reduce((a, r) => a + (parseInt(r.total_tests, 10) || 0), 0);
-    const totalPassed = recentRuns.reduce((a, r) => a + (parseInt(r.passed, 10) || 0), 0);
-    const passRate = totalTests > 0 ? Math.round((totalPassed / totalTests) * 100) : null;
+    const latestRun  = recentRuns[0] || null;
+    const totalTests  = latestRun ? (parseInt(latestRun.total_tests, 10) || 0) : 0;
+    const totalPassed = latestRun ? (parseInt(latestRun.passed, 10) || 0) : 0;
+    const suitePassRate = totalTests > 0 ? Math.round((totalPassed / totalTests) * 100) : null;
 
     // Defects grouped by severity + status
     const defRes = await pool.query(
@@ -749,7 +750,7 @@ app.get('/release-readiness', async (req, res) => {
     const tcExecuted = parseInt(tcCoverageRes.rows[0].executed, 10) || 0;
     const tcCoverage = tcTotal > 0 ? Math.round((tcExecuted / tcTotal) * 100) : null;
 
-    // Manual test run pass rate (used as passRate fallback when no suite runs)
+    // Manual test run pass rate — always latest run per test case
     let manualPassRate = null;
     const manualRunRes = await pool.query(
       `SELECT test_case_id, status, created_at FROM manual_test_runs WHERE org_id = $1`,
@@ -761,19 +762,16 @@ app.get('/release-readiness', async (req, res) => {
         const prev = latestByTc[r.test_case_id];
         if (!prev || new Date(r.created_at) > new Date(prev.created_at)) latestByTc[r.test_case_id] = r;
       });
-      const latestRuns = Object.values(latestByTc);
-      const mPassed = latestRuns.filter(r => r.status === 'Passed').length;
-      manualPassRate = latestRuns.length > 0 ? Math.round((mPassed / latestRuns.length) * 100) : null;
+      const latestManual = Object.values(latestByTc);
+      const mPassed = latestManual.filter(r => r.status === 'Passed').length;
+      manualPassRate = latestManual.length > 0 ? Math.round((mPassed / latestManual.length) * 100) : null;
     }
-
-    // Use suite pass rate if available, otherwise manual run pass rate
-    const effectivePassRate = passRate !== null ? passRate : manualPassRate;
 
     // ── Score computation (0-100) ────────────────────────────────────────
     let score = 20; // base
 
-    // Test pass rate  → 30 pts (uses manual run pass rate if no suite data)
-    if (effectivePassRate !== null) score += Math.round((effectivePassRate / 100) * 30);
+    // Manual test pass rate → 30 pts (always based on manual runs, independent of suite)
+    if (manualPassRate !== null) score += Math.round((manualPassRate / 100) * 30);
 
     // Critical/High open defect penalty  → -15 each critical, -8 each high (cap -40)
     const defectPenalty = Math.min(40, criticalOpen * 15 + highOpen * 8);
@@ -785,14 +783,14 @@ app.get('/release-readiness', async (req, res) => {
     // TC coverage bonus → up to 10 pts
     if (tcCoverage !== null) score += Math.round((tcCoverage / 100) * 10);
 
-    // Automated suite runs bonus → up to 20 pts (only awarded when suite runs exist)
-    const suiteBonus = passRate !== null ? Math.round((passRate / 100) * 20) : 0;
+    // Automated suite bonus → up to 20 pts (latest run pass rate only)
+    const suiteBonus = suitePassRate !== null ? Math.round((suitePassRate / 100) * 20) : 0;
     score += suiteBonus;
 
     score = Math.max(0, Math.min(100, score));
 
-    const metrics = { score, passRate: effectivePassRate, passRateSource: passRate !== null ? 'suite' : (manualPassRate !== null ? 'manual' : null),
-      recentRunCount: recentRuns.length, totalTests, totalPassed, suitePassRate: passRate,
+    const metrics = { score, manualPassRate, suitePassRate,
+      recentRunCount: recentRuns.length, totalTests, totalPassed,
       criticalOpen, highOpen, mediumOpen, totalOpen, totalClosed,
       activeSprint: activeSprint ? { id: activeSprint.id, name: activeSprint.name } : null,
       sprintCompletion, sprintTotalReqs, sprintPassedTCs,
@@ -819,8 +817,8 @@ app.post('/release-readiness/ai-summary', async (req, res) => {
 
 METRICS:
 - Release Readiness Score: ${m.score ?? '?'} / 100
-- Automated Suite Pass Rate: ${m.passRateSource === 'suite' ? `${m.passRate}% (across ${m.recentRunCount ?? 0} recent suite runs, ${m.totalPassed ?? 0}/${m.totalTests ?? 0} tests passed)` : 'No automated suite runs recorded'}
-- Manual Test Run Pass Rate: ${m.passRateSource === 'manual' ? `${m.passRate}% (latest run per test case)` : m.passRateSource === 'suite' ? 'N/A — using suite data' : 'No data'}
+- Automated Suite Pass Rate (latest run): ${m.suitePassRate !== null && m.suitePassRate !== undefined ? `${m.suitePassRate}% (${m.totalPassed ?? 0}/${m.totalTests ?? 0} tests passed)` : 'No automated suite runs recorded'}
+- Manual Test Run Pass Rate: ${m.manualPassRate !== null && m.manualPassRate !== undefined ? `${m.manualPassRate}% (latest run per test case)` : 'No data'}
 - Open Critical Defects: ${m.criticalOpen ?? 0}
 - Open High Defects: ${m.highOpen ?? 0}
 - Open Medium Defects: ${m.mediumOpen ?? 0}
