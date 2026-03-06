@@ -28,10 +28,12 @@ export default function GlobalVariables() {
   // Usage guide modal
   const [showGuide, setShowGuide] = useState(false);
 
+  const authHeader = () => ({ 'x-auth-token': localStorage.getItem('auth_token') || '' });
+
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/global-variables`);
+      const res = await fetch(`${API_URL}/global-variables`, { headers: authHeader() });
       const data = await res.json();
       setVars(data);
     } catch {
@@ -48,7 +50,7 @@ export default function GlobalVariables() {
     try {
       const res = await fetch(`${API_URL}/global-variables`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify(addForm),
       });
       const data = await res.json();
@@ -67,7 +69,7 @@ export default function GlobalVariables() {
     try {
       const res = await fetch(`${API_URL}/global-variables/${editingId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify(editForm),
       });
       const data = await res.json();
@@ -84,7 +86,7 @@ export default function GlobalVariables() {
   const handleDelete = async (id, key) => {
     if (!confirm(`Delete variable "${key}"?`)) return;
     try {
-      await fetch(`${API_URL}/global-variables/${id}`, { method: 'DELETE' });
+      await fetch(`${API_URL}/global-variables/${id}`, { method: 'DELETE', headers: authHeader() });
       load();
     } catch {
       setError('Failed to delete');
