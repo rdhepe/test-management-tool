@@ -316,7 +316,7 @@ function App({ orgSlug = 'default' }) {
     };
     
     loadRequirements();
-  }, []);
+  }, [currentUser?.id]);
 
   const handleCreateModule = async (moduleData) => {
     try {
@@ -447,9 +447,10 @@ function App({ orgSlug = 'default' }) {
 
   const handleUpdateTestFileRequirement = async (testFileId, requirementId) => {
     try {
+      const authToken = localStorage.getItem('auth_token');
       const response = await fetch(`${API_URL}/test-files/${testFileId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { 'x-auth-token': authToken } : {}) },
         body: JSON.stringify({ requirementId }),
       });
 
