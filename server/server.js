@@ -4686,6 +4686,12 @@ app.get('/debug-session', async (req, res) => {
     const env = await globalVariableOperations.getAllAsEnv(orgId);
     globalVarKeys = Object.keys(env);
   } catch (e) { globalVarKeys = [`ERROR: ${e.message}`]; }
+  // Show all global vars in DB regardless of org
+  let allGlobalVars = [];
+  try {
+    const r = await pool.query('SELECT id, key, value, org_id FROM global_variables ORDER BY org_id, key');
+    allGlobalVars = r.rows;
+  } catch (e) { allGlobalVars = [{ error: e.message }]; }
   res.json({
     tokenPresent: !!token,
     inMemorySession: inMemory,
@@ -4693,6 +4699,7 @@ app.get('/debug-session', async (req, res) => {
     resolvedSession: req.session || null,
     orgId,
     globalVarKeys,
+    allGlobalVarsInDB: allGlobalVars,
   });
 });
 
