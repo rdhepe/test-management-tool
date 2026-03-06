@@ -1713,6 +1713,17 @@ const settingsOperations = {
 // ---------------------------------------------------------------------------
 // Global Variable Operations
 // ---------------------------------------------------------------------------
+
+/** Strip surrounding " or ' quotes — common user mistake when entering values */
+function stripSurroundingQuotes(val) {
+  if (typeof val !== 'string' || val.length < 2) return val;
+  if ((val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))) {
+    return val.slice(1, -1);
+  }
+  return val;
+}
+
 const globalVariableOperations = {
   getAll: async (orgId = 1) => {
     const r = await pool.query('SELECT * FROM global_variables WHERE org_id = $1 ORDER BY key ASC', [orgId]);
@@ -1726,26 +1737,38 @@ const globalVariableOperations = {
 
   getAllAsEnv: async (orgId = 1) => {
     const r = await pool.query('SELECT key, value FROM global_variables WHERE org_id = $1', [orgId]);
-    return Object.fromEntries(r.rows.map(row => [row.key, row.value]));
+    return Object.fromEntries(r.rows.map(row => {
+      let val = row.value ?? '';
+      // Strip surrounding quotes — common mistake when users type "value" or 'value'
+      if (val.length >= 2 &&
+          ((val.startsWith('"') && val.endsWith('"')) ||
+           (val.startsWith("'") && val.endsWith("'")))) {
+        val = val.slice(1, -1);
+      }
+      return [row.key, val];
+    }));
   },
 
   create: async ({ key, value, description }, orgId = 1) => {
+    const cleanVal = stripSurroundingQuotes(value ?? '');
     const r = await pool.query(
       'INSERT INTO global_variables (key, value, description, org_id) VALUES ($1,$2,$3,$4) RETURNING id',
-      [key, value ?? '', description ?? '', orgId]
+      [key?.trim(), cleanVal, description ?? '', orgId]
     );
     return globalVariableOperations.getById(r.rows[0].id);
   },
 
   update: async (id, { key, value, description }) => {
+    const cleanVal = stripSurroundingQuotes(value ?? '');
     await pool.query(
       'UPDATE global_variables SET key=$1, value=$2, description=$3, updated_at=NOW() WHERE id=$4',
-      [key, value ?? '', description ?? '', id]
+      [key?.trim(), cleanVal, description ?? '', id]
     );
     return globalVariableOperations.getById(id);
   },
 
   upsertByKey: async (key, value, orgId = 1) => {
+    const cleanVal = stripSurroundingQuotes(value ?? '');
     const existing = await pool.query(
       'SELECT id FROM global_variables WHERE key = $1 AND org_id = $2',
       [key, orgId]
@@ -1753,13 +1776,13 @@ const globalVariableOperations = {
     if (existing.rows.length > 0) {
       await pool.query(
         'UPDATE global_variables SET value=$1, updated_at=NOW() WHERE id=$2',
-        [value ?? '', existing.rows[0].id]
+        [cleanVal, existing.rows[0].id]
       );
       return globalVariableOperations.getById(existing.rows[0].id);
     }
     const r = await pool.query(
       'INSERT INTO global_variables (key, value, description, org_id) VALUES ($1,$2,$3,$4) RETURNING id',
-      [key, value ?? '', '', orgId]
+      [key, cleanVal, '', orgId]
     );
     return globalVariableOperations.getById(r.rows[0].id);
   },
