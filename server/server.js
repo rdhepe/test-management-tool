@@ -869,14 +869,17 @@ app.get('/modules/:id/executions', async (req, res) => {
 // ===== Test Execution Endpoint =====
 
 // ── AI Test Healer helpers ───────────────────────────────────────────────────
-async function healTestWithAI(specContent, errorOutput, apiKey) {
+async function healTestWithAI(specContent, errorOutput, apiKey, depContext = '') {
   if (!apiKey) {
     throw new Error('No OpenAI API key configured for this organization.');
   }
 
   const prompt = `You are an expert Playwright test engineer. A test has failed. Analyze the failure and provide a fix.
 
-## Original Playwright Spec:
+${depContext ? `## Dependency Context (READ-ONLY — do NOT copy this code into fixedTestBody):
+\`\`\`typescript${depContext}\`\`\`
+
+` : ''}## Original Playwright Spec (the MAIN test — this is what you must fix):
 \`\`\`typescript
 ${specContent.slice(0, 3500)}
 \`\`\`
@@ -895,7 +898,8 @@ Respond with ONLY valid JSON — no markdown fences, no extra text:
   "fixedTestBody": "<complete fixed code that goes INSIDE the test() callback, 2-space indented, valid TypeScript>"
 }
 Rules:
-- fixedTestBody = code INSIDE async ({ page, ... }) => { ... } only, not the wrapper or imports
+- fixedTestBody = ONLY the code INSIDE async ({ page, ... }) => { ... } for the MAIN test — not wrapper, not imports, NOT dep file code
+- Do NOT copy or include any code from the dependency context into fixedTestBody
 - Do not change test intent; only fix what is broken
 - Use idiomatic Playwright: getByRole, getByLabel, getByText, getByPlaceholder, locator, etc.
 - If element not found, use a more resilient selector or add explicit waits
@@ -1074,13 +1078,14 @@ app.post('/run-test', async (req, res) => {
   let specContent = '';
   let specPath = '';
   let combinedTestName = '';
+  let filesToRun = []; // hoisted so AI healer can inspect which part is "main"
 
   try {
     // Create temp directory
     await fs.mkdir(tempDir, { recursive: true });
 
     // Build the full ordered list of files to execute: before deps → main → after deps
-    const filesToRun = []; // [{ label, name, content }]
+    // (filesToRun is hoisted above so AI healer can access it)
 
     if (testFileId) {
       try {
@@ -1390,7 +1395,30 @@ export default defineConfig({
     if (orgAiHealEnabled && !debug && specContent && specPath) {
       aiHealAttempted = true;
       try {
-        const healResult = await healTestWithAI(specContent, combinedError || error.message || '', orgApiKey);
+        // Build a main-only spec for healing so the AI only fixes the main test.
+        // Dep files are supplied as read-only context comments — NOT as editable code.
+        const mainFile = filesToRun.find(f => f.label === 'main');
+        const mainCode = (mainFile ? mainFile.content : code) || code;
+        const beforeDeps = filesToRun.filter(f => f.label === 'before');
+        const afterDeps  = filesToRun.filter(f => f.label === 'after');
+        let depContext = '';
+        if (beforeDeps.length > 0) {
+          depContext += `\n// ── BEFORE dependencies (run before this test — DO NOT include in fixedTestBody) ──\n`;
+          depContext += beforeDeps.map(d => `// [${d.name}]\n${d.content.split('\n').map(l => '// ' + l).join('\n')}`).join('\n');
+          depContext += '\n';
+        }
+        if (afterDeps.length > 0) {
+          depContext += `\n// ── AFTER dependencies (run after this test — DO NOT include in fixedTestBody) ──\n`;
+          depContext += afterDeps.map(d => `// [${d.name}]\n${d.content.split('\n').map(l => '// ' + l).join('\n')}`).join('\n');
+          depContext += '\n';
+        }
+        // Wrap only the main test code for healing
+        const mainOnlySpec = `import { test, expect } from '@playwright/test';
+test(${JSON.stringify(combinedTestName || 'main test')}, async ({ page, request, browser, context, browserName }) => {
+${mainCode}
+});
+`;
+        const healResult = await healTestWithAI(mainOnlySpec, combinedError || error.message || '', orgApiKey, depContext);
         aiAnalysis  = healResult.analysis;
         aiChanges   = healResult.changes;
         aiFixedCode = healResult.fixedTestBody;
