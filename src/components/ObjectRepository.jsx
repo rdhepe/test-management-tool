@@ -3,6 +3,52 @@ import API_URL from '../apiUrl';
 
 const EMPTY_FORM = { page_name: '', object_name: '', selector: '', description: '' };
 
+function FormRow({ form, setForm, error: formErr, onSave, onCancel, saveLabel }) {
+  return (
+    <tr className="bg-slate-800/60">
+      <td colSpan={5} className="px-4 py-3">
+        <div className="grid grid-cols-4 gap-3 mb-2">
+          <input
+            placeholder="PageName (e.g. LoginPage)"
+            value={form.page_name}
+            onChange={e => setForm(f => ({ ...f, page_name: e.target.value }))}
+            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+          />
+          <input
+            placeholder="objectName (e.g. emailInput)"
+            value={form.object_name}
+            onChange={e => setForm(f => ({ ...f, object_name: e.target.value }))}
+            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+          />
+          <input
+            placeholder="Selector (e.g. #email)"
+            value={form.selector}
+            onChange={e => setForm(f => ({ ...f, selector: e.target.value }))}
+            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
+          />
+          <input
+            placeholder="Description (optional)"
+            value={form.description}
+            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+        {formErr && <p className="text-red-400 text-xs mb-2">{formErr}</p>}
+        <div className="flex gap-2">
+          <button
+            onClick={onSave}
+            className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
+          >{saveLabel}</button>
+          <button
+            onClick={onCancel}
+            className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-medium rounded-lg transition-colors"
+          >Cancel</button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export default function ObjectRepository() {
   const [objects, setObjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -123,50 +169,6 @@ export default function ObjectRepository() {
 
   const togglePage = (page) =>
     setCollapsedPages(prev => ({ ...prev, [page]: !prev[page] }));
-
-  const FormRow = ({ form, setForm, error: formErr, onSave, onCancel, saveLabel }) => (
-    <tr className="bg-slate-800/60">
-      <td colSpan={5} className="px-4 py-3">
-        <div className="grid grid-cols-4 gap-3 mb-2">
-          <input
-            placeholder="PageName (e.g. LoginPage)"
-            value={form.page_name}
-            onChange={e => setForm(f => ({ ...f, page_name: e.target.value }))}
-            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-          />
-          <input
-            placeholder="objectName (e.g. emailInput)"
-            value={form.object_name}
-            onChange={e => setForm(f => ({ ...f, object_name: e.target.value }))}
-            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-          />
-          <input
-            placeholder="Selector (e.g. #email)"
-            value={form.selector}
-            onChange={e => setForm(f => ({ ...f, selector: e.target.value }))}
-            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
-          />
-          <input
-            placeholder="Description (optional)"
-            value={form.description}
-            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-            className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-          />
-        </div>
-        {formErr && <p className="text-red-400 text-xs mb-2">{formErr}</p>}
-        <div className="flex gap-2">
-          <button
-            onClick={onSave}
-            className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
-          >{saveLabel}</button>
-          <button
-            onClick={onCancel}
-            className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-medium rounded-lg transition-colors"
-          >Cancel</button>
-        </div>
-      </td>
-    </tr>
-  );
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
