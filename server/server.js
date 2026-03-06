@@ -125,7 +125,7 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/test-file-dependencies') || p.startsWith('/public') ||
       p.startsWith('/release-readiness') || p.startsWith('/enquiries') ||
       p.startsWith('/platform-feedback') || p.startsWith('/platform-bug-reports') ||
-      p.startsWith('/debug-session')
+      p.startsWith('/debug-session') || p.startsWith('/debug-migrate-globalvars')
     ) return next();
     // Only serve the SPA shell for GET requests (browser navigation)
     if (req.method !== 'GET') return next();
@@ -4667,6 +4667,21 @@ app.delete('/wiki/pages/:id', requireAuth, async (req, res) => {
 // Health check endpoint
 app.get('/health', async (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// ─── TEMPORARY: migrate global vars from org 1 to org 2 ─────────────────────
+app.post('/debug-migrate-globalvars', async (req, res) => {
+  const { fromOrg = 1, toOrg } = req.body;
+  if (!toOrg) return res.status(400).json({ error: 'toOrg required' });
+  try {
+    const r = await pool.query(
+      'UPDATE global_variables SET org_id = $1 WHERE org_id = $2 RETURNING id, key, org_id',
+      [toOrg, fromOrg]
+    );
+    res.json({ migrated: r.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ─── TEMPORARY DEBUG: session + global vars check ────────────────────────────
