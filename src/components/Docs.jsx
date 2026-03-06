@@ -752,6 +752,35 @@ Content-Type: application/json
   },
 };
 
+// ─── Per-article headings for the right TOC ──────────────────────────────────
+const HEADINGS = {
+  'gs-overview':       ['Core concepts', 'Navigation overview'],
+  'gs-org':            ['Steps', 'Org settings'],
+  'gs-first-module':   ['1. Create a module', '2. Create a test file', '3. Write and run'],
+  'gs-users':          ['Roles', 'Adding a user'],
+  'wt-playwright':     ['Available objects', 'Common actions', 'Selectors — best to worst'],
+  'wt-editor':         ['Editor toolbar', 'Keyboard shortcuts', 'Results panel'],
+  'wt-or':             ['Creating an entry', 'Using OR in tests', 'Folders'],
+  'wt-deps':           ['Use cases', 'Setting up dependencies'],
+  'wt-global-vars':    ['Common uses', 'Accessing them in tests'],
+  'run-single':        ['How to run', 'What gets saved', 'Viewing history'],
+  'run-suite':         ['Creating a suite', 'Running a suite', 'Suite execution detail'],
+  'run-config':        ['Settings'],
+  'run-trace':         ['Trace', 'Video', 'Debug run'],
+  'ai-script':         ['How to use', 'Tips for better results'],
+  'ai-testcases':      ['Test types available', 'How to use'],
+  'ai-healing':        ['How it works', 'Enabling'],
+  'tm-features':       ['Features', 'Requirements', 'Creating them'],
+  'tm-testcases':      ['Structure', 'Running a test case manually'],
+  'tm-defects':        ['Auto-raised defects', 'Defect fields'],
+  'tm-sprints':        ['Sprints', 'Taskboard'],
+  'bp-structure':      ['Module naming', 'Test file granularity', 'Assertions', 'Data management'],
+  'bp-selectors':      ['Priority order', 'Object Repository strategy', 'Avoiding flakiness'],
+  'bp-ci':             ['Running a suite via API', 'Recommended CI pipeline'],
+  'faq-general':       ['Supported browsers', 'Playwright on the server', 'Importing existing tests', 'npm packages', 'Reports storage'],
+  'faq-troubleshoot':  ['Test passes locally but fails', 'require is not defined', 'AI features not working', 'Screenshots / trace missing', 'PASS but app is broken'],
+};
+
 // ─── Renderer ─────────────────────────────────────────────────────────────────
 function ArticleContent({ node }) {
   if (!node) return null;
@@ -967,19 +996,14 @@ export default function Docs() {
         <aside className="hidden xl:block w-52 shrink-0 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto py-6 px-4">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">On this page</p>
           {article && (
-            <div className="space-y-1">
-              {SECTIONS.map(s => (
-                <div key={s.title} className="mb-3">
-                  <p className="text-xs font-semibold text-slate-500 mb-1">{s.icon} {s.title}</p>
-                  {s.articles.map(a => (
-                    <button key={a.id} onClick={() => setActiveId(a.id)}
-                      className={`block w-full text-left text-xs px-2 py-1 rounded transition-colors ${activeId === a.id ? 'text-indigo-400 font-medium' : 'text-slate-600 hover:text-slate-300'}`}>
-                      {a.title}
-                    </button>
-                  ))}
-                </div>
+            <ul className="space-y-1">
+              {(HEADINGS[activeId] || []).map(h => (
+                <li key={h}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors px-2 py-1 leading-snug cursor-default">
+                  {h}
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </aside>
       </div>
