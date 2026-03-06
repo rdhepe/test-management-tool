@@ -126,6 +126,7 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/release-readiness') || p.startsWith('/enquiries') ||
       p.startsWith('/search') ||
       p.startsWith('/object-repository') ||
+      p.startsWith('/or-folders') ||
       p.startsWith('/platform-feedback') || p.startsWith('/platform-bug-reports') ||
       p.startsWith('/debug-session') || p.startsWith('/debug-migrate-globalvars')
     ) return next();
@@ -1991,11 +1992,11 @@ app.get('/object-repository', async (req, res) => {
 
 app.post('/object-repository', async (req, res) => {
   try {
-    const { page_name, object_name, selector, description } = req.body;
+    const { page_name, object_name, selector, description, folder_id } = req.body;
     if (!page_name?.trim() || !object_name?.trim() || !selector?.trim())
       return res.status(400).json({ error: 'page_name, object_name and selector are required' });
     const created = await objectRepositoryOperations.create(
-      { page_name, object_name, selector, description }, req.session?.orgId || 1
+      { page_name, object_name, selector, description, folder_id }, req.session?.orgId || 1
     );
     res.status(201).json(created);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -2003,11 +2004,11 @@ app.post('/object-repository', async (req, res) => {
 
 app.put('/object-repository/:id', async (req, res) => {
   try {
-    const { page_name, object_name, selector, description } = req.body;
+    const { page_name, object_name, selector, description, folder_id } = req.body;
     if (!page_name?.trim() || !object_name?.trim() || !selector?.trim())
       return res.status(400).json({ error: 'page_name, object_name and selector are required' });
     const updated = await objectRepositoryOperations.update(
-      parseInt(req.params.id), { page_name, object_name, selector, description }
+      parseInt(req.params.id), { page_name, object_name, selector, description, folder_id }
     );
     if (!updated) return res.status(404).json({ error: 'Object not found' });
     res.json(updated);
@@ -2017,6 +2018,38 @@ app.put('/object-repository/:id', async (req, res) => {
 app.delete('/object-repository/:id', async (req, res) => {
   try {
     await objectRepositoryOperations.delete(parseInt(req.params.id));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── OR Folders ─────────────────────────────────────────────────────
+app.get('/or-folders', async (req, res) => {
+  try {
+    res.json(await orFolderOperations.getAll(req.session?.orgId || 1));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/or-folders', async (req, res) => {
+  try {
+    const { name, parent_id } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+    const folder = await orFolderOperations.create({ name, parent_id }, req.session?.orgId || 1);
+    res.status(201).json(folder);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/or-folders/:id', async (req, res) => {
+  try {
+    const { name, parent_id } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+    const folder = await orFolderOperations.update(parseInt(req.params.id), { name, parent_id });
+    res.json(folder);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/or-folders/:id', async (req, res) => {
+  try {
+    await orFolderOperations.delete(parseInt(req.params.id));
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

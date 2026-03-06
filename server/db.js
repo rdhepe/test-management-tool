@@ -563,6 +563,23 @@ async function initDB() {
     )
   `);
 
+  // OR Folders — organisational hierarchy for Object Repository
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS or_folders (
+      id         SERIAL PRIMARY KEY,
+      name       TEXT NOT NULL,
+      parent_id  INTEGER REFERENCES or_folders(id) ON DELETE CASCADE,
+      org_id     INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Add folder_id to object_repository if it doesn't exist yet
+  await pool.query(`
+    ALTER TABLE object_repository
+      ADD COLUMN IF NOT EXISTS folder_id INTEGER REFERENCES or_folders(id) ON DELETE SET NULL
+  `);
+
   await seedDefaultOrg();
   await seedDefaultUsers();
   console.log('Database initialised');
@@ -1850,18 +1867,18 @@ const objectRepositoryOperations = {
     return r.rows[0] || null;
   },
 
-  create: async ({ page_name, object_name, selector, description }, orgId = 1) => {
+  create: async ({ page_name, object_name, selector, description, folder_id }, orgId = 1) => {
     const r = await pool.query(
-      'INSERT INTO object_repository (page_name, object_name, selector, description, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-      [page_name.trim(), object_name.trim(), selector.trim(), description ?? '', orgId]
+      'INSERT INTO object_repository (page_name, object_name, selector, description, folder_id, org_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [page_name.trim(), object_name.trim(), selector.trim(), description ?? '', folder_id || null, orgId]
     );
     return objectRepositoryOperations.getById(r.rows[0].id);
   },
 
-  update: async (id, { page_name, object_name, selector, description }) => {
+  update: async (id, { page_name, object_name, selector, description, folder_id }) => {
     await pool.query(
-      'UPDATE object_repository SET page_name=$1, object_name=$2, selector=$3, description=$4, updated_at=NOW() WHERE id=$5',
-      [page_name.trim(), object_name.trim(), selector.trim(), description ?? '', id]
+      'UPDATE object_repository SET page_name=$1, object_name=$2, selector=$3, description=$4, folder_id=$5, updated_at=NOW() WHERE id=$6',
+      [page_name.trim(), object_name.trim(), selector.trim(), description ?? '', folder_id || null, id]
     );
     return objectRepositoryOperations.getById(id);
   },
@@ -1893,6 +1910,39 @@ const objectRepositoryOperations = {
     lines.push('};', '', 'module.exports = OR;');
     return lines.join('\n');
   }
+};
+
+// ---------------------------------------------------------------------------
+// OR Folder Operations
+// ---------------------------------------------------------------------------
+const orFolderOperations = {
+  getAll: async (orgId = 1) => {
+    const r = await pool.query(
+      'SELECT * FROM or_folders WHERE org_id=$1 ORDER BY parent_id NULLS FIRST, name ASC',
+      [orgId]
+    );
+    return r.rows;
+  },
+
+  create: async ({ name, parent_id }, orgId = 1) => {
+    const r = await pool.query(
+      'INSERT INTO or_folders (name, parent_id, org_id) VALUES ($1,$2,$3) RETURNING *',
+      [name.trim(), parent_id || null, orgId]
+    );
+    return r.rows[0];
+  },
+
+  update: async (id, { name, parent_id }) => {
+    const r = await pool.query(
+      'UPDATE or_folders SET name=$1, parent_id=$2 WHERE id=$3 RETURNING *',
+      [name.trim(), parent_id || null, id]
+    );
+    return r.rows[0];
+  },
+
+  delete: async (id) => {
+    return pool.query('DELETE FROM or_folders WHERE id=$1', [id]);
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -2075,6 +2125,7 @@ module.exports = {
   settingsOperations,
   globalVariableOperations,
   objectRepositoryOperations,
+  orFolderOperations,
   enquiryOperations,
   platformFeedbackOperations,
   platformBugReportOperations
