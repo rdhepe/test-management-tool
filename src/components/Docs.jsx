@@ -119,7 +119,7 @@ const CONTENT = {
           <li>Set an admin password. <strong>Save this — it cannot be recovered.</strong></li>
           <li>You are now logged in as <code>admin</code>.</li>
         </ol>
-        <div className="callout tip">The org slug is permanent and case-insensitive. Choose something memorable.</div>
+        <div className="callout-tip">The org slug is permanent and case-insensitive. Choose something memorable.</div>
         <h2>Org settings</h2>
         <p>As admin you can configure:</p>
         <ul>
@@ -160,7 +160,7 @@ test('login with valid credentials', async ({ page }) => {
           <li>Click <strong>▶ Run</strong> — the test executes and results appear instantly.</li>
           <li>Click <strong>🐛 Trace</strong> to record a full Playwright trace for debugging.</li>
         </ol>
-        <div className="callout tip">Enable <strong>Trace → On Failure</strong> in Config so traces are automatically captured whenever a test fails — no need to re-run manually.</div>
+        <div className="callout-tip">Enable <strong>Trace → On Failure</strong> in Config so traces are automatically captured whenever a test fails — no need to re-run manually.</div>
       </>
     ),
   },
@@ -184,7 +184,7 @@ test('login with valid credentials', async ({ page }) => {
           <li>Set a username, password, and role.</li>
           <li>Share the login URL (<code>teststudio.cloud/org/your-slug</code>) and credentials.</li>
         </ol>
-        <div className="callout warn">Passwords are hashed with scrypt. There is no "forgot password" flow — admins can reset passwords from the Users panel.</div>
+        <div className="callout-warn">Passwords are hashed with scrypt. There is no "forgot password" flow — admins can reset passwords from the Users panel.</div>
       </>
     ),
   },
@@ -281,7 +281,7 @@ test('login with valid credentials', async ({ page }) => {
   await page.locator(OR.LoginPage.passwordInput).fill('secret');
   await page.locator(OR.LoginPage.submitBtn).click();
 });`}</pre>
-        <div className="callout best">When a UI element changes, update it once in the OR — every test that references it is fixed automatically.</div>
+        <div className="callout-best">When a UI element changes, update it once in the OR — every test that references it is fixed automatically.</div>
         <h2>Folders</h2>
         <p>Use the left panel in OR to create a folder hierarchy. Drag entries into folders to keep large repositories organised by page or feature area.</p>
       </>
@@ -305,7 +305,7 @@ test('login with valid credentials', async ({ page }) => {
           <li>Set the execution order with the number input.</li>
         </ol>
         <p>When you click Run, the order is: <code>before deps → main test → after deps</code>.</p>
-        <div className="callout warn">Dependencies run as separate Playwright spec files in the same temp workspace. They share browser state only if they are part of the same Playwright project context.</div>
+        <div className="callout-warn">Dependencies run as separate Playwright spec files in the same temp workspace. They share browser state only if they are part of the same Playwright project context.</div>
       </>
     ),
   },
@@ -331,7 +331,7 @@ test('login with valid credentials', async ({ page }) => {
   await page.getByLabel('Email').fill(user);
   await page.getByLabel('Password').fill(pass);
 });`}</pre>
-        <div className="callout best">Never hardcode URLs or credentials in test files. Use Global Variables so the same tests run against dev, staging, and prod without edits.</div>
+        <div className="callout-best">Never hardcode URLs or credentials in test files. Use Global Variables so the same tests run against dev, staging, and prod without edits.</div>
       </>
     ),
   },
@@ -389,7 +389,7 @@ test('login with valid credentials', async ({ page }) => {
           <li>Link to the overall HTML report</li>
           <li>Defects auto-raised from failures</li>
         </ul>
-        <div className="callout best">Set <strong>Trace → On Failure</strong> and <strong>Screenshots → On Failure</strong> for CI suite runs. This gives you evidence for every failing test without the overhead of recording everything.</div>
+        <div className="callout-best">Set <strong>Trace → On Failure</strong> and <strong>Screenshots → On Failure</strong> for CI suite runs. This gives you evidence for every failing test without the overhead of recording everything.</div>
       </>
     ),
   },
@@ -410,7 +410,7 @@ test('login with valid credentials', async ({ page }) => {
             <tr><td>Video</td><td>Off, On Retry, On Failure, Always</td><td>When to record a browser video (.webm)</td></tr>
           </tbody>
         </table>
-        <div className="callout tip">Click <strong>Save</strong> after changing settings — configuration is stored in localStorage and sent with every run request.</div>
+        <div className="callout-tip">Click <strong>Save</strong> after changing settings — configuration is stored in localStorage and sent with every run request.</div>
       </>
     ),
   },
@@ -436,11 +436,11 @@ test('login with valid credentials', async ({ page }) => {
           </tbody>
         </table>
         <p>After a run with trace enabled, a <strong>View Trace →</strong> link appears in the results panel. Clicking it opens the trace in the free online Playwright Trace Viewer (<code>trace.playwright.dev</code>).</p>
-        <div className="callout best">Use <strong>On Failure</strong> for CI suites. It's low overhead and gives you a full forensic record whenever something breaks.</div>
+        <div className="callout-best">Use <strong>On Failure</strong> for CI suites. It's low overhead and gives you a full forensic record whenever something breaks.</div>
         <h2>Video</h2>
         <p>Video records the browser screen as a <code>.webm</code> file throughout the test. Same four modes as Trace.</p>
         <p>Videos are stored alongside trace and report artifacts. They are accessible from the execution detail view in <strong>Single Runs</strong> and <strong>Suite Runs</strong>.</p>
-        <div className="callout warn">Video recording increases test duration slightly (encoder overhead). Use <strong>On Failure</strong> or <strong>On Retry</strong> for CI to keep runs fast.</div>
+        <div className="callout-warn">Video recording increases test duration slightly (encoder overhead). Use <strong>On Failure</strong> or <strong>On Retry</strong> for CI to keep runs fast.</div>
         <h2>Debug run (🐛 Trace button)</h2>
         <p>The Trace button in the editor always runs with <code>trace: on</code> regardless of Config settings — useful for one-off debugging without changing your saved config.</p>
       </>
@@ -469,7 +469,7 @@ test('login with valid credentials', async ({ page }) => {
           <li>Use the Global Variable <code>BASE_URL</code> and tell the AI to reference <code>process.env.BASE_URL</code>.</li>
           <li>After generation, review the selectors — AI uses its best guess. Replace brittle selectors with <code>getByRole</code> or OR references.</li>
         </ul>
-        <div className="callout tip">AI Script Generation requires an <strong>OpenAI API Key</strong> set in your Organisation settings.</div>
+        <div className="callout-tip">AI Script Generation requires an <strong>OpenAI API Key</strong> set in your Organisation settings.</div>
       </>
     ),
   },
@@ -520,7 +520,7 @@ test('login with valid credentials', async ({ page }) => {
           <li>If it passes: execution is saved as PASS with an <em>AI Healed</em> badge. The fix is visible in the results panel.</li>
           <li>If it still fails: execution is saved as FAIL and a defect is raised.</li>
         </ol>
-        <div className="callout best">Review AI-healed fixes and apply them back to your test file source. Healing only fixes the in-memory copy — it doesn't auto-save to the editor.</div>
+        <div className="callout-best">Review AI-healed fixes and apply them back to your test file source. Healing only fixes the in-memory copy — it doesn't auto-save to the editor.</div>
         <h2>Enabling</h2>
         <ol>
           <li>Go to <strong>Admin → Organizations</strong>.</li>
@@ -640,7 +640,7 @@ test('login with valid credentials', async ({ page }) => {
           <li>Use <strong>Global Variables</strong> for all URLs, credentials, and environment-specific values.</li>
           <li>Clean up created data in after-deps. Don't assume production data exists.</li>
         </ul>
-        <div className="callout best">A test that passes reliably on every run is worth more than a comprehensive test that's flaky. Prioritise stability.</div>
+        <div className="callout-best">A test that passes reliably on every run is worth more than a comprehensive test that's flaky. Prioritise stability.</div>
       </>
     ),
   },
@@ -697,7 +697,7 @@ Content-Type: application/json
           <li><strong>Pre-merge</strong> — trigger the suite that covers the changed feature area.</li>
           <li><strong>Post-deploy</strong> — run the full regression suite against the deployed environment using <code>BASE_URL</code> Global Variable pointing at the new environment.</li>
         </ol>
-        <div className="callout best">Keep your regression suite fast (&lt; 10 min). Move slow or exploratory tests to a separate nightly suite.</div>
+        <div className="callout-best">Keep your regression suite fast (&lt; 10 min). Move slow or exploratory tests to a separate nightly suite.</div>
       </>
     ),
   },
@@ -955,7 +955,7 @@ export default function Docs() {
               </div>
 
               <h1 className="text-3xl font-bold text-white mb-6">{article.title}</h1>
-              <div>{article.content}</div>
+              <div className="docs-prose">{article.content}</div>
 
               {/* Prev / Next */}
               <div className="mt-12 pt-6 border-t border-slate-800 flex justify-between gap-4">
