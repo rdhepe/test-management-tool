@@ -4668,6 +4668,33 @@ app.get('/health', async (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// ─── TEMPORARY DEBUG: session + global vars check ────────────────────────────
+app.get('/debug-session', async (req, res) => {
+  const token = req.headers['x-auth-token'];
+  const inMemory = token ? sessions.has(token) : false;
+  let dbRow = null;
+  if (token) {
+    try {
+      const r = await pool.query('SELECT user_id, username, org_id FROM auth_sessions WHERE token = $1', [token]);
+      dbRow = r.rows[0] || null;
+    } catch (e) { dbRow = { error: e.message }; }
+  }
+  const orgId = req.session?.orgId || 1;
+  let globalVarKeys = [];
+  try {
+    const env = await globalVariableOperations.getAllAsEnv(orgId);
+    globalVarKeys = Object.keys(env);
+  } catch (e) { globalVarKeys = [`ERROR: ${e.message}`]; }
+  res.json({
+    tokenPresent: !!token,
+    inMemorySession: inMemory,
+    dbRow,
+    resolvedSession: req.session || null,
+    orgId,
+    globalVarKeys,
+  });
+});
+
 // ─── Platform Feature Requests ───────────────────────────────────────────────
 // POST /platform-feedback — any authenticated user can submit a feature request
 app.post('/platform-feedback', requireAuth, async (req, res) => {
