@@ -678,10 +678,10 @@ app.get('/release-readiness', async (req, res) => {
     const orgCheck = await organizationOperations.getById(orgId);
     if (orgCheck?.ai_healing_enabled !== 1) return res.status(403).json({ error: 'Release Readiness is only available for AI-enabled organizations.' });
 
-    // Last 10 completed suite runs
+    // Last 10 completed suite runs (status is stored as 'PASS' or 'FAIL' by the runner)
     const seRes = await pool.query(
       `SELECT total_tests, passed, failed FROM suite_executions
-       WHERE org_id = $1 AND status = 'completed' ORDER BY created_at DESC LIMIT 10`,
+       WHERE org_id = $1 AND status IN ('PASS', 'FAIL', 'completed') ORDER BY created_at DESC LIMIT 10`,
       [orgId]
     );
     const recentRuns = seRes.rows;
@@ -792,7 +792,7 @@ app.get('/release-readiness', async (req, res) => {
     score = Math.max(0, Math.min(100, score));
 
     const metrics = { score, passRate: effectivePassRate, passRateSource: passRate !== null ? 'suite' : (manualPassRate !== null ? 'manual' : null),
-      recentRunCount: recentRuns.length, totalTests, totalPassed,
+      recentRunCount: recentRuns.length, totalTests, totalPassed, suitePassRate: passRate,
       criticalOpen, highOpen, mediumOpen, totalOpen, totalClosed,
       activeSprint: activeSprint ? { id: activeSprint.id, name: activeSprint.name } : null,
       sprintCompletion, sprintTotalReqs, sprintPassedTCs,
