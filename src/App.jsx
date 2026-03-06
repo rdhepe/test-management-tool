@@ -17,6 +17,7 @@ import Dashboard from './components/Dashboard';
 import Summary from './components/Summary';
 import PlaywrightConfig from './components/PlaywrightConfig';
 import GlobalVariables from './components/GlobalVariables';
+import ObjectRepository from './components/ObjectRepository';
 import TestDependencies from './components/TestDependencies';
 import Features from './components/Features';
 import Requirements from './components/Requirements';
@@ -782,6 +783,10 @@ function App({ orgSlug = 'default' }) {
       setCurrentView('globalVariables');
       setSelectedModule(null);
       setSelectedTestFile(null);
+    } else if (view === 'objectRepository') {
+      setCurrentView('objectRepository');
+      setSelectedModule(null);
+      setSelectedTestFile(null);
     } else if (view === 'userManagement') {
       setCurrentView('userManagement');
       setSelectedModule(null);
@@ -930,6 +935,10 @@ function App({ orgSlug = 'default' }) {
 
             {currentView === 'globalVariables' && (
               <GlobalVariables />
+            )}
+
+            {currentView === 'objectRepository' && (
+              <ObjectRepository />
             )}
 
             {currentView === 'modules' && (

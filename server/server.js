@@ -6,7 +6,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, objectRepositoryOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations } = require('./db');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -125,6 +125,7 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/test-file-dependencies') || p.startsWith('/public') ||
       p.startsWith('/release-readiness') || p.startsWith('/enquiries') ||
       p.startsWith('/search') ||
+      p.startsWith('/object-repository') ||
       p.startsWith('/platform-feedback') || p.startsWith('/platform-bug-reports') ||
       p.startsWith('/debug-session') || p.startsWith('/debug-migrate-globalvars')
     ) return next();
@@ -1146,6 +1147,10 @@ app.post('/run-test', async (req, res) => {
     // Create temp directory
     await fs.mkdir(tempDir, { recursive: true });
 
+    // Write the Object Repository file so test code can: const OR = require('./_or')
+    const orContent = await objectRepositoryOperations.generateORFileContent(orgId);
+    await fs.writeFile(path.join(tempDir, '_or.js'), orContent, 'utf8');
+
     // Build the full ordered list of files to execute: before deps → main → after deps
     // (filesToRun is hoisted above so AI healer can access it)
 
@@ -1977,6 +1982,45 @@ app.delete('/global-variables/:id', async (req, res) => {
   }
 });
 
+// ── Object Repository ────────────────────────────────────────────────────────
+app.get('/object-repository', async (req, res) => {
+  try {
+    res.json(await objectRepositoryOperations.getAll(req.session?.orgId || 1));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/object-repository', async (req, res) => {
+  try {
+    const { page_name, object_name, selector, description } = req.body;
+    if (!page_name?.trim() || !object_name?.trim() || !selector?.trim())
+      return res.status(400).json({ error: 'page_name, object_name and selector are required' });
+    const created = await objectRepositoryOperations.create(
+      { page_name, object_name, selector, description }, req.session?.orgId || 1
+    );
+    res.status(201).json(created);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/object-repository/:id', async (req, res) => {
+  try {
+    const { page_name, object_name, selector, description } = req.body;
+    if (!page_name?.trim() || !object_name?.trim() || !selector?.trim())
+      return res.status(400).json({ error: 'page_name, object_name and selector are required' });
+    const updated = await objectRepositoryOperations.update(
+      parseInt(req.params.id), { page_name, object_name, selector, description }
+    );
+    if (!updated) return res.status(404).json({ error: 'Object not found' });
+    res.json(updated);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/object-repository/:id', async (req, res) => {
+  try {
+    await objectRepositoryOperations.delete(parseInt(req.params.id));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET /global-variables/by-key/:key — read a variable by key name at runtime.
 app.get('/global-variables/by-key/:key', async (req, res) => {
   try {
@@ -2232,6 +2276,11 @@ app.post('/run-suite/:suiteId', async (req, res) => {
         // Create temp directory
         tempDir = path.join(dataDir, 'temp', `suite-${Date.now()}`);
         await fs.mkdir(tempDir, { recursive: true });
+
+        // Write the Object Repository file so test code can: const OR = require('./_or')
+        const suiteOrContent = await objectRepositoryOperations.generateORFileContent(capturedOrgId);
+        await fs.writeFile(path.join(tempDir, '_or.js'), suiteOrContent, 'utf8');
+
         pushLog(suiteExecutionId, `⚙  Suite execution #${suiteExecutionId} started — ${suiteTestFiles.length} test file(s)`);
 
     // Fetch module-level imports for this suite's module

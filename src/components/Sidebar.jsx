@@ -6,7 +6,7 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
     dashboard: 'Dashboard', modules: 'Modules', testFile: 'Modules', moduleDetail: 'Modules',
     features: 'Features', requirements: 'Requirements', testcases: 'Test Cases',
     taskboard: 'Taskboard', sprints: 'Sprints', summary: 'Summary', testSuites: 'Suite Runs',
-    globalVariables: 'Global Variables', playwrightConfig: 'Config', executions: 'Single Runs',
+    globalVariables: 'Global Variables', objectRepository: 'Object Repository', playwrightConfig: 'Config', executions: 'Single Runs',
     suiteExecutionDetail: 'Suite Runs', defects: 'Defects', reports: 'Reports',
     userManagement: 'Users', orgManagement: 'Organizations', tutorial: 'Guide',
     enquiries: 'Enquiries', featureRequests: 'Feature Requests', bugReports: 'Bug Reports',
@@ -123,6 +123,15 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
             </svg>
           ),
           view: 'globalVariables'
+        },
+        {
+          name: 'Object Repository',
+          icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+            </svg>
+          ),
+          view: 'objectRepository'
         },
         {
           name: 'Config',

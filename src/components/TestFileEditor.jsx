@@ -28,6 +28,12 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
   const [aiCrawlMeta, setAiCrawlMeta] = useState(null); // { crawledUrls, elementsFound }
   const aiInstructionRef = useRef(null);
   const aiPhaseTimerRef = useRef(null);
+
+  // Object Repository side panel
+  const [isOrPanelOpen, setIsOrPanelOpen] = useState(false);
+  const [orObjects, setOrObjects] = useState([]);
+  const [orSearch, setOrSearch] = useState('');
+  const [copiedOrRef, setCopiedOrRef] = useState(null);
   
   // Configure Monaco Editor to disable TypeScript errors
   useEffect(() => {
@@ -82,6 +88,17 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isResizing]);
+
+  // Load OR objects when the panel opens
+  useEffect(() => {
+    if (!isOrPanelOpen) return;
+    fetch(`${API_URL}/object-repository`, {
+      headers: { 'x-auth-token': localStorage.getItem('auth_token') || '' },
+    })
+      .then(r => r.json())
+      .then(data => setOrObjects(data))
+      .catch(() => {});
+  }, [isOrPanelOpen]);
 
   if (!testFile) {
     return (
@@ -278,6 +295,22 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
             </button>
           )}
 
+          {/* Object Repository Side Panel Toggle */}
+          <button
+            onClick={() => setIsOrPanelOpen(v => !v)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${
+              isOrPanelOpen
+                ? 'bg-teal-600 text-white'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+            title="Toggle Object Repository panel"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+            </svg>
+            OR
+          </button>
+
           {/* Edit Requirement Button */}
           <button
             onClick={() => setIsEditRequirementModalOpen(true)}
@@ -363,8 +396,12 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
         </div>
       </div>
 
-      {/* Monaco Editor */}
-      <div className="flex-1 overflow-hidden" style={{ height: isPanelOpen ? `calc(100% - ${panelHeight}px - 52px)` : 'calc(100% - 52px)' }}>
+      {/* Main editor area + OR side panel */}
+      <div className="flex flex-1 min-h-0">
+        {/* Left: Monaco Editor + Execution Panel */}
+        <div className="flex flex-col flex-1 min-h-0 min-w-0">
+          {/* Monaco Editor */}
+          <div className="flex-1 min-h-0 overflow-hidden">
         <Editor
           height="100%"
           key={testFile.id}
@@ -671,6 +708,89 @@ function TestFileEditor({ testFile, moduleName, onContentChange, onSave, onRun, 
           )}
         </button>
       )}
+
+        </div>{/* end editor column */}
+
+        {/* Right: Object Repository side panel */}
+        {isOrPanelOpen && (
+          <div className="w-72 shrink-0 flex flex-col border-l border-slate-800 bg-slate-900 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-800 shrink-0">
+              <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Object Repository</span>
+              <button
+                onClick={() => setIsOrPanelOpen(false)}
+                className="p-1 text-slate-500 hover:text-white transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            {/* Search */}
+            <div className="px-3 py-2 border-b border-slate-800 shrink-0">
+              <input
+                type="text"
+                value={orSearch}
+                onChange={e => setOrSearch(e.target.value)}
+                placeholder="Search objects…"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            {/* Objects list */}
+            <div className="flex-1 overflow-y-auto">
+              {orObjects.length === 0 ? (
+                <div className="px-3 py-6 text-center text-xs text-slate-500">
+                  No objects yet.<br />Add them in Object Repository.
+                </div>
+              ) : (() => {
+                const search = orSearch.toLowerCase().trim();
+                const grouped = orObjects.reduce((acc, obj) => {
+                  if (search && !obj.page_name.toLowerCase().includes(search) && !obj.object_name.toLowerCase().includes(search) && !obj.selector.toLowerCase().includes(search)) return acc;
+                  if (!acc[obj.page_name]) acc[obj.page_name] = [];
+                  acc[obj.page_name].push(obj);
+                  return acc;
+                }, {});
+                const pages = Object.keys(grouped).sort();
+                if (pages.length === 0) return <div className="px-3 py-6 text-center text-xs text-slate-500">No matches.</div>;
+                return pages.map(page => (
+                  <div key={page} className="border-b border-slate-800/50">
+                    <div className="px-3 py-1.5 bg-slate-800/30 sticky top-0">
+                      <span className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wider">{page}</span>
+                    </div>
+                    {grouped[page].map(obj => (
+                      <button
+                        key={obj.id}
+                        onClick={() => {
+                          navigator.clipboard.writeText(`OR.${obj.page_name}.${obj.object_name}`).catch(() => {});
+                          setCopiedOrRef(obj.id);
+                          setTimeout(() => setCopiedOrRef(null), 1500);
+                        }}
+                        className="w-full text-left px-3 py-1.5 hover:bg-slate-800/60 transition-colors group flex items-center gap-2"
+                        title={`Copy OR.${obj.page_name}.${obj.object_name}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-slate-200 truncate">{obj.object_name}</div>
+                          <div className="text-[10px] font-mono text-emerald-400/80 truncate">{obj.selector}</div>
+                        </div>
+                        {copiedOrRef === obj.id ? (
+                          <svg className="w-3 h-3 text-green-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3 h-3 text-slate-600 group-hover:text-slate-400 shrink-0 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        )}
+
+      </div>{/* end main editor row */}
 
       {/* Edit Requirement Modal */}
       <EditTestFileRequirementModal
