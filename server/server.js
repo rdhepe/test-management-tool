@@ -72,9 +72,34 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 // Resolve session from token for every request (non-enforcing)
-app.use((req, res, next) => {
+// Falls back to DB lookup so sessions survive server restarts even if the
+// in-memory Map wasn't pre-populated (e.g. auth_sessions table race on boot).
+app.use(async (req, res, next) => {
   const token = req.headers['x-auth-token'];
-  if (token && sessions.has(token)) req.session = sessions.get(token);
+  if (token) {
+    if (sessions.has(token)) {
+      req.session = sessions.get(token);
+    } else {
+      // Token not in memory — try the persistent DB store
+      try {
+        const rows = await pool.query('SELECT * FROM auth_sessions WHERE token = $1', [token]);
+        if (rows.rows.length > 0) {
+          const row = rows.rows[0];
+          const sessionData = {
+            userId: row.user_id,
+            username: row.username,
+            role: row.role,
+            orgId: row.org_id,
+            customRoleId: row.custom_role_id,
+            permissions: row.permissions ? JSON.parse(row.permissions) : null,
+            customRoleName: row.custom_role_name,
+          };
+          sessions.set(token, sessionData); // re-hydrate in-memory map
+          req.session = sessionData;
+        }
+      } catch (_) { /* DB unavailable — degrade gracefully */ }
+    }
+  }
   next();
 });
 
