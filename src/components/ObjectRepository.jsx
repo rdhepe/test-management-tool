@@ -246,8 +246,9 @@ export default function ObjectRepository() {
   const loadFolders = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/or-folders`, { headers: authHeader() });
-      setFolders(await res.json());
-    } catch {}
+      const data = await res.json();
+      setFolders(Array.isArray(data) ? data : []);
+    } catch { setFolders([]); }
   }, []);
 
   useEffect(() => { loadObjects(); loadFolders(); }, [loadObjects, loadFolders]);
