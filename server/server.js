@@ -1200,7 +1200,9 @@ app.post('/run-test', async (req, res) => {
     // share the same browser page. Separate spec files each open their own browser.
     const combinedSteps = filesToRun
       .map(f => {
-        const indented = f.content.trim().split('\n').join('\n  ');
+        // Strip any user-written `const OR = require('./_or')` — OR is auto-imported at the top
+        const cleaned = f.content.replace(/^[^\S\n]*const\s+OR\s*=\s*require\s*\(['"]\.\/(_or|_or\.js)['"]\)\s*;?\s*$/gm, '');
+        const indented = cleaned.trim().split('\n').join('\n  ');
         return `  // ── ${f.name} (${f.label}) ──\n  ${indented}`;
       })
       .join('\n\n');
@@ -1218,7 +1220,8 @@ app.post('/run-test', async (req, res) => {
       } catch (_) {}
     }
 
-    specContent = `import { test, expect } from '@playwright/test';${moduleImportBlock}
+    specContent = `import { test, expect } from '@playwright/test';
+import OR from './_or.js';${moduleImportBlock}
 test(${JSON.stringify(combinedTestName)}, async ({ page, request, browser, context, browserName }) => {
 ${combinedSteps}
 });
@@ -2364,7 +2367,9 @@ app.post('/run-suite/:suiteId', async (req, res) => {
       // Combine all steps into one test block so they share the same browser/page
       const combinedSteps = filesToRun
         .map(f => {
-          const indented = f.content.trim().split('\n').join('\n  ');
+          // Strip any user-written `const OR = require('./_or')` — OR is auto-imported at the top
+          const cleaned = f.content.replace(/^[^\S\n]*const\s+OR\s*=\s*require\s*\(['"]\.\/(_or|_or\.js)['"]\)\s*;?\s*$/gm, '');
+          const indented = cleaned.trim().split('\n').join('\n  ');
           return `  // ── ${f.name} (${f.label}) ──\n  ${indented}`;
         })
         .join('\n\n');
@@ -2378,7 +2383,8 @@ app.post('/run-suite/:suiteId', async (req, res) => {
         pushLog(suiteExecutionId, `📋 ${suiteTestFile.test_file_name} execution order: ${filesToRun.map((f, i) => `${i + 1}. ${f.name} (${f.label})`).join(', ')}`);
       }
 
-      const testContent = `import { test, expect } from '@playwright/test';${suiteModuleImportBlock}
+      const testContent = `import { test, expect } from '@playwright/test';
+import OR from './_or.js';${suiteModuleImportBlock}
 test('${combinedTestName}', async ({ page, request, browser, context, browserName }) => {
 ${combinedSteps}
 });
