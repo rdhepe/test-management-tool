@@ -1140,6 +1140,44 @@ function ReleaseReadinessReport() {
         </div>
       </div>
 
+      {/* How to reach 100 */}
+      {score < 100 && (() => {
+        const tips = [];
+        if (recentRunCount === 0) tips.push({ pts: 20, action: 'Run an automated suite', detail: 'Go to Test Suites → pick a suite → click Run. Unlocks the full +20 pts bonus.' });
+        else if (suiteBonus < 20) tips.push({ pts: 20 - suiteBonus, action: 'Fix failing automated suite tests', detail: `Your suite pass rate is below 100%. Heal or fix failing tests to earn the remaining ${20 - suiteBonus} pts.` });
+        if (passRate !== null && passRate < 100) tips.push({ pts: 30 - Math.round((passRate / 100) * 30), action: 'Fix failing manual test cases', detail: `Pass rate is ${passRate}%. Re-run failed test cases with a passing result to recover up to ${30 - Math.round((passRate / 100) * 30)} pts.` });
+        if (tcCoverage !== null && tcCoverage < 100) tips.push({ pts: 10 - Math.min(10, Math.round((tcCoverage / 100) * 10)), action: `Execute all test cases`, detail: `${tcTotal - tcExecuted} test case(s) have never been run. Log a manual run result for each to earn up to ${10 - Math.min(10, Math.round((tcCoverage / 100) * 10))} pts.` });
+        if (!activeSprint) tips.push({ pts: 20, action: 'Create an active sprint with linked requirements', detail: 'Sprint completion is worth +20 pts. Create a sprint, link requirements with test cases, and mark them as passing.' });
+        else if (sprintCompletion !== null && sprintCompletion < 100) tips.push({ pts: 20 - Math.min(20, Math.round((sprintCompletion / 100) * 20)), action: 'Pass all sprint requirements', detail: `${sprintTotalReqs - sprintPassedTCs} requirement(s) are not yet passing. Execute their linked test cases to recover ${20 - Math.min(20, Math.round((sprintCompletion / 100) * 20))} pts.` });
+        if (criticalOpen > 0) tips.push({ pts: -(criticalOpen * 15), action: `Resolve ${criticalOpen} critical defect(s)`, detail: `Each open critical defect deducts −15 pts (total: −${criticalOpen * 15} pts). Close or resolve them.`, penalty: true });
+        if (highOpen > 0) tips.push({ pts: -(highOpen * 8), action: `Resolve ${highOpen} high defect(s)`, detail: `Each open high defect deducts −8 pts (total: −${highOpen * 8} pts). Close or resolve them.`, penalty: true });
+        if (tips.length === 0) return null;
+        return (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
+              <span className="text-sm font-semibold text-amber-300">How to reach 100</span>
+              <span className="ml-auto text-xs text-slate-500">{100 - score} pts to go</span>
+            </div>
+            <div className="space-y-2">
+              {tips.map((t, i) => (
+                <div key={i} className={`flex items-start gap-3 rounded-lg px-3 py-2.5 border ${t.penalty ? 'bg-red-500/5 border-red-500/20' : 'bg-slate-800/60 border-slate-700'}`}>
+                  <span className={`shrink-0 text-xs font-bold px-1.5 py-0.5 rounded ${t.penalty ? 'bg-red-500/20 text-red-300' : 'bg-indigo-500/20 text-indigo-300'}`}>
+                    {t.penalty ? `${t.pts} pts` : `+${t.pts} pts`}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-slate-200">{t.action}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{t.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Defect details */}
       {(criticalOpen > 0 || highOpen > 0) && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
