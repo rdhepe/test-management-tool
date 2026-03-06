@@ -213,15 +213,19 @@ function TestSuites({ modules, onNavigateToSuiteExecution }) {
       } catch {}
 
       let screenshotModeCI = 'only-on-failure';
+      let traceModeCI = 'off';
+      let videoModeCI = 'off';
       try {
         const pwCfg = JSON.parse(localStorage.getItem('playwright_config') || '{}');
         screenshotModeCI = pwCfg.screenshotMode || 'only-on-failure';
+        traceModeCI = pwCfg.traceMode || 'off';
+        videoModeCI = pwCfg.videoMode || 'off';
       } catch {}
 
       const response = await fetch(`${API_URL}/run-suite/${suite.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') || '' },
-        body: JSON.stringify({ useDocker: true, workers: pwWorkersCI, fullyParallel: pwFullyParallelCI, screenshotMode: screenshotModeCI }),
+        body: JSON.stringify({ useDocker: true, workers: pwWorkersCI, fullyParallel: pwFullyParallelCI, screenshotMode: screenshotModeCI, traceMode: traceModeCI, videoMode: videoModeCI }),
       });
 
       if (response.ok) {

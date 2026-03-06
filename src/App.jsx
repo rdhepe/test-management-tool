@@ -580,9 +580,13 @@ function App({ orgSlug = 'default' }) {
       } catch {}
 
       let pwScreenshotMode = 'only-on-failure';
+      let pwTraceMode = 'off';
+      let pwVideoMode = 'off';
       try {
         const pwCfg = JSON.parse(localStorage.getItem('playwright_config') || '{}');
         pwScreenshotMode = pwCfg.screenshotMode || 'only-on-failure';
+        pwTraceMode = pwCfg.traceMode || 'off';
+        pwVideoMode = pwCfg.videoMode || 'off';
       } catch {}
 
       // Send POST request to backend
@@ -597,6 +601,8 @@ function App({ orgSlug = 'default' }) {
           workers: pwWorkers,
           fullyParallel: pwFullyParallel,
           screenshotMode: pwScreenshotMode,
+          traceMode: pwTraceMode,
+          videoMode: pwVideoMode,
         }),
       });
 
@@ -624,6 +630,10 @@ function App({ orgSlug = 'default' }) {
         fixedCode: data.fixed_code || null,
         healAnalysis: data.heal_analysis || null,
         healChanges: data.heal_changes || null,
+        trace_url: data.trace_path
+          ? `https://trace.playwright.dev/?trace=${(API_URL && API_URL.startsWith('http') ? API_URL : window.location.origin)}/reports/${data.trace_path}`
+          : null,
+        video_path: data.video_path || null,
       });
 
       // Refresh executions list
@@ -660,9 +670,13 @@ function App({ orgSlug = 'default' }) {
       } catch {}
 
       let pwScreenshotModeDebug = 'only-on-failure';
+      let pwTraceModeDebug = 'off';
+      let pwVideoModeDebug = 'off';
       try {
         const pwCfg = JSON.parse(localStorage.getItem('playwright_config') || '{}');
         pwScreenshotModeDebug = pwCfg.screenshotMode || 'only-on-failure';
+        pwTraceModeDebug = pwCfg.traceMode || 'off';
+        pwVideoModeDebug = pwCfg.videoMode || 'off';
       } catch {}
 
       const response = await fetch(`${API_URL}/run-test`, {
@@ -676,6 +690,8 @@ function App({ orgSlug = 'default' }) {
           workers: pwWorkers,
           fullyParallel: pwFullyParallel,
           screenshotMode: pwScreenshotModeDebug,
+          traceMode: pwTraceModeDebug,
+          videoMode: pwVideoModeDebug,
           debug: true,
         }),
       });

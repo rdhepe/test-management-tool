@@ -1119,7 +1119,7 @@ function formatHealLog(healResult, succeeded) {
 
 // POST /run-test endpoint
 app.post('/run-test', async (req, res) => {
-  const { code, moduleId, testFileId, browser = 'chromium', debug = false, workers = 1, fullyParallel = false, screenshotMode = 'only-on-failure' } = req.body;
+  const { code, moduleId, testFileId, browser = 'chromium', debug = false, workers = 1, fullyParallel = false, screenshotMode = 'only-on-failure', traceMode = 'off', videoMode = 'off' } = req.body;
 
   // Load global variables and make them available to tests via process.env
   const orgId = req.session?.orgId || 1;
@@ -1259,7 +1259,8 @@ export default defineConfig({
     headless: ${FORCE_HEADLESS},
     slowMo: ${FORCE_HEADLESS ? 0 : 500},
     screenshot: '${screenshotMode}',
-    trace: '${debug ? 'on' : 'off'}',
+    trace: '${debug ? 'on' : traceMode}',
+    video: '${videoMode}',
   },
   reporter: [
     ['list'],
@@ -1413,6 +1414,60 @@ export default defineConfig({
       console.error('Failed to save HTML report:', reportError.message);
     }
 
+    // Collect trace artifact if tracing was enabled
+    let tracePath = null;
+    if (traceMode !== 'off') {
+      try {
+        const traceResultsDir = path.join(tempDir, 'test-results');
+        const findTraceZipSuccess = async (dir) => {
+          let entries; try { entries = await fs.readdir(dir); } catch { return null; }
+          if (entries.includes('trace.zip')) return path.join(dir, 'trace.zip');
+          for (const e of entries) {
+            const full = path.join(dir, e);
+            try { const st = await fs.stat(full); if (st.isDirectory()) { const found = await findTraceZipSuccess(full); if (found) return found; } } catch {}
+          }
+          return null;
+        };
+        const foundZip = await findTraceZipSuccess(traceResultsDir);
+        if (foundZip) {
+          const traceFolderName = `trace-${Date.now()}`;
+          const traceDestDir = path.join(reportsDir, traceFolderName);
+          await fs.mkdir(traceDestDir, { recursive: true });
+          await fs.copyFile(foundZip, path.join(traceDestDir, 'trace.zip'));
+          tracePath = `${traceFolderName}/trace.zip`;
+          console.log('✓ Trace saved:', tracePath);
+        }
+      } catch (traceErr) { console.error('Trace collection error:', traceErr.message); }
+    }
+
+    // Collect video artifact if video recording was enabled
+    let videoPath = null;
+    if (videoMode !== 'off') {
+      try {
+        const videoResultsDir = path.join(tempDir, 'test-results');
+        const findVideoFile = async (dir) => {
+          let entries; try { entries = await fs.readdir(dir); } catch { return null; }
+          const vid = entries.find(e => e.endsWith('.webm') || e.endsWith('.mp4'));
+          if (vid) return path.join(dir, vid);
+          for (const e of entries) {
+            const full = path.join(dir, e);
+            try { const st = await fs.stat(full); if (st.isDirectory()) { const found = await findVideoFile(full); if (found) return found; } } catch {}
+          }
+          return null;
+        };
+        const foundVideo = await findVideoFile(videoResultsDir);
+        if (foundVideo) {
+          const vidExt = path.extname(foundVideo);
+          const vidFolderName = `video-${Date.now()}`;
+          const vidDestDir = path.join(reportsDir, vidFolderName);
+          await fs.mkdir(vidDestDir, { recursive: true });
+          await fs.copyFile(foundVideo, path.join(vidDestDir, `video${vidExt}`));
+          videoPath = `${vidFolderName}/video${vidExt}`;
+          console.log('✓ Video saved:', videoPath);
+        }
+      } catch (videoErr) { console.error('Video collection error:', videoErr.message); }
+    }
+
     // Save execution to database
     let executionId = null;
     if (moduleId && testFileId) {
@@ -1430,7 +1485,9 @@ export default defineConfig({
             error_message: null,
             screenshot_base64: screenshotBase64,
             duration_ms: durationMs,
-            report_path: reportPath
+            report_path: reportPath,
+            trace_path: tracePath,
+            video_path: videoPath,
           }, orgId);
           executionId = execution.id;
           console.log('✓ Execution saved to database with ID:', executionId);
@@ -1453,6 +1510,8 @@ export default defineConfig({
       logs,
       screenshot: screenshotBase64,
       execution_id: executionId,
+      trace_path: tracePath,
+      video_path: videoPath,
     });
 
   } catch (error) {
@@ -1588,7 +1647,9 @@ ${mainCode}
                 error_message: error.message || null,
                 screenshot_base64: null,
                 duration_ms: durationMs,
-                report_path: reportPath
+                report_path: reportPath,
+                trace_path: null,
+                video_path: null,
               }, orgId);
               executionId = execution.id;
               console.log('✓ Execution saved to database with ID:', executionId);
@@ -1663,7 +1724,48 @@ ${mainCode}
     } catch (reportError) {
       console.error('Failed to save HTML report:', reportError.message);
     }
-    
+
+    // Collect trace / video artifacts on failure
+    let tracePathFail = null;
+    if (traceMode !== 'off') {
+      try {
+        const trDir = path.join(tempDir, 'test-results');
+        const findTzip = async (d) => {
+          let es; try { es = await fs.readdir(d); } catch { return null; }
+          if (es.includes('trace.zip')) return path.join(d, 'trace.zip');
+          for (const e of es) { const f = path.join(d, e); try { const s = await fs.stat(f); if (s.isDirectory()) { const r = await findTzip(f); if (r) return r; } } catch {} }
+          return null;
+        };
+        const fz = await findTzip(trDir);
+        if (fz) {
+          const fn = `trace-${Date.now()}`; const dd = path.join(reportsDir, fn);
+          await fs.mkdir(dd, { recursive: true });
+          await fs.copyFile(fz, path.join(dd, 'trace.zip'));
+          tracePathFail = `${fn}/trace.zip`;
+        }
+      } catch {}
+    }
+    let videoPathFail = null;
+    if (videoMode !== 'off') {
+      try {
+        const vrDir = path.join(tempDir, 'test-results');
+        const findVid = async (d) => {
+          let es; try { es = await fs.readdir(d); } catch { return null; }
+          const v = es.find(e => e.endsWith('.webm') || e.endsWith('.mp4'));
+          if (v) return path.join(d, v);
+          for (const e of es) { const f = path.join(d, e); try { const s = await fs.stat(f); if (s.isDirectory()) { const r = await findVid(f); if (r) return r; } } catch {} }
+          return null;
+        };
+        const fv = await findVid(vrDir);
+        if (fv) {
+          const ext = path.extname(fv); const fn = `video-${Date.now()}`; const dd = path.join(reportsDir, fn);
+          await fs.mkdir(dd, { recursive: true });
+          await fs.copyFile(fv, path.join(dd, `video${ext}`));
+          videoPathFail = `${fn}/video${ext}`;
+        }
+      } catch {}
+    }
+
     // Save execution to database
     let executionId = null;
     if (moduleId && testFileId) {
@@ -1680,7 +1782,9 @@ ${mainCode}
             error_message: error.message || null,
             screenshot_base64: screenshotBase64,
             duration_ms: durationMs,
-            report_path: reportPath
+            report_path: reportPath,
+            trace_path: tracePathFail,
+            video_path: videoPathFail,
           }, orgId);
           executionId = execution.id;
           console.log('✓ Execution saved to database with ID:', executionId);
@@ -1708,6 +1812,8 @@ ${mainCode}
       logs: errorLogs,
       screenshot: screenshotBase64,
       execution_id: executionId,
+      trace_path: tracePathFail,
+      video_path: videoPathFail,
     });
 
   } finally {
@@ -2415,6 +2521,8 @@ ${combinedSteps}
     const suiteWorkers = capturedBody.workers ? capturedBody.workers : 1;
     const suiteFullyParallel = capturedBody.fullyParallel === true;
     const suiteScreenshotMode = capturedBody.screenshotMode || 'only-on-failure';
+    const suiteTraceMode = capturedBody.traceMode || 'off';
+    const suiteVideoMode = capturedBody.videoMode || 'off';
     // Use the orgId captured before res.json() — accessing req.session inside
     // setImmediate is unreliable after the response has been sent.
     const suiteRunOrgId = capturedOrgId;
@@ -2433,6 +2541,8 @@ export default defineConfig({
   use: {
     headless: true,
     screenshot: '${suiteScreenshotMode}',
+    trace: '${suiteTraceMode}',
+    video: '${suiteVideoMode}',
   },
   reporter: [
     ['list'],
@@ -2450,6 +2560,8 @@ export default defineConfig({
     headless: ${FORCE_HEADLESS},
     slowMo: ${FORCE_HEADLESS ? 0 : 500},
     screenshot: '${suiteScreenshotMode}',
+    trace: '${suiteTraceMode}',
+    video: '${suiteVideoMode}',
   },
   reporter: [
     ['list'],
@@ -2693,6 +2805,58 @@ export default defineConfig({
         const testFileId = suiteTestFiles[index]?.test_file_id || null;
 
         if (testFileId) {
+          // Collect per-test trace and video artifacts if configured
+          let suiteTestTracePath = null;
+          let suiteTestVideoPath = null;
+          const testResultsBase = path.join(tempDir, 'test-results');
+          const testPrefix = `test-${index + 1}-`;
+          try {
+            const trEntries = await fs.readdir(testResultsBase).catch(() => []);
+            // Find subdirs that belong to this test spec (prefix match)
+            const matchDirs = [];
+            for (const e of trEntries) {
+              if (e.startsWith(testPrefix)) {
+                const ep = path.join(testResultsBase, e);
+                try { const s = await fs.stat(ep); if (s.isDirectory()) matchDirs.push(ep); } catch {}
+              }
+            }
+            // Recursive helpers
+            const findTzip = async (d) => {
+              let es; try { es = await fs.readdir(d); } catch { return null; }
+              if (es.includes('trace.zip')) return path.join(d, 'trace.zip');
+              for (const e of es) { const f = path.join(d, e); try { const s = await fs.stat(f); if (s.isDirectory()) { const r = await findTzip(f); if (r) return r; } } catch {} }
+              return null;
+            };
+            const findVid = async (d) => {
+              let es; try { es = await fs.readdir(d); } catch { return null; }
+              const v = es.find(e => e.endsWith('.webm') || e.endsWith('.mp4'));
+              if (v) return path.join(d, v);
+              for (const e of es) { const f = path.join(d, e); try { const s = await fs.stat(f); if (s.isDirectory()) { const r = await findVid(f); if (r) return r; } } catch {} }
+              return null;
+            };
+            // Search matching dirs for artifacts
+            for (const md of matchDirs) {
+              if (suiteTraceMode !== 'off' && !suiteTestTracePath) {
+                const fz = await findTzip(md);
+                if (fz) {
+                  const fn = `trace-${Date.now()}-t${index}`; const dd = path.join(reportsDir, fn);
+                  await fs.mkdir(dd, { recursive: true });
+                  await fs.copyFile(fz, path.join(dd, 'trace.zip'));
+                  suiteTestTracePath = `${fn}/trace.zip`;
+                }
+              }
+              if (suiteVideoMode !== 'off' && !suiteTestVideoPath) {
+                const fv = await findVid(md);
+                if (fv) {
+                  const ext = path.extname(fv); const fn = `video-${Date.now()}-t${index}`; const dd = path.join(reportsDir, fn);
+                  await fs.mkdir(dd, { recursive: true });
+                  await fs.copyFile(fv, path.join(dd, `video${ext}`));
+                  suiteTestVideoPath = `${fn}/video${ext}`;
+                }
+              }
+            }
+          } catch (artifactErr) { console.error(`Artifact collection error for test ${index}:`, artifactErr.message); }
+
           await suiteTestResultOperations.create({
             suite_execution_id: suiteExecutionId,
             test_file_id: testFileId,
@@ -2700,7 +2864,9 @@ export default defineConfig({
             duration_ms: testResult.duration_ms,
             error_message: testResult.error_message,
             logs: stdout || stderr || null,
-            screenshot_base64: testResult.screenshot_base64 || null
+            screenshot_base64: testResult.screenshot_base64 || null,
+            trace_path: suiteTestTracePath,
+            video_path: suiteTestVideoPath,
           });
         }
       }

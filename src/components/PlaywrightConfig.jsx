@@ -7,6 +7,8 @@ const DEFAULTS = {
   executionMode: 'serial',
   workers: 2,
   screenshotMode: 'only-on-failure',
+  traceMode: 'off',
+  videoMode: 'off',
 };
 
 const selectCls = 'w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm';
@@ -124,6 +126,52 @@ export default function PlaywrightConfig() {
                 onClick={() => setCfg(c => ({ ...c, screenshotMode: opt.value }))}
                 className={`px-4 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
                   cfg.screenshotMode === opt.value
+                    ? 'bg-indigo-600 border-indigo-500 text-white'
+                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </Row>
+
+        <Row label="Trace" hint="DOM snapshots + network">
+          <div className="flex gap-2 flex-wrap">
+            {[
+              { value: 'off',              label: 'Off' },
+              { value: 'on-first-retry',   label: 'On Retry' },
+              { value: 'retain-on-failure',label: 'On Failure' },
+              { value: 'on',               label: 'Always' },
+            ].map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setCfg(c => ({ ...c, traceMode: opt.value }))}
+                className={`px-4 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
+                  cfg.traceMode === opt.value
+                    ? 'bg-indigo-600 border-indigo-500 text-white'
+                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </Row>
+
+        <Row label="Video" hint="Records browser video">
+          <div className="flex gap-2 flex-wrap">
+            {[
+              { value: 'off',              label: 'Off' },
+              { value: 'on-first-retry',   label: 'On Retry' },
+              { value: 'retain-on-failure',label: 'On Failure' },
+              { value: 'on',               label: 'Always' },
+            ].map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setCfg(c => ({ ...c, videoMode: opt.value }))}
+                className={`px-4 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
+                  cfg.videoMode === opt.value
                     ? 'bg-indigo-600 border-indigo-500 text-white'
                     : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300'
                 }`}

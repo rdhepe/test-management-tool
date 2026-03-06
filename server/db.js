@@ -580,6 +580,14 @@ async function initDB() {
       ADD COLUMN IF NOT EXISTS folder_id INTEGER REFERENCES or_folders(id) ON DELETE SET NULL
   `);
 
+  // Trace & video artifact paths for individual test runs
+  await pool.query(`ALTER TABLE executions ADD COLUMN IF NOT EXISTS trace_path TEXT`);
+  await pool.query(`ALTER TABLE executions ADD COLUMN IF NOT EXISTS video_path TEXT`);
+
+  // Trace & video artifact paths for suite test results
+  await pool.query(`ALTER TABLE suite_test_results ADD COLUMN IF NOT EXISTS trace_path TEXT`);
+  await pool.query(`ALTER TABLE suite_test_results ADD COLUMN IF NOT EXISTS video_path TEXT`);
+
   await seedDefaultOrg();
   await seedDefaultUsers();
   console.log('Database initialised');
@@ -740,11 +748,11 @@ const executionOperations = {
     return r.rows;
   },
 
-  create: async ({ module_id, test_file_id, status, logs, error_message, screenshot_base64, duration_ms, report_path }, orgId = 1) => {
+  create: async ({ module_id, test_file_id, status, logs, error_message, screenshot_base64, duration_ms, report_path, trace_path, video_path }, orgId = 1) => {
     const r = await pool.query(
-      `INSERT INTO executions (module_id, test_file_id, status, logs, error_message, screenshot_base64, duration_ms, report_path, org_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-      [module_id, test_file_id || null, status, logs || null, error_message || null, screenshot_base64 || null, duration_ms || null, report_path || null, orgId]
+      `INSERT INTO executions (module_id, test_file_id, status, logs, error_message, screenshot_base64, duration_ms, report_path, trace_path, video_path, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [module_id, test_file_id || null, status, logs || null, error_message || null, screenshot_base64 || null, duration_ms || null, report_path || null, trace_path || null, video_path || null, orgId]
     );
     return executionOperations.getById(r.rows[0].id);
   },
@@ -882,11 +890,11 @@ const suiteTestResultOperations = {
     return r.rows;
   },
 
-  create: async ({ suite_execution_id, test_file_id, status, duration_ms, error_message, logs, screenshot_base64 }, orgId = 1) => {
+  create: async ({ suite_execution_id, test_file_id, status, duration_ms, error_message, logs, screenshot_base64, trace_path, video_path }, orgId = 1) => {
     const r = await pool.query(
-      `INSERT INTO suite_test_results (suite_execution_id, test_file_id, status, duration_ms, error_message, logs, screenshot_base64, org_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-      [suite_execution_id, test_file_id || null, status, duration_ms || null, error_message || null, logs || null, screenshot_base64 || null, orgId]
+      `INSERT INTO suite_test_results (suite_execution_id, test_file_id, status, duration_ms, error_message, logs, screenshot_base64, trace_path, video_path, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [suite_execution_id, test_file_id || null, status, duration_ms || null, error_message || null, logs || null, screenshot_base64 || null, trace_path || null, video_path || null, orgId]
     );
     const created = await pool.query('SELECT * FROM suite_test_results WHERE id = $1', [r.rows[0].id]);
     return created.rows[0];
