@@ -124,7 +124,8 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/analytics') || p.startsWith('/test-suites') || p.startsWith('/test-files') ||
       p.startsWith('/test-file-dependencies') || p.startsWith('/public') ||
       p.startsWith('/release-readiness') || p.startsWith('/enquiries') ||
-      p.startsWith('/platform-feedback') || p.startsWith('/platform-bug-reports')
+      p.startsWith('/platform-feedback') || p.startsWith('/platform-bug-reports') ||
+      p.startsWith('/debug-session')
     ) return next();
     // Only serve the SPA shell for GET requests (browser navigation)
     if (req.method !== 'GET') return next();
