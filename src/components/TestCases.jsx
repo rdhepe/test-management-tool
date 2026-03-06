@@ -1024,7 +1024,7 @@ function TestCases({ currentUser, orgInfo }) {
                         return (
                           <tr key={tc.id} className="hover:bg-slate-700/40 transition-colors cursor-pointer" onClick={() => handleViewDetails(tc)}>
                             <td className="px-4 py-3">
-                              <span className="text-xs font-mono px-2 py-1 rounded bg-slate-900 text-slate-400">#{tc.id}</span>
+                              <span className="text-xs font-mono px-2 py-1 rounded bg-slate-900 text-slate-400">{tc.uid || '#' + tc.id}</span>
                             </td>
                             <td className="px-4 py-3">
                               <div className="text-sm font-medium text-white">{tc.title}</div>
@@ -1239,7 +1239,7 @@ function TestCases({ currentUser, orgInfo }) {
                   {filteredFlatTestCases.map(tc => (
                     <tr key={tc.id} className="hover:bg-slate-700/40 transition-colors">
                       <td className="px-4 py-3">
-                        <span className="text-xs font-mono px-2 py-1 rounded bg-slate-900 text-slate-400">#{tc.id}</span>
+                        <span className="text-xs font-mono px-2 py-1 rounded bg-slate-900 text-slate-400">{tc.uid || '#' + tc.id}</span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium text-white">{tc.title}</div>

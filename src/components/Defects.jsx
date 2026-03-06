@@ -291,7 +291,7 @@ function Defects({ currentUser }) {
               <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-400">No defects found. Create your first defect to get started.</td></tr>
             ) : filteredDefects.map(defect => (
               <tr key={defect.id} className="hover:bg-slate-700/50 transition-colors">
-                <td className="px-4 py-3 text-sm text-slate-400">#{defect.id}</td>
+                <td className="px-4 py-3 text-sm font-mono text-slate-400">{defect.uid || '#' + defect.id}</td>
                 <td className="px-4 py-3 text-sm text-white font-medium max-w-[200px] truncate">{defect.title}</td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${severityBadge(defect.severity)}`}>{defect.severity}</span>

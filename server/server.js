@@ -124,6 +124,7 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/analytics') || p.startsWith('/test-suites') || p.startsWith('/test-files') ||
       p.startsWith('/test-file-dependencies') || p.startsWith('/public') ||
       p.startsWith('/release-readiness') || p.startsWith('/enquiries') ||
+      p.startsWith('/search') ||
       p.startsWith('/platform-feedback') || p.startsWith('/platform-bug-reports') ||
       p.startsWith('/debug-session') || p.startsWith('/debug-migrate-globalvars')
     ) return next();
@@ -862,6 +863,43 @@ Return ONLY valid JSON (no markdown) with this exact shape:
     res.json(aiResult);
   } catch (error) {
     console.error('release-readiness/ai-summary error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /search - Global search across features, requirements, test cases, defects
+app.get('/search', async (req, res) => {
+  try {
+    const orgId = req.session?.orgId || 1;
+    const q = (req.query.q || '').trim();
+    if (q.length < 2) return res.json({ features: [], requirements: [], testCases: [], defects: [] });
+    const term = `%${q}%`;
+    const [feats, reqs, tcs, defs] = await Promise.all([
+      pool.query(
+        `SELECT id, uid, name AS title, 'feature' AS type FROM features WHERE org_id=$1 AND (name ILIKE $2 OR uid ILIKE $2) ORDER BY created_at DESC LIMIT 6`,
+        [orgId, term]
+      ),
+      pool.query(
+        `SELECT id, uid, title, 'requirement' AS type FROM requirements WHERE org_id=$1 AND (title ILIKE $2 OR uid ILIKE $2) ORDER BY created_at DESC LIMIT 6`,
+        [orgId, term]
+      ),
+      pool.query(
+        `SELECT id, uid, title, 'testcase' AS type FROM test_cases WHERE org_id=$1 AND (title ILIKE $2 OR uid ILIKE $2) ORDER BY created_at DESC LIMIT 6`,
+        [orgId, term]
+      ),
+      pool.query(
+        `SELECT id, uid, title, 'defect' AS type FROM defects WHERE org_id=$1 AND (title ILIKE $2 OR uid ILIKE $2) ORDER BY created_at DESC LIMIT 6`,
+        [orgId, term]
+      ),
+    ]);
+    res.json({
+      features: feats.rows,
+      requirements: reqs.rows,
+      testCases: tcs.rows,
+      defects: defs.rows,
+    });
+  } catch (error) {
+    console.error('search error:', error);
     res.status(500).json({ error: error.message });
   }
 });

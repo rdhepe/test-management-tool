@@ -718,7 +718,7 @@ function Requirements({ currentUser, orgInfo }) {
                                     backgroundColor: 'rgb(var(--bg-secondary))', 
                                     color: 'rgb(var(--text-tertiary))' 
                                   }}>
-                                    #{req.id}
+                                    {req.uid || '#' + req.id}
                                   </span>
                                   {req.title?.startsWith('AI: ') && <AIBadge />}
                                   <h4 className="font-medium" style={{ color: 'rgb(var(--text-primary))' }}>

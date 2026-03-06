@@ -538,6 +538,17 @@ async function initDB() {
     )
   `);
 
+  // Add uid columns for human-readable IDs
+  await pool.query(`ALTER TABLE features ADD COLUMN IF NOT EXISTS uid TEXT`);
+  await pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS uid TEXT`);
+  await pool.query(`ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS uid TEXT`);
+  await pool.query(`ALTER TABLE defects ADD COLUMN IF NOT EXISTS uid TEXT`);
+  // Populate uid for existing rows that don't have one yet
+  await pool.query(`UPDATE features SET uid = 'FE-' || LPAD(id::text, 4, '0') WHERE uid IS NULL`);
+  await pool.query(`UPDATE requirements SET uid = 'REQ-' || LPAD(id::text, 4, '0') WHERE uid IS NULL`);
+  await pool.query(`UPDATE test_cases SET uid = 'TC-' || LPAD(id::text, 4, '0') WHERE uid IS NULL`);
+  await pool.query(`UPDATE defects SET uid = 'DEF-' || LPAD(id::text, 4, '0') WHERE uid IS NULL`);
+
   await seedDefaultOrg();
   await seedDefaultUsers();
   console.log('Database initialised');
@@ -927,7 +938,9 @@ const featureOperations = {
       'INSERT INTO features (name, description, priority, created_by, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING id',
       [name, description || null, priority, created_by || null, orgId]
     );
-    return featureOperations.getById(r.rows[0].id);
+    const newId = r.rows[0].id;
+    await pool.query(`UPDATE features SET uid = 'FE-' || LPAD($1::text, 4, '0') WHERE id = $1`, [newId]);
+    return featureOperations.getById(newId);
   },
 
   update: async (id, { name, description, priority }) => {
@@ -991,7 +1004,9 @@ const requirementOperations = {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8) RETURNING id`,
       [feature_id || null, sprint_id || null, title, description || null, status, priority, created_by || null, orgId]
     );
-    return requirementOperations.getById(r.rows[0].id);
+    const newId = r.rows[0].id;
+    await pool.query(`UPDATE requirements SET uid = 'REQ-' || LPAD($1::text, 4, '0') WHERE id = $1`, [newId]);
+    return requirementOperations.getById(newId);
   },
 
   update: async (id, { feature_id, sprint_id, title, description, status, priority }) => {
@@ -1049,7 +1064,9 @@ const testCaseOperations = {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
       [requirement_id || null, sprint_id || null, title, description || null, preconditions || null, test_steps || null, expected_result || null, type, priority, status, test_file_id || null, created_by || null, orgId]
     );
-    return testCaseOperations.getById(r.rows[0].id);
+    const newId = r.rows[0].id;
+    await pool.query(`UPDATE test_cases SET uid = 'TC-' || LPAD($1::text, 4, '0') WHERE id = $1`, [newId]);
+    return testCaseOperations.getById(newId);
   },
 
   update: async (id, { requirement_id, sprint_id, title, description, preconditions, test_steps, expected_result, type, priority, status, test_file_id }) => {
@@ -1140,7 +1157,9 @@ const defectOperations = {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
       [title, description || null, severity, status, linked_test_case_id || null, linked_execution_id || null, sprint_id || null, screenshot || null, created_by || null, assigned_to || null, orgId]
     );
-    return defectOperations.getById(r.rows[0].id);
+    const newId = r.rows[0].id;
+    await pool.query(`UPDATE defects SET uid = 'DEF-' || LPAD($1::text, 4, '0') WHERE id = $1`, [newId]);
+    return defectOperations.getById(newId);
   },
 
   update: async (id, { title, description, severity, status, linked_test_case_id, linked_execution_id, sprint_id, screenshot, assigned_to }) => {

@@ -287,6 +287,7 @@ function Features({ currentUser, orgInfo }) {
                 <td className="px-6 py-4 font-medium">
                   <div className="flex items-center gap-2">
                     {isAiFeature(feature.name) && <AIBadge />}
+                    {feature.uid && <span className="text-xs font-mono px-1.5 py-0.5 rounded shrink-0 text-slate-500 bg-slate-800">{feature.uid}</span>}
                     <span className="text-white">{isAiFeature(feature.name) ? feature.name.slice(4) : feature.name}</span>
                   </div>
                 </td>
