@@ -130,7 +130,7 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/platform-feedback') || p.startsWith('/platform-bug-reports') ||
       p.startsWith('/debug-session') || p.startsWith('/debug-migrate-globalvars') ||
       p.startsWith('/performance-tests') || p.startsWith('/performance-executions') ||
-      p.startsWith('/perf-folders') || p.startsWith('/perf-suites') || p.startsWith('/perf-suite-executions')
+      p.startsWith('/perf-folders') || p.startsWith('/perf-suites') || p.startsWith('/perf-suite-executions') || p.startsWith('/perf-ai')
     ) return next();
     // Only serve the SPA shell for GET requests (browser navigation)
     if (req.method !== 'GET') return next();
@@ -5866,6 +5866,192 @@ app.delete('/perf-suite-executions/:id', requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete suite execution' });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Perf AI routes — shared helpers
+// ─────────────────────────────────────────────────────────────────────────────
+async function getPerfAIKey(orgId) {
+  const org = await organizationOperations.getById(orgId);
+  return org?.openai_api_key || process.env.OPENAI_API_KEY || '';
+}
+async function callPerfOpenAI(apiKey, messages, maxTokens = 800) {
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model: 'gpt-4o-mini', messages, temperature: 0.3, max_tokens: maxTokens }),
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error(`OpenAI ${r.status}: ${t.slice(0, 200)}`); }
+  const data = await r.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+// 1. Threshold recommendations — pure stats, no LLM
+app.get('/perf-ai/threshold-recommendations/:testId', requireAuth, async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const orgId = req.session.orgId;
+    const r = await pool.query(
+      `SELECT summary_json FROM performance_executions
+       WHERE perf_test_id=$1 AND org_id=$2 AND status IN ('passed','thresholds_failed','failed')
+       ORDER BY started_at DESC LIMIT 20`,
+      [testId, orgId]
+    );
+    if (r.rows.length < 2)
+      return res.json({ suggestions: [], message: 'Need at least 2 completed runs for recommendations.' });
+    const metricDefs = [
+      { key: 'p95_latency',  metric: 'p95',         op: '<', scale: v => Math.ceil(v * 1.5),       fmt: v => `${v.toFixed(0)} ms`,   label: '1.5× avg' },
+      { key: 'p99_latency',  metric: 'p99',         op: '<', scale: v => Math.ceil(v * 1.5),       fmt: v => `${v.toFixed(0)} ms`,   label: '1.5× avg' },
+      { key: 'avg_latency',  metric: 'avg_latency', op: '<', scale: v => Math.ceil(v * 1.5),       fmt: v => `${v.toFixed(0)} ms`,   label: '1.5× avg' },
+      { key: 'error_rate',   metric: 'error_rate',  op: '<', scale: v => Math.max(0.01, +(v * 2 + 0.001).toFixed(4)), fmt: v => `${(v*100).toFixed(2)}%`, label: '2× avg' },
+    ];
+    const values = {};
+    for (const d of metricDefs) values[d.key] = [];
+    for (const row of r.rows) {
+      let s = row.summary_json;
+      if (typeof s === 'string') { try { s = JSON.parse(s); } catch { continue; } }
+      for (const d of metricDefs) {
+        const v = parseFloat(s?.[d.key]);
+        if (!isNaN(v)) values[d.key].push(v);
+      }
+    }
+    const suggestions = [];
+    for (const d of metricDefs) {
+      const vals = values[d.key];
+      if (vals.length < 2) continue;
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const max = Math.max(...vals);
+      if (avg === 0 && max === 0) continue;
+      suggestions.push({
+        metric: d.metric, operator: d.op, value: d.scale(avg),
+        rationale: `${vals.length} runs · avg ${d.fmt(avg)}, max ${d.fmt(max)} · suggested at ${d.label}`,
+      });
+    }
+    res.json({ suggestions, runCount: r.rows.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 2. Regression summary — compare two run IDs
+app.post('/perf-ai/regression-summary', requireAuth, async (req, res) => {
+  try {
+    const orgId = req.session.orgId;
+    const apiKey = await getPerfAIKey(orgId);
+    if (!apiKey) return res.status(400).json({ error: 'No OpenAI API key configured.' });
+    const { runAId, runBId } = req.body;
+    if (!runAId || !runBId) return res.status(400).json({ error: 'runAId and runBId are required.' });
+    const [runA, runB] = await Promise.all([
+      performanceOperations.getExecutionById(runAId, orgId),
+      performanceOperations.getExecutionById(runBId, orgId),
+    ]);
+    if (!runA || !runB) return res.status(404).json({ error: 'One or both runs not found.' });
+    const fmtRun = r => JSON.stringify({ test: r.test_name, template: r.template, status: r.status, metrics: r.summary_json, started: r.started_at }, null, 2);
+    const prompt = `You are a performance testing expert. Compare these two k6 test runs and write a concise analysis (3-5 sentences) covering which metrics changed, by how much, whether regressions/improvements occurred, and a brief hypothesis. Be specific with numbers.\n\nRun A (baseline):\n${fmtRun(runA)}\n\nRun B (latest):\n${fmtRun(runB)}`;
+    const summary = await callPerfOpenAI(apiKey, [{ role: 'user', content: prompt }], 500);
+    res.json({ summary, runA: { id: runA.id, status: runA.status, started_at: runA.started_at, summary_json: runA.summary_json }, runB: { id: runB.id, status: runB.status, started_at: runB.started_at, summary_json: runB.summary_json } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 3. Anomaly detection — z-score vs history (no LLM)
+app.get('/perf-ai/anomaly/:testId', requireAuth, async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const orgId = req.session.orgId;
+    const r = await pool.query(
+      `SELECT id, summary_json, started_at, status FROM performance_executions
+       WHERE perf_test_id=$1 AND org_id=$2 AND status IN ('passed','thresholds_failed','failed')
+       ORDER BY started_at DESC LIMIT 21`,
+      [testId, orgId]
+    );
+    if (r.rows.length < 3)
+      return res.json({ flagged: [], latestExecution: null, message: 'Need at least 3 runs for anomaly detection.' });
+    const rows = r.rows.map(row => {
+      let s = row.summary_json;
+      if (typeof s === 'string') { try { s = JSON.parse(s); } catch { s = {}; } }
+      return { ...row, summary_json: s };
+    });
+    const latest = rows[0];
+    const historical = rows.slice(1);
+    const metrics = ['p95_latency', 'p99_latency', 'avg_latency', 'error_rate'];
+    const flagged = [];
+    for (const m of metrics) {
+      const histVals = historical.map(row => row.summary_json?.[m]).filter(v => v != null && !isNaN(parseFloat(v))).map(parseFloat);
+      if (histVals.length < 2) continue;
+      const latestVal = parseFloat(latest.summary_json?.[m]);
+      if (isNaN(latestVal)) continue;
+      const mean = histVals.reduce((a, b) => a + b, 0) / histVals.length;
+      const variance = histVals.reduce((a, b) => a + (b - mean) ** 2, 0) / histVals.length;
+      const stddev = Math.sqrt(variance);
+      if (stddev === 0) continue;
+      const zScore = (latestVal - mean) / stddev;
+      if (Math.abs(zScore) > 2) {
+        flagged.push({ metric: m, actual: latestVal, mean: +mean.toFixed(3), stddev: +stddev.toFixed(3), zScore: +zScore.toFixed(2), direction: zScore > 0 ? 'high' : 'low' });
+      }
+    }
+    res.json({ flagged, latestExecution: { id: latest.id, status: latest.status, started_at: latest.started_at, summary_json: latest.summary_json }, historyCount: historical.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 4. Generate k6 script from natural language
+app.post('/perf-ai/generate-script', requireAuth, async (req, res) => {
+  try {
+    const orgId = req.session.orgId;
+    const apiKey = await getPerfAIKey(orgId);
+    if (!apiKey) return res.status(400).json({ error: 'No OpenAI API key configured.' });
+    const { instruction, template = 'load', targetUrl = '', vus = 10, ramp_duration = 60, hold_duration = 300 } = req.body;
+    if (!instruction?.trim()) return res.status(400).json({ error: 'instruction is required.' });
+    const prompt = `You are a k6 performance testing expert. Generate a complete, runnable k6 JavaScript test script.\n\nUser description: ${instruction.trim()}\nTemplate type: ${template}\nTarget URL: ${targetUrl || 'as described above'}\nVirtual users: ${vus}\nRamp duration: ${ramp_duration}s\nHold duration: ${hold_duration}s\n\nRequirements:\n- Use modern k6 ES6 syntax with import statements\n- Support __ENV.BASE_URL with a fallback to the target URL\n- Set up stages matching the template (ramp up → hold → ramp down)\n- Add realistic sleep() think time\n- Include meaningful check() assertions on status and response body\n- Add thresholds unless user specified otherwise\n- Return ONLY the JavaScript code, no markdown, no explanation`;
+    const script = await callPerfOpenAI(apiKey, [{ role: 'user', content: prompt }], 1500);
+    res.json({ script });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 5. Root cause analysis for a single execution
+app.post('/perf-ai/root-cause/:executionId', requireAuth, async (req, res) => {
+  try {
+    const orgId = req.session.orgId;
+    const apiKey = await getPerfAIKey(orgId);
+    if (!apiKey) return res.status(400).json({ error: 'No OpenAI API key configured.' });
+    const exec = await performanceOperations.getExecutionById(req.params.executionId, orgId);
+    if (!exec) return res.status(404).json({ error: 'Execution not found.' });
+    const metrics = await performanceOperations.getMetrics(exec.id);
+    const s = exec.summary_json || {};
+    const durationSec = exec.ended_at ? Math.round((new Date(exec.ended_at) - new Date(exec.started_at)) / 1000) : null;
+    const context = {
+      test_name: exec.test_name, template: exec.template, target_url: exec.target_url,
+      status: exec.status, vus: s.peak_vus, duration: durationSec ? `${durationSec}s` : 'unknown',
+      summary: { avg_latency: s.avg_latency, p95_latency: s.p95_latency, p99_latency: s.p99_latency, error_rate: s.error_rate, total_requests: s.total_requests },
+      threshold_results: exec.threshold_results,
+      metric_trend: metrics.slice(-10).map(m => ({ offset: m.ts_offset, avg: m.avg_latency, p95: m.p95_latency, err: m.error_count, vus: m.active_vus })),
+    };
+    const prompt = `You are a performance testing expert. Analyze this k6 test execution and provide a root cause analysis in exactly this format:\n\n**Primary Issue:** (1 sentence)\n**Root Cause:** (2-3 sentences referencing specific numbers)\n**Recommendation:** (1-2 actionable sentences)\n\nTest data:\n${JSON.stringify(context, null, 2)}\n\nKeep total response under 160 words. Be specific with numbers from the data.`;
+    const analysis = await callPerfOpenAI(apiKey, [{ role: 'user', content: prompt }], 450);
+    res.json({ analysis });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 6. Smart suite suggestions
+app.post('/perf-ai/smart-suite', requireAuth, async (req, res) => {
+  try {
+    const orgId = req.session.orgId;
+    const apiKey = await getPerfAIKey(orgId);
+    if (!apiKey) return res.status(400).json({ error: 'No OpenAI API key configured.' });
+    const tests = await performanceOperations.getAllTests(orgId);
+    if (tests.length < 2) return res.status(400).json({ error: 'Need at least 2 tests to suggest suites.' });
+    const testList = tests.map(t => ({ id: t.id, name: t.name, template: t.template, url: t.target_url, description: t.description }));
+    const prompt = `You are a QA performance testing expert. Given these k6 tests, suggest 2-4 logical test suites grouping related tests for CI/CD pipeline runs.\n\nTests:\n${JSON.stringify(testList, null, 2)}\n\nReturn ONLY valid JSON (no markdown) in this exact structure:\n{"suggestions":[{"name":"Suite Name","description":"brief purpose","testIds":[1,2],"rationale":"why grouped"}]}`;
+    let raw = await callPerfOpenAI(apiKey, [{ role: 'user', content: prompt }], 900);
+    raw = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    let result;
+    try { result = JSON.parse(raw); } catch { result = { suggestions: [] }; }
+    const validIds = new Set(tests.map(t => t.id));
+    if (result.suggestions) {
+      result.suggestions = result.suggestions
+        .map(s => ({ ...s, testIds: (s.testIds || []).filter(id => validIds.has(id)) }))
+        .filter(s => s.testIds.length > 0);
+    }
+    result.tests = tests.map(t => ({ id: t.id, name: t.name }));
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.listen(PORT, () => {

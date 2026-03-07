@@ -75,17 +75,66 @@ function Sparkline({ data, valueKey, color = '#818cf8', height = 40, width = 120
 // ─────────────────────────────────────────────────────────────────────────────
 // Threshold row editor
 // ─────────────────────────────────────────────────────────────────────────────
-function ThresholdEditor({ thresholds, onChange }) {
+function ThresholdEditor({ thresholds, onChange, testId }) {
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState(null);
+
   const add = () => onChange([...thresholds, { metric: 'p95', operator: '<', value: '2000' }]);
   const remove = (i) => onChange(thresholds.filter((_, idx) => idx !== i));
   const update = (i, field, val) => onChange(thresholds.map((t, idx) => idx === i ? { ...t, [field]: val } : t));
+
+  const fetchSuggestions = async () => {
+    if (!testId) return;
+    setSuggesting(true);
+    try {
+      const r = await fetch(`${API_URL}/perf-ai/threshold-recommendations/${testId}`, {
+        headers: { 'x-auth-token': localStorage.getItem('auth_token') },
+      });
+      setSuggestions(await r.json());
+    } catch {} finally { setSuggesting(false); }
+  };
+
+  const applySuggestion = (s) => {
+    onChange([...thresholds, { metric: s.metric, operator: s.operator, value: String(s.value) }]);
+    setSuggestions(prev => prev ? { ...prev, suggestions: prev.suggestions.filter(x => x.metric !== s.metric) } : prev);
+  };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Thresholds</span>
-        <button type="button" onClick={add} className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">+ Add</button>
+        <div className="flex items-center gap-3">
+          {testId && (
+            <button type="button" onClick={fetchSuggestions} disabled={suggesting}
+              className="text-xs text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-1 disabled:opacity-50">
+              {suggesting ? 'Loading…' : (
+                <><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> AI Suggest</>
+              )}
+            </button>
+          )}
+          <button type="button" onClick={add} className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">+ Add</button>
+        </div>
       </div>
+
+      {suggestions?.suggestions?.length > 0 && (
+        <div className="mb-3 bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 space-y-2">
+          <p className="text-xs font-medium text-purple-300">AI suggestions based on {suggestions.runCount} run{suggestions.runCount !== 1 ? 's' : ''}</p>
+          {suggestions.suggestions.map((s, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs">
+              <span className="font-mono text-slate-300">{s.metric} {s.operator} {s.value}</span>
+              <span className="text-slate-500 flex-1 text-right truncate hidden sm:block">{s.rationale}</span>
+              <button type="button" onClick={() => applySuggestion(s)}
+                className="text-purple-400 hover:text-purple-300 border border-purple-500/30 rounded-lg px-2 py-0.5 flex-shrink-0">
+                Apply
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {suggestions?.message && (
+        <p className="text-xs text-slate-500 italic mb-2">{suggestions.message}</p>
+      )}
+
       {thresholds.length === 0 && (
         <p className="text-xs text-slate-500 italic">No thresholds — test always passes.</p>
       )}
@@ -260,7 +309,7 @@ function TestModal({ test, onClose, onSave, plan, folders }) {
 
           {/* Thresholds */}
           <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-4">
-            <ThresholdEditor thresholds={form.thresholds_json} onChange={val => set('thresholds_json', val)} />
+            <ThresholdEditor thresholds={form.thresholds_json} onChange={val => set('thresholds_json', val)} testId={test?.id} />
           </div>
 
           {err && <p className="text-red-400 text-sm">{err}</p>}
@@ -288,7 +337,23 @@ function ExecutionDetail({ executionId, onClose }) {
   const [exec, setExec] = useState(null);
   const [metrics, setMetrics] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [rcaResult, setRcaResult] = useState(null);
+  const [rcaLoading, setRcaLoading] = useState(false);
+  const [rcaError, setRcaError] = useState('');
   const pollRef = useRef(null);
+
+  const fetchRCA = async (execId) => {
+    setRcaLoading(true); setRcaError(''); setRcaResult(null);
+    try {
+      const r = await fetch(`${API_URL}/perf-ai/root-cause/${execId}`, {
+        method: 'POST',
+        headers: { 'x-auth-token': localStorage.getItem('auth_token') },
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Analysis failed');
+      setRcaResult(data.analysis);
+    } catch (e) { setRcaError(e.message); } finally { setRcaLoading(false); }
+  };
 
   const safeJson = async (res) => {
     if (!res.ok) return null;
@@ -480,6 +545,28 @@ function ExecutionDetail({ executionId, onClose }) {
           {s.error && (
             <div className="p-4 rounded-xl bg-red-400/10 border border-red-400/20 text-red-300 text-sm">
               <strong>Error:</strong> {s.error}
+            </div>
+          )}
+
+          {/* Root Cause Analysis */}
+          {['failed', 'thresholds_failed'].includes(exec.status) && (
+            <div className="border border-purple-500/20 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 bg-purple-500/5">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                  <span className="text-sm font-medium text-purple-300">AI Root Cause Analysis</span>
+                </div>
+                {!rcaResult && (
+                  <button onClick={() => fetchRCA(exec.id)} disabled={rcaLoading}
+                    className="text-xs px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors disabled:opacity-50">
+                    {rcaLoading ? 'Analysing…' : 'Analyse'}
+                  </button>
+                )}
+              </div>
+              {rcaError && <p className="px-4 py-2 text-xs text-red-400">{rcaError}</p>}
+              {rcaResult && (
+                <div className="px-4 py-3 text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">{rcaResult}</div>
+              )}
             </div>
           )}
 
@@ -828,6 +915,111 @@ function SuiteDrawer({ suite, allTests, onClose, onRunSuite, canRun }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Main page
 // ─────────────────────────────────────────────────────────────────────────────
+// Generate k6 Script modal
+// ─────────────────────────────────────────────────────────────────────────────
+function GenerateScriptModal({ onClose }) {
+  const [form, setForm] = useState({ instruction: '', template: 'load', targetUrl: '', vus: 10, ramp_duration: 60, hold_duration: 300 });
+  const [loading, setLoading] = useState(false);
+  const [script, setScript] = useState('');
+  const [err, setErr] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const generate = async () => {
+    if (!form.instruction.trim()) { setErr('Describe what you want to test.'); return; }
+    setLoading(true); setErr(''); setScript('');
+    try {
+      const r = await fetch(`${API_URL}/perf-ai/generate-script`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-auth-token': localStorage.getItem('auth_token') },
+        body: JSON.stringify(form),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Generation failed');
+      setScript(data.script);
+    } catch (e) { setErr(e.message); } finally { setLoading(false); }
+  };
+
+  const copy = () => {
+    navigator.clipboard.writeText(script);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.75)' }}>
+      <div className="w-full max-w-2xl rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-purple-500/20 flex items-center justify-center">
+              <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+            </div>
+            <h2 className="text-lg font-semibold text-white">Generate k6 Script with AI</h2>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1.5">Describe what you want to test *</label>
+            <textarea value={form.instruction} onChange={e => setForm(f => ({ ...f, instruction: e.target.value }))}
+              rows={3} placeholder="e.g. Test the /api/login endpoint — simulate 100 users logging in, browsing products, and checking out. Fail if error rate exceeds 1% or p95 latency exceeds 3000ms."
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500 resize-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Template</label>
+              <select value={form.template} onChange={e => setForm(f => ({ ...f, template: e.target.value }))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500">
+                {TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Target URL (optional)</label>
+              <input value={form.targetUrl} onChange={e => setForm(f => ({ ...f, targetUrl: e.target.value }))}
+                placeholder="https://example.com/api"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500" />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            {[['Virtual Users', 'vus', 1], ['Ramp-up (s)', 'ramp_duration', 5], ['Hold Duration (s)', 'hold_duration', 10]].map(([label, key, min]) => (
+              <div key={key}>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">{label}</label>
+                <input type="number" min={min} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: parseInt(e.target.value) || min }))}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500" />
+              </div>
+            ))}
+          </div>
+          {err && <p className="text-red-400 text-sm">{err}</p>}
+          {script && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-slate-300">Generated k6 Script</h3>
+                <button onClick={copy} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+                  {copied ? '\u2713 Copied!' : 'Copy'}
+                </button>
+              </div>
+              <pre className="bg-black/40 border border-slate-700 rounded-xl p-4 text-xs text-slate-300 overflow-x-auto overflow-y-auto max-h-72 whitespace-pre">{script}</pre>
+            </div>
+          )}
+        </div>
+        <div className="px-6 py-4 border-t flex-shrink-0 flex gap-3" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors text-sm">Close</button>
+          <button onClick={generate} disabled={loading}
+            className="flex-1 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-medium transition-colors text-sm disabled:opacity-60 flex items-center justify-center gap-2">
+            {loading
+              ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> Generating…</>
+              : <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> Generate Script</>
+            }
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 export default function PerformanceTests({ orgInfo, currentUser }) {
   const plan = orgInfo?.plan || 'free';
   const canRun = ['pro', 'premium', 'enterprise'].includes(plan);
@@ -860,6 +1052,18 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
   const [managingSuite, setManagingSuite] = useState(null);
   const [selectedSuiteExecId, setSelectedSuiteExecId] = useState(null);
   const [viewingTestRunFromSuite, setViewingTestRunFromSuite] = useState(null);
+
+  // AI Insights state
+  const [aiAnomalies, setAiAnomalies] = useState(null);
+  const [aiAnomaliesLoading, setAiAnomaliesLoading] = useState(false);
+  const [regressionRunA, setRegressionRunA] = useState('');
+  const [regressionRunB, setRegressionRunB] = useState('');
+  const [regressionResult, setRegressionResult] = useState(null);
+  const [regressionError, setRegressionError] = useState('');
+  const [regressionLoading, setRegressionLoading] = useState(false);
+  const [smartSuiteResult, setSmartSuiteResult] = useState(null);
+  const [smartSuiteLoading, setSmartSuiteLoading] = useState(false);
+  const [generateScriptOpen, setGenerateScriptOpen] = useState(false);
 
   const authHeader = () => ({ 'x-auth-token': localStorage.getItem('auth_token') });
 
@@ -996,6 +1200,70 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
 
   const tpl = (id) => TEMPLATES.find(t => t.id === id) || TEMPLATES[1];
 
+  // ── AI handlers ───────────────────────────────────────────────────────────────────
+  const scanAnomalies = async () => {
+    setAiAnomaliesLoading(true);
+    try {
+      const headers = authHeader();
+      const results = await Promise.all(
+        tests.map(async (t) => {
+          const r = await fetch(`${API_URL}/perf-ai/anomaly/${t.id}`, { headers });
+          const data = await r.json();
+          return { testId: t.id, testName: t.name, flagged: data.flagged || [], message: data.message };
+        })
+      );
+      setAiAnomalies(results);
+    } catch (e) { console.error(e); } finally { setAiAnomaliesLoading(false); }
+  };
+
+  const compareRuns = async () => {
+    if (!regressionRunA || !regressionRunB) return;
+    setRegressionLoading(true); setRegressionResult(null); setRegressionError('');
+    try {
+      const r = await fetch(`${API_URL}/perf-ai/regression-summary`, {
+        method: 'POST',
+        headers: { ...authHeader(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runAId: regressionRunA, runBId: regressionRunB }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Comparison failed');
+      setRegressionResult(data.summary);
+    } catch (e) { setRegressionError(e.message); } finally { setRegressionLoading(false); }
+  };
+
+  const getSmartSuites = async () => {
+    setSmartSuiteLoading(true); setSmartSuiteResult(null);
+    try {
+      const r = await fetch(`${API_URL}/perf-ai/smart-suite`, {
+        method: 'POST', headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      });
+      const data = await r.json();
+      if (!r.ok) setSmartSuiteResult({ error: data.error || 'Failed' });
+      else setSmartSuiteResult(data);
+    } catch (e) { setSmartSuiteResult({ error: e.message }); } finally { setSmartSuiteLoading(false); }
+  };
+
+  const createSmartSuite = async (suggestion) => {
+    try {
+      const r = await fetch(`${API_URL}/perf-suites`, {
+        method: 'POST',
+        headers: { ...authHeader(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: suggestion.name, description: suggestion.description || '' }),
+      });
+      const suite = await r.json();
+      if (!r.ok) return;
+      for (const testId of suggestion.testIds) {
+        await fetch(`${API_URL}/perf-suites/${suite.id}/tests`, {
+          method: 'POST',
+          headers: { ...authHeader(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ test_id: testId }),
+        });
+      }
+      loadData();
+      setTab('suites');
+    } catch {}
+  };
+
   // Filter tests by folder
   const filteredTests = selectedFolder
     ? tests.filter(t => t.folder_id === selectedFolder || String(t.folder_id) === String(selectedFolder))
@@ -1021,6 +1289,13 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-600/30">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
             New Suite
+          </button>
+        )}
+        {tab === 'ai' && (
+          <button onClick={() => setGenerateScriptOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-purple-600/30">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+            Generate Script
           </button>
         )}
       </div>
@@ -1050,6 +1325,7 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
           { key: 'tests',  label: `Tests (${tests.length})` },
           { key: 'suites', label: `Suites (${suites.length})` },
           { key: 'runs',   label: `Runs (${runs.length})` },
+          { key: 'ai',     label: '\u2728 AI Insights' },
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 ${tab === t.key ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}>
@@ -1335,7 +1611,7 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
             </div>
           )}
         </div>
-      ) : (
+      ) : tab === 'runs' ? (
         /* ── Runs tab ──────────────────────────────────────────────────────── */
         runs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -1398,6 +1674,160 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
             </table>
           </div>
         )
+      ) : (
+        /* ── AI Insights tab ──────────────────────────────────────────────────────────── */
+        <div className="space-y-6">
+
+          {/* Anomaly Monitor */}
+          <div className="border rounded-2xl overflow-hidden" style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+            <div className="px-6 py-4 border-b flex items-center justify-between" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-orange-500/20 flex items-center justify-center">
+                  <svg className="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Anomaly Monitor</h3>
+                  <p className="text-xs text-slate-400">Z-score analysis — flags metrics deviating &gt;2σ from historical baseline</p>
+                </div>
+              </div>
+              <button onClick={scanAnomalies} disabled={aiAnomaliesLoading || tests.length === 0}
+                className="px-4 py-2 bg-orange-600/80 hover:bg-orange-500 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-50">
+                {aiAnomaliesLoading ? 'Scanning…' : 'Scan All Tests'}
+              </button>
+            </div>
+            {aiAnomalies && (
+              <div className="p-6">
+                {aiAnomalies.every(r => r.flagged.length === 0 && !r.message) ? (
+                  <p className="text-sm text-slate-400">No anomalies detected. All metrics within 2σ of historical baseline.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {aiAnomalies.map((item, idx) => (
+                      <div key={idx} className="border rounded-xl overflow-hidden" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+                        <div className="flex items-center justify-between px-4 py-3 bg-slate-900/40">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${item.flagged.length > 0 ? 'bg-orange-400' : 'bg-green-400'}`} />
+                            <span className="text-sm font-medium text-white">{item.testName}</span>
+                          </div>
+                          {item.flagged.length > 0 && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-orange-400/15 text-orange-300 border border-orange-400/30">
+                              {item.flagged.length} anomal{item.flagged.length === 1 ? 'y' : 'ies'}
+                            </span>
+                          )}
+                        </div>
+                        {item.message && <p className="px-4 py-2 text-xs text-slate-500 italic">{item.message}</p>}
+                        {item.flagged.length > 0 && (
+                          <div className="px-4 pb-3 pt-1 space-y-1.5">
+                            {item.flagged.map((f, fi) => (
+                              <div key={fi} className="flex items-center gap-3 text-xs py-1.5 border-b border-slate-800 last:border-0">
+                                <span className={`px-1.5 py-0.5 rounded font-mono ${f.direction === 'high' ? 'bg-red-400/15 text-red-300' : 'bg-blue-400/15 text-blue-300'}`}>{f.metric}</span>
+                                <span className="text-slate-300">actual: <strong>{f.metric === 'error_rate' ? `${(f.actual * 100).toFixed(2)}%` : `${f.actual.toFixed(0)} ms`}</strong></span>
+                                <span className="text-slate-500">mean: {f.metric === 'error_rate' ? `${(f.mean * 100).toFixed(2)}%` : `${f.mean.toFixed(0)} ms`}</span>
+                                <span className={`ml-auto font-semibold ${f.direction === 'high' ? 'text-red-400' : 'text-blue-400'}`}>z={f.zScore} {f.direction === 'high' ? '\u2191' : '\u2193'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Regression Compare */}
+          <div className="border rounded-2xl overflow-hidden" style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+            <div className="px-6 py-4 border-b" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+              <div className="flex items-center gap-3 mb-0.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                  <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                </div>
+                <h3 className="text-sm font-semibold text-white">Regression Compare</h3>
+              </div>
+              <p className="text-xs text-slate-400 ml-11">Select two runs — AI writes a natural-language performance comparison</p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Baseline Run (A)</label>
+                  <select value={regressionRunA} onChange={e => setRegressionRunA(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500">
+                    <option value="">— select run —</option>
+                    {runs.filter(r => ['passed', 'failed', 'thresholds_failed'].includes(r.status)).map(r => (
+                      <option key={r.id} value={r.id}>{r.test_name} — {STATUS_LABEL[r.status]} — {new Date(r.started_at).toLocaleDateString()}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Latest Run (B)</label>
+                  <select value={regressionRunB} onChange={e => setRegressionRunB(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500">
+                    <option value="">— select run —</option>
+                    {runs.filter(r => ['passed', 'failed', 'thresholds_failed'].includes(r.status)).map(r => (
+                      <option key={r.id} value={r.id}>{r.test_name} — {STATUS_LABEL[r.status]} — {new Date(r.started_at).toLocaleDateString()}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button onClick={compareRuns} disabled={regressionLoading || !regressionRunA || !regressionRunB}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-50">
+                  {regressionLoading ? 'Comparing…' : 'Compare Runs'}
+                </button>
+              </div>
+              {regressionResult && (
+                <div className="bg-blue-400/5 border border-blue-400/20 rounded-xl p-4 text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">{regressionResult}</div>
+              )}
+              {regressionError && <p className="text-red-400 text-sm">{regressionError}</p>}
+            </div>
+          </div>
+
+          {/* Smart Suite Builder */}
+          <div className="border rounded-2xl overflow-hidden" style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+            <div className="px-6 py-4 border-b flex items-center justify-between" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-green-500/20 flex items-center justify-center">
+                  <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Smart Suite Builder</h3>
+                  <p className="text-xs text-slate-400">AI groups your tests into logical CI/CD suite suggestions</p>
+                </div>
+              </div>
+              <button onClick={getSmartSuites} disabled={smartSuiteLoading || tests.length < 2}
+                className="px-4 py-2 bg-green-700/80 hover:bg-green-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-50">
+                {smartSuiteLoading ? 'Thinking…' : 'Suggest Suites'}
+              </button>
+            </div>
+            {smartSuiteResult && (
+              <div className="p-6 space-y-4">
+                {smartSuiteResult.error && <p className="text-red-400 text-sm">{smartSuiteResult.error}</p>}
+                {smartSuiteResult.suggestions?.map((s, idx) => (
+                  <div key={idx} className="border border-slate-700 rounded-xl p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-white">{s.name}</h4>
+                        {s.description && <p className="text-xs text-slate-400 mt-0.5">{s.description}</p>}
+                      </div>
+                      <button onClick={() => createSmartSuite(s)}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg transition-colors flex-shrink-0">
+                        Create Suite
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {s.testIds.map(id => {
+                        const t = smartSuiteResult.tests?.find(x => x.id === id);
+                        return t ? <span key={id} className="text-xs px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300">{t.name}</span> : null;
+                      })}
+                    </div>
+                    {s.rationale && <p className="text-xs text-slate-500 italic">{s.rationale}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </div>
       )}
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
@@ -1416,6 +1846,10 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
 
       {selectedExecId && (
         <ExecutionDetail executionId={selectedExecId} onClose={() => { setSelectedExecId(null); loadData(); }} />
+      )}
+
+      {generateScriptOpen && (
+        <GenerateScriptModal onClose={() => setGenerateScriptOpen(false)} />
       )}
 
       {/* Suite create/edit modal */}
