@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import API_URL from '../apiUrl';
 
 const TEMPLATES = [
-  { id: 'smoke',  label: 'Smoke',  desc: 'Minimal load — sanity check (2 VUs, ~2 min)',       color: 'text-green-400',  bg: 'bg-green-400/10' },
-  { id: 'load',   label: 'Load',   desc: 'Typical expected traffic',                             color: 'text-blue-400',   bg: 'bg-blue-400/10' },
-  { id: 'soak',   label: 'Soak',   desc: 'Sustained load over long period (memory leaks)',       color: 'text-yellow-400', bg: 'bg-yellow-400/10', enterprise: true },
-  { id: 'spike',  label: 'Spike',  desc: '10× sudden VU burst (resilience check)',               color: 'text-orange-400', bg: 'bg-orange-400/10', enterprise: true },
-  { id: 'stress', label: 'Stress', desc: 'Ramp until failure — find breaking point',             color: 'text-red-400',    bg: 'bg-red-400/10',    enterprise: true },
+  { id: 'smoke',  label: 'Smoke',  desc: 'Minimal load — sanity check (2 VUs, ~2 min)',       color: 'text-green-400',  bg: 'bg-green-400/10',  defaults: { vus: 2,   ramp_duration: 30,  hold_duration: 120  } },
+  { id: 'load',   label: 'Load',   desc: 'Typical expected traffic',                             color: 'text-blue-400',   bg: 'bg-blue-400/10',   defaults: { vus: 10,  ramp_duration: 60,  hold_duration: 300  } },
+  { id: 'soak',   label: 'Soak',   desc: 'Sustained load over long period (memory leaks)',       color: 'text-yellow-400', bg: 'bg-yellow-400/10', defaults: { vus: 20,  ramp_duration: 120, hold_duration: 7200 }, enterprise: true },
+  { id: 'spike',  label: 'Spike',  desc: '10× sudden VU burst (resilience check)',               color: 'text-orange-400', bg: 'bg-orange-400/10', defaults: { vus: 100, ramp_duration: 10,  hold_duration: 60   }, enterprise: true },
+  { id: 'stress', label: 'Stress', desc: 'Ramp until failure — find breaking point',             color: 'text-red-400',    bg: 'bg-red-400/10',    defaults: { vus: 50,  ramp_duration: 300, hold_duration: 600  }, enterprise: true },
 ];
 
 const METRIC_OPTIONS = ['p95', 'p99', 'p50', 'avg_latency', 'error_rate'];
@@ -213,7 +213,7 @@ function TestModal({ test, onClose, onSave, plan, folders }) {
                 return (
                   <button key={tpl.id} type="button"
                     disabled={locked}
-                    onClick={() => !locked && set('template', tpl.id)}
+                    onClick={() => { if (!locked) { setForm(f => ({ ...f, template: tpl.id, ...tpl.defaults })); } }}
                     className={`relative p-3 rounded-xl border text-left transition-all ${locked ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:border-indigo-500/50'}
                       ${form.template === tpl.id ? 'border-indigo-500 bg-indigo-600/10' : 'border-slate-700 bg-slate-900/50'}`}>
                     {locked && (
