@@ -160,7 +160,7 @@ function Register() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <span className="text-white font-semibold text-sm">QA Platform</span>
+          <span className="text-white font-semibold text-sm">TestStuido.Cloud</span>
         </Link>
         <span className="text-slate-400 text-sm">
           Already have an account?{' '}
