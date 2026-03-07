@@ -276,29 +276,51 @@ function ExecutionDetail({ executionId, onClose }) {
   const [loading, setLoading] = useState(true);
   const pollRef = useRef(null);
 
+  const safeJson = async (res) => {
+    if (!res.ok) return null;
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) return null;
+    try { return await res.json(); } catch { return null; }
+  };
+
   const load = useCallback(async () => {
     const token = localStorage.getItem('auth_token');
-    const [execRes, metricsRes] = await Promise.all([
-      fetch(`${API_URL}/performance-executions/${executionId}`, { headers: { 'x-auth-token': token } }),
-      fetch(`${API_URL}/performance-executions/${executionId}/metrics`, { headers: { 'x-auth-token': token } }),
-    ]);
-    const execData = execRes.ok ? await execRes.json() : null;
-    const metricsData = metricsRes.ok ? await metricsRes.json() : [];
-    setExec(execData);
-    setMetrics(metricsData);
-    setLoading(false);
-    return execData?.status;
+    try {
+      const [execRes, metricsRes] = await Promise.all([
+        fetch(`${API_URL}/performance-executions/${executionId}`, { headers: { 'x-auth-token': token } }),
+        fetch(`${API_URL}/performance-executions/${executionId}/metrics`, { headers: { 'x-auth-token': token } }),
+      ]);
+      const execData = await safeJson(execRes);
+      const metricsData = (await safeJson(metricsRes)) ?? [];
+      setExec(execData);
+      setMetrics(metricsData);
+      return execData?.status;
+    } catch (e) {
+      console.error('ExecutionDetail load error:', e);
+      return null;
+    } finally {
+      setLoading(false);
+    }
   }, [executionId]);
 
   useEffect(() => {
+    let pollCount = 0;
+    const MAX_POLLS = 300; // 15 min at 3s interval
     load().then(status => {
       if (status === 'running' || status === 'pending') {
         pollRef.current = setInterval(async () => {
-          const s = await load();
+          pollCount++;
+          if (pollCount >= MAX_POLLS) {
+            clearInterval(pollRef.current);
+            setExec(prev => prev ? { ...prev, status: 'failed', summary_json: { ...prev.summary_json, error: 'Timed out waiting for result' } } : prev);
+            setLoading(false);
+            return;
+          }
+          const s = await load().catch(() => null);
           if (s !== 'running' && s !== 'pending') clearInterval(pollRef.current);
         }, 3000);
       }
-    });
+    }).catch(() => {});
     return () => clearInterval(pollRef.current);
   }, [load]);
 
@@ -461,17 +483,25 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
   const [runError, setRunError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);  // { type, id }
 
-  const authHeader = { 'x-auth-token': localStorage.getItem('auth_token') };
+  const authHeader = () => ({ 'x-auth-token': localStorage.getItem('auth_token') });
+
+  const safeJson = async (res) => {
+    if (!res.ok) return null;
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) return null;
+    try { return await res.json(); } catch { return null; }
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      const headers = authHeader();
       const [testsRes, runsRes] = await Promise.all([
-        fetch(`${API_URL}/performance-tests`, { headers: authHeader }),
-        fetch(`${API_URL}/performance-executions`, { headers: authHeader }),
+        fetch(`${API_URL}/performance-tests`, { headers }),
+        fetch(`${API_URL}/performance-executions`, { headers }),
       ]);
-      setTests(testsRes.ok ? await testsRes.json() : []);
-      setRuns(runsRes.ok ? await runsRes.json() : []);
+      setTests((await safeJson(testsRes)) ?? []);
+      setRuns((await safeJson(runsRes)) ?? []);
     } catch (e) {
       console.error('perf load error:', e);
     } finally {
@@ -488,10 +518,11 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
     try {
       const res = await fetch(`${API_URL}/performance-tests/${test.id}/run`, {
         method: 'POST',
-        headers: authHeader,
+        headers: authHeader(),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to start');
+      const ct = res.headers.get('content-type') || '';
+      const data = ct.includes('application/json') ? await res.json() : {};
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
       // Switch to Runs tab and open the detail
       await loadData();
       setTab('runs');
@@ -509,7 +540,7 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
     const url = type === 'test'
       ? `${API_URL}/performance-tests/${id}`
       : `${API_URL}/performance-executions/${id}`;
-    await fetch(url, { method: 'DELETE', headers: authHeader });
+      await fetch(url, { method: 'DELETE', headers: authHeader() });
     setDeleteConfirm(null);
     loadData();
   };

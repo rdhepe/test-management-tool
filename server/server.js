@@ -5186,9 +5186,9 @@ function generateK6Script(test) {
   switch (template) {
     case 'smoke':
       stages = `[
-    { duration: '${rampS}s', target: 2 },
-    { duration: '60s', target: 2 },
-    { duration: '30s', target: 0 },
+    { duration: '5s', target: 2 },
+    { duration: '30s', target: 2 },
+    { duration: '5s', target: 0 },
   ]`;
       break;
     case 'load':
