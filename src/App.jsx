@@ -61,6 +61,14 @@ function App({ orgSlug = 'default' }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
 
+  // Refresh org info from the public endpoint (called on mount and after org updates)
+  const refreshOrgInfo = () => {
+    fetch(`${API_URL}/public/org/${orgSlug}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(org => setOrgInfo(org))
+      .catch(() => {});
+  };
+
   // Restore session + fetch org info on mount
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
@@ -94,6 +102,12 @@ function App({ orgSlug = 'default' }) {
       }
       setAuthChecked(true);
     });
+  }, [orgSlug]);
+
+  // Re-fetch org info when super admin updates org settings (plan, AI healing, etc.)
+  useEffect(() => {
+    window.addEventListener('orgUpdated', refreshOrgInfo);
+    return () => window.removeEventListener('orgUpdated', refreshOrgInfo);
   }, [orgSlug]);
 
   const handleLoginSuccess = (user) => {

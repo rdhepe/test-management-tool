@@ -189,6 +189,8 @@ function OrgManagement({ currentUser }) {
       if (!res.ok) return setEditError(data.error || 'Failed to update organization');
       setEditingOrg(null);
       fetchOrgs();
+      // Notify App.jsx to re-fetch orgInfo so AI features reflect the new plan immediately
+      window.dispatchEvent(new CustomEvent('orgUpdated'));
     } catch (e) { setEditError(e.message); }
     finally { setEditLoading(false); }
   };
