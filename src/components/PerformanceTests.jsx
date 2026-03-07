@@ -317,15 +317,32 @@ function ExecutionDetail({ executionId, onClose }) {
             return;
           }
           const s = await load().catch(() => null);
-          if (s !== 'running' && s !== 'pending') clearInterval(pollRef.current);
+          // Only stop polling on a confirmed terminal status; null = transient error, keep polling
+          const terminal = ['passed', 'failed', 'thresholds_failed'];
+          if (s !== null && terminal.includes(s)) clearInterval(pollRef.current);
         }, 3000);
       }
     }).catch(() => {});
     return () => clearInterval(pollRef.current);
   }, [load]);
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
+  const modalShell = (body) => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
+      <div className="w-full max-w-4xl rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+          <h2 className="text-lg font-semibold text-white">Execution Detail</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6">{body}</div>
+      </div>
+    </div>
+  );
+
+  if (loading) return modalShell(
+    <div className="flex items-center justify-center h-48">
       <svg className="w-6 h-6 animate-spin text-indigo-400" fill="none" viewBox="0 0 24 24">
         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -333,8 +350,11 @@ function ExecutionDetail({ executionId, onClose }) {
     </div>
   );
 
-  if (!exec) return (
-    <div className="text-center py-12 text-slate-400">Execution not found</div>
+  if (!exec) return modalShell(
+    <div className="text-center py-12">
+      <p className="text-slate-400 mb-2">Execution not found</p>
+      <p className="text-xs text-slate-500">Execution ID: {executionId}</p>
+    </div>
   );
 
   const s = exec.summary_json || {};

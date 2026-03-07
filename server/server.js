@@ -5390,11 +5390,18 @@ app.post('/performance-tests/:id/run', requireAuth, async (req, res) => {
       cwd: scriptDir,
     });
 
+    // Kill after max possible test duration + 2 min buffer so the execution never stays 'running' forever
+    const maxMs = (test.ramp_duration + test.hold_duration + 120) * 1000;
+    const killTimer = setTimeout(() => {
+      try { k6.kill('SIGTERM'); } catch {}
+    }, maxMs);
+
     const logLines = [];
     k6.stdout.on('data', d => logLines.push(d.toString()));
     k6.stderr.on('data', d => logLines.push(d.toString()));
 
     k6.on('close', async (code) => {
+      clearTimeout(killTimer);
       try {
         // Parse output file if it exists
         let metrics = [];
@@ -5452,6 +5459,7 @@ app.post('/performance-tests/:id/run', requireAuth, async (req, res) => {
     });
 
     k6.on('error', async (err) => {
+      clearTimeout(killTimer);
       console.error('k6 spawn error:', err);
       await performanceOperations.updateExecutionStatus(execution.id, 'failed', { error: err.message });
     });
@@ -5478,6 +5486,15 @@ app.get('/performance-executions/:id', requireAuth, async (req, res) => {
   try {
     const row = await performanceOperations.getExecutionById(req.params.id);
     if (!row || parseInt(row.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
+    // Auto-recover stale executions: if still 'running'/'pending' after 15+ minutes, mark failed
+    if ((row.status === 'running' || row.status === 'pending') && row.started_at) {
+      const ageMs = Date.now() - new Date(row.started_at).getTime();
+      if (ageMs > 15 * 60 * 1000) {
+        await performanceOperations.updateExecutionStatus(row.id, 'failed', { error: 'Execution timed out — process did not complete within 15 minutes.' });
+        row.status = 'failed';
+        row.summary_json = { error: 'Execution timed out — process did not complete within 15 minutes.' };
+      }
+    }
     const thresholds = await performanceOperations.getThresholdResults(req.params.id);
     res.json({ ...row, threshold_results: thresholds });
   } catch (err) {
