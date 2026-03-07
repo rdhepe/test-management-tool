@@ -5328,7 +5328,7 @@ app.post('/performance-tests', requireAuth, async (req, res) => {
 app.put('/performance-tests/:id', requireAuth, async (req, res) => {
   try {
     const existing = await performanceOperations.getTestById(req.params.id);
-    if (!existing || existing.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    if (!existing || parseInt(existing.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
     const updated = await performanceOperations.updateTest(req.params.id, req.body);
     res.json(updated);
   } catch (err) {
@@ -5341,7 +5341,7 @@ app.put('/performance-tests/:id', requireAuth, async (req, res) => {
 app.delete('/performance-tests/:id', requireAuth, async (req, res) => {
   try {
     const existing = await performanceOperations.getTestById(req.params.id);
-    if (!existing || existing.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    if (!existing || parseInt(existing.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
     await performanceOperations.deleteTest(req.params.id);
     res.json({ ok: true });
   } catch (err) {
@@ -5360,7 +5360,7 @@ app.post('/performance-tests/:id/run', requireAuth, async (req, res) => {
     }
 
     const test = await performanceOperations.getTestById(req.params.id);
-    if (!test || test.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    if (!test || parseInt(test.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
 
     // Soak/spike/stress locked to enterprise
     if (['soak', 'spike', 'stress'].includes(test.template) && plan !== 'enterprise') {
@@ -5477,10 +5477,11 @@ app.get('/performance-executions', requireAuth, async (req, res) => {
 app.get('/performance-executions/:id', requireAuth, async (req, res) => {
   try {
     const row = await performanceOperations.getExecutionById(req.params.id);
-    if (!row || row.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    if (!row || parseInt(row.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
     const thresholds = await performanceOperations.getThresholdResults(req.params.id);
     res.json({ ...row, threshold_results: thresholds });
   } catch (err) {
+    console.error('GET /performance-executions/:id error:', err);
     res.status(500).json({ error: 'Failed to fetch execution' });
   }
 });
@@ -5489,7 +5490,7 @@ app.get('/performance-executions/:id', requireAuth, async (req, res) => {
 app.get('/performance-executions/:id/metrics', requireAuth, async (req, res) => {
   try {
     const exec = await performanceOperations.getExecutionById(req.params.id);
-    if (!exec || exec.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    if (!exec || parseInt(exec.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
     const metrics = await performanceOperations.getMetrics(req.params.id);
     res.json(metrics);
   } catch (err) {
@@ -5501,7 +5502,7 @@ app.get('/performance-executions/:id/metrics', requireAuth, async (req, res) => 
 app.delete('/performance-executions/:id', requireAuth, async (req, res) => {
   try {
     const exec = await performanceOperations.getExecutionById(req.params.id);
-    if (!exec || exec.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    if (!exec || parseInt(exec.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
     await performanceOperations.deleteExecution(req.params.id);
     res.json({ ok: true });
   } catch (err) {
@@ -5513,7 +5514,7 @@ app.delete('/performance-executions/:id', requireAuth, async (req, res) => {
 app.get('/performance-executions/:id/status', requireAuth, async (req, res) => {
   try {
     const exec = await performanceOperations.getExecutionById(req.params.id);
-    if (!exec || exec.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    if (!exec || parseInt(exec.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
     res.json({ id: exec.id, status: exec.status, started_at: exec.started_at, ended_at: exec.ended_at, summary_json: exec.summary_json });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch status' });

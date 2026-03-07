@@ -500,8 +500,11 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
         fetch(`${API_URL}/performance-tests`, { headers }),
         fetch(`${API_URL}/performance-executions`, { headers }),
       ]);
-      setTests((await safeJson(testsRes)) ?? []);
-      setRuns((await safeJson(runsRes)) ?? []);
+      const testsData = await safeJson(testsRes);
+      const runsData = await safeJson(runsRes);
+      // Only update state if we got valid data — don't wipe on fetch failure
+      if (testsData !== null) setTests(testsData);
+      if (runsData !== null) setRuns(runsData);
     } catch (e) {
       console.error('perf load error:', e);
     } finally {
@@ -523,10 +526,11 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
       const ct = res.headers.get('content-type') || '';
       const data = ct.includes('application/json') ? await res.json() : {};
       if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
-      // Switch to Runs tab and open the detail
-      await loadData();
+      // Switch to Runs tab and open detail immediately — don't await loadData first
       setTab('runs');
       setSelectedExecId(data.executionId);
+      // Reload runs list in background
+      loadData();
     } catch (e) {
       setRunError(e.message);
     } finally {
