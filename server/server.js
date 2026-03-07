@@ -5484,8 +5484,14 @@ app.get('/performance-executions', requireAuth, async (req, res) => {
 // GET /performance-executions/:id
 app.get('/performance-executions/:id', requireAuth, async (req, res) => {
   try {
-    const row = await performanceOperations.getExecutionById(req.params.id);
-    if (!row || parseInt(row.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
+    // Pass orgId into the query so filtering happens in SQL — avoids JS type mismatch
+    const row = await performanceOperations.getExecutionById(req.params.id, req.session.orgId);
+    if (!row) {
+      // Log for server-side debugging
+      const raw = await performanceOperations.getExecutionById(req.params.id);
+      console.warn(`GET /performance-executions/${req.params.id}: row.org_id=${raw?.org_id} session.orgId=${req.session.orgId} (no match or missing)`);
+      return res.status(404).json({ error: 'Not found' });
+    }
     // Auto-recover stale executions: if still 'running'/'pending' after 15+ minutes, mark failed
     if ((row.status === 'running' || row.status === 'pending') && row.started_at) {
       const ageMs = Date.now() - new Date(row.started_at).getTime();
@@ -5506,8 +5512,8 @@ app.get('/performance-executions/:id', requireAuth, async (req, res) => {
 // GET /performance-executions/:id/metrics
 app.get('/performance-executions/:id/metrics', requireAuth, async (req, res) => {
   try {
-    const exec = await performanceOperations.getExecutionById(req.params.id);
-    if (!exec || parseInt(exec.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
+    const exec = await performanceOperations.getExecutionById(req.params.id, req.session.orgId);
+    if (!exec) return res.status(404).json({ error: 'Not found' });
     const metrics = await performanceOperations.getMetrics(req.params.id);
     res.json(metrics);
   } catch (err) {
@@ -5518,8 +5524,8 @@ app.get('/performance-executions/:id/metrics', requireAuth, async (req, res) => 
 // DELETE /performance-executions/:id
 app.delete('/performance-executions/:id', requireAuth, async (req, res) => {
   try {
-    const exec = await performanceOperations.getExecutionById(req.params.id);
-    if (!exec || parseInt(exec.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
+    const exec = await performanceOperations.getExecutionById(req.params.id, req.session.orgId);
+    if (!exec) return res.status(404).json({ error: 'Not found' });
     await performanceOperations.deleteExecution(req.params.id);
     res.json({ ok: true });
   } catch (err) {
@@ -5530,8 +5536,8 @@ app.delete('/performance-executions/:id', requireAuth, async (req, res) => {
 // GET /performance-executions/:id/status — lightweight polling endpoint
 app.get('/performance-executions/:id/status', requireAuth, async (req, res) => {
   try {
-    const exec = await performanceOperations.getExecutionById(req.params.id);
-    if (!exec || parseInt(exec.org_id) !== parseInt(req.session.orgId)) return res.status(404).json({ error: 'Not found' });
+    const exec = await performanceOperations.getExecutionById(req.params.id, req.session.orgId);
+    if (!exec) return res.status(404).json({ error: 'Not found' });
     res.json({ id: exec.id, status: exec.status, started_at: exec.started_at, ended_at: exec.ended_at, summary_json: exec.summary_json });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch status' });

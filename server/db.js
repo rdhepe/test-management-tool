@@ -2223,13 +2223,13 @@ const performanceOperations = {
     }));
   },
 
-  getExecutionById: async (id) => {
+  getExecutionById: async (id, orgId = null) => {
     const r = await pool.query(
       `SELECT pe.*, pt.name AS test_name, pt.template, pt.target_url, pt.thresholds_json
        FROM performance_executions pe
        JOIN performance_tests pt ON pt.id = pe.perf_test_id
-       WHERE pe.id = $1`,
-      [id]
+       WHERE pe.id = $1${orgId != null ? ' AND pe.org_id = $2' : ''}`,
+      orgId != null ? [id, orgId] : [id]
     );
     const row = r.rows[0] || null;
     if (!row) return null;
