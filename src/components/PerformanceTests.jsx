@@ -502,6 +502,8 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
       ]);
       const testsData = await safeJson(testsRes);
       const runsData = await safeJson(runsRes);
+      if (testsData === null) console.warn('[perf] tests fetch failed, status:', testsRes.status);
+      if (runsData === null) console.warn('[perf] runs fetch failed, status:', runsRes.status);
       // Only update state if we got valid data — don't wipe on fetch failure
       if (testsData !== null) setTests(testsData);
       if (runsData !== null) setRuns(runsData);

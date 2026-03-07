@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
@@ -48,6 +48,9 @@ function App({ orgSlug = 'default' }) {
   const [isModuleModalOpen, setIsModuleModalOpen] = useState(false);
   const [isTestFileModalOpen, setIsTestFileModalOpen] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'modules', 'moduleDetail', 'testFile', 'executions', 'executionDetail', 'testSuites', 'suiteExecutionDetail', 'features', 'requirements', 'testcases', 'defects'
+  // Track whether the performance view has ever been visited so we can keep it mounted
+  const perfMountedRef = useRef(false);
+  if (currentView === 'performance') perfMountedRef.current = true;
   const [executionStatus, setExecutionStatus] = useState(null); // 'running', 'completed', or null
   const [executionResult, setExecutionResult] = useState(null); // { status: 'pass'|'fail', message: string }
   const [debugActive, setDebugActive] = useState(false); // true while Playwright Inspector is open
@@ -1144,8 +1147,11 @@ function App({ orgSlug = 'default' }) {
               <Tutorial currentUser={currentUser} />
             )}
 
-            {currentView === 'performance' && (
-              <PerformanceTests orgInfo={orgInfo} currentUser={currentUser} />
+            {/* PerformanceTests stays mounted after first visit to preserve state across navigation */}
+            {perfMountedRef.current && (
+              <div style={{ display: currentView === 'performance' ? 'block' : 'none' }}>
+                <PerformanceTests orgInfo={orgInfo} currentUser={currentUser} />
+              </div>
             )}
           </div>
         </main>
