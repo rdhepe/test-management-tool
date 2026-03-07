@@ -588,6 +588,68 @@ async function initDB() {
   await pool.query(`ALTER TABLE suite_test_results ADD COLUMN IF NOT EXISTS trace_path TEXT`);
   await pool.query(`ALTER TABLE suite_test_results ADD COLUMN IF NOT EXISTS video_path TEXT`);
 
+  // Performance testing tables
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS performance_tests (
+      id              SERIAL PRIMARY KEY,
+      org_id          INTEGER NOT NULL DEFAULT 1,
+      name            TEXT NOT NULL,
+      description     TEXT DEFAULT '',
+      template        TEXT NOT NULL DEFAULT 'load',
+      target_url      TEXT NOT NULL,
+      vus             INTEGER NOT NULL DEFAULT 10,
+      ramp_duration   INTEGER NOT NULL DEFAULT 60,
+      hold_duration   INTEGER NOT NULL DEFAULT 300,
+      scenarios_json  TEXT DEFAULT '[]',
+      thresholds_json TEXT DEFAULT '[]',
+      created_by      TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS performance_executions (
+      id              SERIAL PRIMARY KEY,
+      org_id          INTEGER NOT NULL DEFAULT 1,
+      perf_test_id    INTEGER NOT NULL REFERENCES performance_tests(id) ON DELETE CASCADE,
+      status          TEXT NOT NULL DEFAULT 'pending',
+      started_at      TIMESTAMPTZ DEFAULT NOW(),
+      ended_at        TIMESTAMPTZ,
+      triggered_by    TEXT,
+      summary_json    TEXT DEFAULT '{}'
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS performance_metrics (
+      id               SERIAL PRIMARY KEY,
+      execution_id     INTEGER NOT NULL REFERENCES performance_executions(id) ON DELETE CASCADE,
+      ts_offset        INTEGER NOT NULL DEFAULT 0,
+      req_count        INTEGER DEFAULT 0,
+      req_rate         NUMERIC(10,2) DEFAULT 0,
+      avg_latency      NUMERIC(10,2) DEFAULT 0,
+      p50_latency      NUMERIC(10,2) DEFAULT 0,
+      p95_latency      NUMERIC(10,2) DEFAULT 0,
+      p99_latency      NUMERIC(10,2) DEFAULT 0,
+      error_count      INTEGER DEFAULT 0,
+      error_rate       NUMERIC(10,4) DEFAULT 0,
+      active_vus       INTEGER DEFAULT 0
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS performance_threshold_results (
+      id           SERIAL PRIMARY KEY,
+      execution_id INTEGER NOT NULL REFERENCES performance_executions(id) ON DELETE CASCADE,
+      metric       TEXT NOT NULL,
+      operator     TEXT NOT NULL,
+      threshold    NUMERIC(10,4) NOT NULL,
+      actual       NUMERIC(10,4),
+      passed       BOOLEAN DEFAULT false
+    )
+  `);
+
   await seedDefaultOrg();
   await seedDefaultUsers();
   console.log('Database initialised');
@@ -2088,6 +2150,163 @@ const platformBugReportOperations = {
 };
 
 // ---------------------------------------------------------------------------
+// Performance Test Operations
+// ---------------------------------------------------------------------------
+const performanceOperations = {
+  // ── Test definitions ──────────────────────────────────────────────────────
+  getAllTests: async (orgId = 1) => {
+    const r = await pool.query(
+      'SELECT * FROM performance_tests WHERE org_id = $1 ORDER BY created_at DESC',
+      [orgId]
+    );
+    return r.rows.map(row => ({
+      ...row,
+      scenarios_json: row.scenarios_json ? JSON.parse(row.scenarios_json) : [],
+      thresholds_json: row.thresholds_json ? JSON.parse(row.thresholds_json) : [],
+    }));
+  },
+
+  getTestById: async (id) => {
+    const r = await pool.query('SELECT * FROM performance_tests WHERE id = $1', [id]);
+    const row = r.rows[0] || null;
+    if (!row) return null;
+    return {
+      ...row,
+      scenarios_json: row.scenarios_json ? JSON.parse(row.scenarios_json) : [],
+      thresholds_json: row.thresholds_json ? JSON.parse(row.thresholds_json) : [],
+    };
+  },
+
+  createTest: async ({ org_id = 1, name, description = '', template = 'load', target_url, vus = 10, ramp_duration = 60, hold_duration = 300, scenarios_json = [], thresholds_json = [], created_by = null }) => {
+    const r = await pool.query(
+      `INSERT INTO performance_tests (org_id, name, description, template, target_url, vus, ramp_duration, hold_duration, scenarios_json, thresholds_json, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [org_id, name, description, template, target_url, vus, ramp_duration, hold_duration,
+       JSON.stringify(scenarios_json), JSON.stringify(thresholds_json), created_by]
+    );
+    return performanceOperations.getTestById(r.rows[0].id);
+  },
+
+  updateTest: async (id, fields) => {
+    const cols = [];
+    const vals = [];
+    let i = 1;
+    const allowed = ['name','description','template','target_url','vus','ramp_duration','hold_duration','scenarios_json','thresholds_json'];
+    for (const k of allowed) {
+      if (fields[k] !== undefined) {
+        cols.push(`${k}=$${i++}`);
+        vals.push(k.endsWith('_json') ? JSON.stringify(fields[k]) : fields[k]);
+      }
+    }
+    if (cols.length === 0) return performanceOperations.getTestById(id);
+    cols.push(`updated_at=NOW()`);
+    vals.push(id);
+    await pool.query(`UPDATE performance_tests SET ${cols.join(', ')} WHERE id=$${i}`, vals);
+    return performanceOperations.getTestById(id);
+  },
+
+  deleteTest: async (id) => pool.query('DELETE FROM performance_tests WHERE id = $1', [id]),
+
+  // ── Executions ───────────────────────────────────────────────────────────
+  getAllExecutions: async (orgId = 1) => {
+    const r = await pool.query(
+      `SELECT pe.*, pt.name AS test_name, pt.template
+       FROM performance_executions pe
+       JOIN performance_tests pt ON pt.id = pe.perf_test_id
+       WHERE pe.org_id = $1
+       ORDER BY pe.started_at DESC`,
+      [orgId]
+    );
+    return r.rows.map(row => ({
+      ...row,
+      summary_json: row.summary_json ? JSON.parse(row.summary_json) : {},
+    }));
+  },
+
+  getExecutionById: async (id) => {
+    const r = await pool.query(
+      `SELECT pe.*, pt.name AS test_name, pt.template, pt.target_url, pt.thresholds_json
+       FROM performance_executions pe
+       JOIN performance_tests pt ON pt.id = pe.perf_test_id
+       WHERE pe.id = $1`,
+      [id]
+    );
+    const row = r.rows[0] || null;
+    if (!row) return null;
+    return {
+      ...row,
+      summary_json: row.summary_json ? JSON.parse(row.summary_json) : {},
+      thresholds_json: row.thresholds_json ? JSON.parse(row.thresholds_json) : [],
+    };
+  },
+
+  createExecution: async ({ org_id = 1, perf_test_id, triggered_by = null }) => {
+    const r = await pool.query(
+      `INSERT INTO performance_executions (org_id, perf_test_id, status, triggered_by)
+       VALUES ($1,$2,'running',$3) RETURNING id`,
+      [org_id, perf_test_id, triggered_by]
+    );
+    return performanceOperations.getExecutionById(r.rows[0].id);
+  },
+
+  updateExecutionStatus: async (id, status, summary_json = {}) => {
+    await pool.query(
+      `UPDATE performance_executions SET status=$1, ended_at=NOW(), summary_json=$2 WHERE id=$3`,
+      [status, JSON.stringify(summary_json), id]
+    );
+  },
+
+  deleteExecution: async (id) => pool.query('DELETE FROM performance_executions WHERE id = $1', [id]),
+
+  // ── Metrics ──────────────────────────────────────────────────────────────
+  insertMetrics: async (executionId, rows) => {
+    if (!rows || rows.length === 0) return;
+    const values = rows.map((r, idx) => {
+      const base = idx * 10;
+      return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9},$${base+10})`;
+    }).join(',');
+    const flat = rows.flatMap(r => [
+      executionId, r.ts_offset || 0, r.req_count || 0, r.req_rate || 0,
+      r.avg_latency || 0, r.p50_latency || 0, r.p95_latency || 0, r.p99_latency || 0,
+      r.error_count || 0, r.error_rate || 0
+    ]);
+    await pool.query(
+      `INSERT INTO performance_metrics (execution_id,ts_offset,req_count,req_rate,avg_latency,p50_latency,p95_latency,p99_latency,error_count,error_rate)
+       VALUES ${values}`,
+      flat
+    );
+  },
+
+  getMetrics: async (executionId) => {
+    const r = await pool.query(
+      'SELECT * FROM performance_metrics WHERE execution_id = $1 ORDER BY ts_offset ASC',
+      [executionId]
+    );
+    return r.rows;
+  },
+
+  // ── Thresholds ────────────────────────────────────────────────────────────
+  insertThresholdResults: async (executionId, results) => {
+    if (!results || results.length === 0) return;
+    for (const t of results) {
+      await pool.query(
+        `INSERT INTO performance_threshold_results (execution_id, metric, operator, threshold, actual, passed)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [executionId, t.metric, t.operator, t.threshold, t.actual ?? null, t.passed ?? false]
+      );
+    }
+  },
+
+  getThresholdResults: async (executionId) => {
+    const r = await pool.query(
+      'SELECT * FROM performance_threshold_results WHERE execution_id = $1',
+      [executionId]
+    );
+    return r.rows;
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Initialise on startup
 // ---------------------------------------------------------------------------
 initDB().catch((err) => {
@@ -2136,5 +2355,6 @@ module.exports = {
   orFolderOperations,
   enquiryOperations,
   platformFeedbackOperations,
-  platformBugReportOperations
+  platformBugReportOperations,
+  performanceOperations
 };

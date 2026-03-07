@@ -31,6 +31,7 @@ import OrgManagement from './components/OrgManagement';
 import Enquiries from './components/Enquiries';
 import FeatureRequests from './components/FeatureRequests';
 import BugReports from './components/BugReports';
+import PerformanceTests from './components/PerformanceTests';
 
 import API_URL from './apiUrl';
 
@@ -841,6 +842,10 @@ function App({ orgSlug = 'default' }) {
       setCurrentView('tutorial');
       setSelectedModule(null);
       setSelectedTestFile(null);
+    } else if (view === 'performance') {
+      setCurrentView('performance');
+      setSelectedModule(null);
+      setSelectedTestFile(null);
     }
   };
 
@@ -1137,6 +1142,10 @@ function App({ orgSlug = 'default' }) {
 
             {currentView === 'tutorial' && (
               <Tutorial currentUser={currentUser} />
+            )}
+
+            {currentView === 'performance' && (
+              <PerformanceTests orgInfo={orgInfo} currentUser={currentUser} />
             )}
           </div>
         </main>

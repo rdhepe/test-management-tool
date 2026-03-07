@@ -10,6 +10,7 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
     suiteExecutionDetail: 'Suite Runs', defects: 'Defects', reports: 'Reports',
     userManagement: 'Users', orgManagement: 'Organizations', tutorial: 'Guide',
     enquiries: 'Enquiries', featureRequests: 'Feature Requests', bugReports: 'Bug Reports',
+    performance: 'Performance',
   };
   const activeItem = VIEW_TO_NAME[currentView] || 'Dashboard';
 
@@ -194,6 +195,20 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
             </svg>
           ),
           view: 'reports'
+        },
+      ]
+    },
+    {
+      title: 'Performance',
+      items: [
+        {
+          name: 'Performance',
+          icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          ),
+          view: 'performance'
         },
       ]
     },

@@ -6,7 +6,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, objectRepositoryOperations, orFolderOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, objectRepositoryOperations, orFolderOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations, performanceOperations } = require('./db');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -5145,6 +5145,376 @@ app.patch('/platform-bug-reports/:id/status', requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update status' });
+  }
+});
+
+// ============================================================
+// PERFORMANCE TESTING — k6-based routes
+// ============================================================
+
+/**
+ * Generate a k6 script from a performance test definition.
+ */
+function generateK6Script(test) {
+  const { template, target_url, vus, ramp_duration, hold_duration, thresholds_json } = test;
+
+  // Build thresholds block
+  const thresholdLines = (thresholds_json || []).map(t => {
+    const k6MetricMap = {
+      p95: 'http_req_duration{quantile:"0.95"}',
+      p99: 'http_req_duration{quantile:"0.99"}',
+      p50: 'http_req_duration{quantile:"0.5"}',
+      avg_latency: 'http_req_duration',
+      error_rate: 'http_req_failed',
+      req_rate: 'http_reqs',
+    };
+    const metric = k6MetricMap[t.metric] || t.metric;
+    return `    '${metric}': ['${t.operator} ${t.value}']`;
+  }).join(',\n');
+
+  const thresholdsBlock = thresholdLines
+    ? `  thresholds: {\n${thresholdLines}\n  },\n`
+    : '';
+
+  // Build stages by template
+  const rampS = ramp_duration || 60;
+  const holdS = hold_duration || 300;
+
+  let stages = '';
+  switch (template) {
+    case 'smoke':
+      stages = `[
+    { duration: '${rampS}s', target: 2 },
+    { duration: '60s', target: 2 },
+    { duration: '30s', target: 0 },
+  ]`;
+      break;
+    case 'load':
+      stages = `[
+    { duration: '${rampS}s', target: ${vus} },
+    { duration: '${holdS}s', target: ${vus} },
+    { duration: '${Math.round(rampS / 2)}s', target: 0 },
+  ]`;
+      break;
+    case 'soak':
+      stages = `[
+    { duration: '${rampS}s', target: ${vus} },
+    { duration: '${holdS}s', target: ${vus} },
+    { duration: '60s', target: 0 },
+  ]`;
+      break;
+    case 'spike':
+      stages = `[
+    { duration: '10s', target: ${vus} },
+    { duration: '30s', target: ${vus * 10} },
+    { duration: '30s', target: ${vus} },
+    { duration: '10s', target: 0 },
+  ]`;
+      break;
+    case 'stress':
+      stages = `[
+    { duration: '${rampS}s', target: ${vus} },
+    { duration: '${holdS}s', target: ${vus * 2} },
+    { duration: '${rampS}s', target: ${vus * 4} },
+    { duration: '60s', target: 0 },
+  ]`;
+      break;
+    default:
+      stages = `[
+    { duration: '${rampS}s', target: ${vus} },
+    { duration: '${holdS}s', target: ${vus} },
+    { duration: '30s', target: 0 },
+  ]`;
+  }
+
+  return `import http from 'k6/http';
+import { sleep, check } from 'k6';
+
+export const options = {
+${thresholdsBlock}  stages: ${stages},
+};
+
+export default function () {
+  const res = http.get('${target_url}');
+  check(res, {
+    'status 2xx': (r) => r.status >= 200 && r.status < 400,
+  });
+  sleep(1);
+}
+`;
+}
+
+/**
+ * Parse k6 JSON output (--out json=file) into time-series metric rows.
+ * k6 emits one JSON object per line; we aggregate into ~5s buckets.
+ */
+function parseK6Output(outputText) {
+  const lines = outputText.split('\n').filter(Boolean);
+  const buckets = {};  // keyed by 5s bucket offset
+
+  let startTs = null;
+  for (const line of lines) {
+    try {
+      const obj = JSON.parse(line);
+      if (obj.type !== 'Point') continue;
+      const ts = new Date(obj.data.time).getTime() / 1000;
+      if (startTs === null) startTs = ts;
+      const offset = Math.floor((ts - startTs) / 5) * 5;
+      if (!buckets[offset]) {
+        buckets[offset] = { ts_offset: offset, req_count: 0, req_rate: 0, durations: [], errors: 0, active_vus: 0 };
+      }
+      const b = buckets[offset];
+      const metric = obj.metric;
+      const val = obj.data.value;
+      if (metric === 'http_reqs') { b.req_count += val; b.req_rate += val; }
+      if (metric === 'http_req_duration') { b.durations.push(val); }
+      if (metric === 'http_req_failed' && val > 0) { b.errors += 1; }
+      if (metric === 'vus') { b.active_vus = Math.max(b.active_vus, val); }
+    } catch { /* skip bad lines */ }
+  }
+
+  return Object.values(buckets).sort((a, b) => a.ts_offset - b.ts_offset).map(b => {
+    const sorted = [...b.durations].sort((x, y) => x - y);
+    const pct = (p) => sorted.length ? sorted[Math.floor(sorted.length * p / 100)] || 0 : 0;
+    const avg = sorted.length ? sorted.reduce((s, v) => s + v, 0) / sorted.length : 0;
+    return {
+      ts_offset: b.ts_offset,
+      req_count: b.req_count,
+      req_rate: parseFloat((b.req_rate / 5).toFixed(2)),
+      avg_latency: parseFloat(avg.toFixed(2)),
+      p50_latency: parseFloat(pct(50).toFixed(2)),
+      p95_latency: parseFloat(pct(95).toFixed(2)),
+      p99_latency: parseFloat(pct(99).toFixed(2)),
+      error_count: b.errors,
+      error_rate: b.req_count > 0 ? parseFloat((b.errors / b.req_count).toFixed(4)) : 0,
+      active_vus: b.active_vus,
+    };
+  });
+}
+
+// ── Performance Test CRUD ────────────────────────────────────────────────────
+// GET /performance-tests
+app.get('/performance-tests', requireAuth, async (req, res) => {
+  try {
+    const rows = await performanceOperations.getAllTests(req.session.orgId);
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /performance-tests error:', err);
+    res.status(500).json({ error: 'Failed to fetch performance tests' });
+  }
+});
+
+// POST /performance-tests
+app.post('/performance-tests', requireAuth, async (req, res) => {
+  const { name, description, template, target_url, vus, ramp_duration, hold_duration, thresholds_json } = req.body;
+  if (!name || !target_url) return res.status(400).json({ error: 'name and target_url required' });
+  try {
+    const record = await performanceOperations.createTest({
+      org_id: req.session.orgId,
+      name, description, template, target_url, vus, ramp_duration, hold_duration,
+      thresholds_json: thresholds_json || [],
+      created_by: req.session.username,
+    });
+    res.status(201).json(record);
+  } catch (err) {
+    console.error('POST /performance-tests error:', err);
+    res.status(500).json({ error: 'Failed to create performance test' });
+  }
+});
+
+// PUT /performance-tests/:id
+app.put('/performance-tests/:id', requireAuth, async (req, res) => {
+  try {
+    const existing = await performanceOperations.getTestById(req.params.id);
+    if (!existing || existing.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    const updated = await performanceOperations.updateTest(req.params.id, req.body);
+    res.json(updated);
+  } catch (err) {
+    console.error('PUT /performance-tests/:id error:', err);
+    res.status(500).json({ error: 'Failed to update performance test' });
+  }
+});
+
+// DELETE /performance-tests/:id
+app.delete('/performance-tests/:id', requireAuth, async (req, res) => {
+  try {
+    const existing = await performanceOperations.getTestById(req.params.id);
+    if (!existing || existing.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    await performanceOperations.deleteTest(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete performance test' });
+  }
+});
+
+// POST /performance-tests/:id/run — spawn k6
+app.post('/performance-tests/:id/run', requireAuth, async (req, res) => {
+  try {
+    // Plan gate: only pro/premium/enterprise can run tests
+    const orgResult = await pool.query('SELECT plan FROM organizations WHERE id = $1', [req.session.orgId]);
+    const plan = orgResult.rows[0]?.plan || 'free';
+    if (plan === 'free') {
+      return res.status(403).json({ error: 'Performance test execution requires a Pro plan or higher. Upgrade to unlock.' });
+    }
+
+    const test = await performanceOperations.getTestById(req.params.id);
+    if (!test || test.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+
+    // Soak/spike/stress locked to enterprise
+    if (['soak', 'spike', 'stress'].includes(test.template) && plan !== 'enterprise') {
+      return res.status(403).json({ error: `The "${test.template}" template requires an Enterprise plan.` });
+    }
+
+    // Create execution record
+    const execution = await performanceOperations.createExecution({
+      org_id: req.session.orgId,
+      perf_test_id: test.id,
+      triggered_by: req.session.username,
+    });
+
+    // Write k6 script to temp file
+    const scriptDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(scriptDir)) fs.mkdirSync(scriptDir, { recursive: true });
+    const scriptPath = path.join(scriptDir, `perf_${execution.id}.js`);
+    const outputPath = path.join(scriptDir, `perf_out_${execution.id}.json`);
+    fs.writeFileSync(scriptPath, generateK6Script(test));
+
+    // Return execution id immediately; spawned process saves results async
+    res.status(202).json({ executionId: execution.id });
+
+    // Spawn k6
+    const k6 = spawn('k6', ['run', '--out', `json=${outputPath}`, '--no-color', scriptPath], {
+      env: { ...process.env },
+      cwd: scriptDir,
+    });
+
+    const logLines = [];
+    k6.stdout.on('data', d => logLines.push(d.toString()));
+    k6.stderr.on('data', d => logLines.push(d.toString()));
+
+    k6.on('close', async (code) => {
+      try {
+        // Parse output file if it exists
+        let metrics = [];
+        if (fs.existsSync(outputPath)) {
+          const raw = fs.readFileSync(outputPath, 'utf8');
+          metrics = parseK6Output(raw);
+          fs.unlinkSync(outputPath);
+        }
+
+        // Build summary
+        const summary = {};
+        if (metrics.length > 0) {
+          const allDur = metrics.map(m => m.avg_latency);
+          const allP95 = metrics.map(m => m.p95_latency);
+          const totalReqs = metrics.reduce((s, m) => s + m.req_count, 0);
+          const totalErrors = metrics.reduce((s, m) => s + m.error_count, 0);
+          summary.total_requests = totalReqs;
+          summary.error_rate = totalReqs > 0 ? parseFloat((totalErrors / totalReqs).toFixed(4)) : 0;
+          summary.avg_latency = parseFloat((allDur.reduce((s, v) => s + v, 0) / allDur.length).toFixed(2));
+          summary.p95_latency = parseFloat((allP95.reduce((s, v) => s + v, 0) / allP95.length).toFixed(2));
+          summary.peak_vus = Math.max(...metrics.map(m => m.active_vus));
+          summary.duration_s = metrics[metrics.length - 1]?.ts_offset || 0;
+        }
+        summary.exit_code = code;
+        summary.logs = logLines.join('').slice(-3000);
+
+        // Evaluate thresholds
+        const thresholdResults = (test.thresholds_json || []).map(t => {
+          let actual = null;
+          if (summary.p95_latency !== undefined && t.metric === 'p95') actual = summary.p95_latency;
+          if (summary.avg_latency !== undefined && t.metric === 'avg_latency') actual = summary.avg_latency;
+          if (summary.error_rate !== undefined && t.metric === 'error_rate') actual = summary.error_rate * 100;
+          let passed = false;
+          if (actual !== null) {
+            if (t.operator === '<') passed = actual < parseFloat(t.value);
+            if (t.operator === '>') passed = actual > parseFloat(t.value);
+            if (t.operator === '<=') passed = actual <= parseFloat(t.value);
+            if (t.operator === '>=') passed = actual >= parseFloat(t.value);
+          }
+          return { metric: t.metric, operator: t.operator, threshold: parseFloat(t.value), actual, passed };
+        });
+
+        const allPassed = thresholdResults.every(t => t.passed);
+        const finalStatus = code === 0 && allPassed ? 'passed' : (code === 0 ? 'thresholds_failed' : 'failed');
+
+        await performanceOperations.updateExecutionStatus(execution.id, finalStatus, summary);
+        if (metrics.length > 0) await performanceOperations.insertMetrics(execution.id, metrics);
+        if (thresholdResults.length > 0) await performanceOperations.insertThresholdResults(execution.id, thresholdResults);
+      } catch (saveErr) {
+        console.error('Error saving k6 results:', saveErr);
+        await performanceOperations.updateExecutionStatus(execution.id, 'failed', { error: saveErr.message });
+      } finally {
+        try { if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath); } catch {}
+      }
+    });
+
+    k6.on('error', async (err) => {
+      console.error('k6 spawn error:', err);
+      await performanceOperations.updateExecutionStatus(execution.id, 'failed', { error: err.message });
+    });
+
+  } catch (err) {
+    console.error('POST /performance-tests/:id/run error:', err);
+    res.status(500).json({ error: 'Failed to start performance test' });
+  }
+});
+
+// ── Performance Execution Routes ─────────────────────────────────────────────
+// GET /performance-executions
+app.get('/performance-executions', requireAuth, async (req, res) => {
+  try {
+    const rows = await performanceOperations.getAllExecutions(req.session.orgId);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch executions' });
+  }
+});
+
+// GET /performance-executions/:id
+app.get('/performance-executions/:id', requireAuth, async (req, res) => {
+  try {
+    const row = await performanceOperations.getExecutionById(req.params.id);
+    if (!row || row.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    const thresholds = await performanceOperations.getThresholdResults(req.params.id);
+    res.json({ ...row, threshold_results: thresholds });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch execution' });
+  }
+});
+
+// GET /performance-executions/:id/metrics
+app.get('/performance-executions/:id/metrics', requireAuth, async (req, res) => {
+  try {
+    const exec = await performanceOperations.getExecutionById(req.params.id);
+    if (!exec || exec.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    const metrics = await performanceOperations.getMetrics(req.params.id);
+    res.json(metrics);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch metrics' });
+  }
+});
+
+// DELETE /performance-executions/:id
+app.delete('/performance-executions/:id', requireAuth, async (req, res) => {
+  try {
+    const exec = await performanceOperations.getExecutionById(req.params.id);
+    if (!exec || exec.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    await performanceOperations.deleteExecution(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete execution' });
+  }
+});
+
+// GET /performance-executions/:id/status — lightweight polling endpoint
+app.get('/performance-executions/:id/status', requireAuth, async (req, res) => {
+  try {
+    const exec = await performanceOperations.getExecutionById(req.params.id);
+    if (!exec || exec.org_id !== req.session.orgId) return res.status(404).json({ error: 'Not found' });
+    res.json({ id: exec.id, status: exec.status, started_at: exec.started_at, ended_at: exec.ended_at, summary_json: exec.summary_json });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch status' });
   }
 });
 
