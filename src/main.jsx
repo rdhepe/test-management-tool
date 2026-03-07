@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams, useSearchParams } fr
 import App from './App.jsx'
 import Landing from './components/Landing.jsx'
 import Docs from './components/Docs.jsx'
+import Register from './components/Register.jsx'
 import SprintDetailPage from './components/SprintDetailPage.jsx'
 import './index.css'
 
@@ -24,6 +25,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/" element={<Landing />} />
         {/* Public docs */}
         <Route path="/docs" element={<Docs />} />
+        {/* Free tier self-signup */}
+        <Route path="/register" element={<Register />} />
         {/* Per-org app (login + full app) */}
         <Route path="/org/:slug" element={<OrgEntry />} />
         {/* Catch-all */}

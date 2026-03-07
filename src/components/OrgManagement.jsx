@@ -6,6 +6,7 @@ const PLAN_BADGE = {
   free:       'bg-slate-500/20 text-slate-400 border-slate-500/30',
   starter:    'bg-blue-500/20 text-blue-400 border-blue-500/30',
   pro:        'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
+  premium:    'bg-violet-500/20 text-violet-400 border-violet-500/30',
   enterprise: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
 };
 
@@ -15,7 +16,7 @@ const ROLE_BADGE = {
   _default:    'bg-teal-500/20 text-teal-300 border-teal-500/30',
 };
 
-const PLANS = ['free', 'starter', 'pro', 'enterprise'];
+const PLANS = ['free', 'starter', 'pro', 'premium', 'enterprise'];
 
 const PERMISSION_GROUPS = [
   { section: 'Overview',        items: [{ view: 'dashboard', label: 'Dashboard' }] },
@@ -164,6 +165,14 @@ function OrgManagement({ currentUser }) {
     e?.stopPropagation();
     setEditingOrg(org);
     setEditForm({ name: org.name, plan: org.plan, is_active: org.is_active, maxUsers: org.max_users ?? '', pocName: org.poc_name ?? '', pocEmail: org.poc_email ?? '', aiHealingEnabled: !!org.ai_healing_enabled, openaiApiKey: org.openai_api_key || '' });
+    setEditError('');
+  };
+
+  // Quick-action: pre-fill edit form with premium settings
+  const openUpgrade = (org, e) => {
+    e?.stopPropagation();
+    setEditingOrg(org);
+    setEditForm({ name: org.name, plan: 'premium', is_active: org.is_active, maxUsers: '', pocName: org.poc_name ?? '', pocEmail: org.poc_email ?? '', aiHealingEnabled: true, openaiApiKey: org.openai_api_key || '' });
     setEditError('');
   };
 
@@ -320,6 +329,18 @@ function OrgManagement({ currentUser }) {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {selectedOrg.plan === 'free' && (
+                <button
+                  onClick={(e) => openUpgrade(selectedOrg, e)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white transition-all shadow-lg shadow-violet-600/20"
+                  title="Upgrade to Premium — enable AI features and remove seat limit"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  Upgrade to Premium
+                </button>
+              )}
               {selectedOrg.id !== 1 && (
                 <button
                   onClick={(e) => toggleActive(selectedOrg, e)}

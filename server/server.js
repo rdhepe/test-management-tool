@@ -4459,9 +4459,8 @@ app.post('/auth/register-org', async (req, res) => {
     if (await userOperations.getByUsername(adminUsername)) {
       return res.status(409).json({ error: 'Username already exists' });
     }
-    const { aiHealingEnabled, openaiApiKey } = req.body;
-    const parsedMaxUsers = maxUsers ? parseInt(maxUsers) : null;
-    const org = await organizationOperations.create({ name: orgName, slug, plan: plan || 'free', maxUsers: parsedMaxUsers, pocName: pocName || null, pocEmail: pocEmail || null, aiHealingEnabled: aiHealingEnabled ? 1 : 0, openaiApiKey: openaiApiKey || null });
+    // Self-signup always creates a free org: 5 seats, no AI features
+    const org = await organizationOperations.create({ name: orgName, slug, plan: 'free', maxUsers: 5, pocName: pocName || null, pocEmail: pocEmail || null, aiHealingEnabled: 0, openaiApiKey: null });
     const adminUser = await userOperations.create({
       username: adminUsername,
       password: adminPassword,

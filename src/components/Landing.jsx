@@ -375,11 +375,11 @@ export default function Landing() {
                   Get a Demo
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
                 </button>
-                <button onClick={handleLaunch}
-                  className="flex items-center justify-center gap-2 px-6 py-3.5 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white font-semibold text-sm rounded-xl transition-all">
-                  Open App
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                </button>
+                <a href="/register"
+                  className="flex items-center justify-center gap-2 px-6 py-3.5 border border-emerald-700 hover:border-emerald-500 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-300 hover:text-emerald-200 font-semibold text-sm rounded-xl transition-all">
+                  Start Free
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                </a>
               </div>
               <div className="flex flex-wrap gap-2">
                 {['AI Test Generation','Self-Healing Tests','Playwright Built-in','Release Score'].map(tag => (
@@ -611,27 +611,36 @@ export default function Landing() {
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-medium mb-4">
               Simple, transparent pricing
             </div>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-4">Pay per seat. Cancel anytime.</h2>
-            <p className="text-slate-400 text-lg max-w-xl mx-auto">All plans include a 14-day free trial. No credit card required to start.</p>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-4">Start free. Scale when you're ready.</h2>
+            <p className="text-slate-400 text-lg max-w-xl mx-auto">Free forever for small teams. Upgrade for AI features, more seats, and priority support.</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
             {[
               {
-                name: 'Starter', price: 12, color: 'slate', highlight: false,
+                name: 'Free', price: 0, color: 'slate', highlight: false, isFree: true,
+                seats: 'Up to 5 seats',
+                desc: 'Get started with no credit card. Perfect for trying out TestStudio.',
+                features: ['Test case management','Manual test runs','Defect tracking','Sprint taskboard','Basic reports'],
+                ai: false,
+                cta: 'Start for free',
+                ctaHref: '/register',
+              },
+              {
+                name: 'Starter', price: 12, color: 'slate', highlight: false, isFree: false,
                 seats: 'Up to 5 seats',
                 desc: 'Perfect for small QA teams getting started.',
-                features: ['Test case management','Manual test runs','Defect tracking','Sprint taskboard','Basic reports','Email support'],
+                features: ['Everything in Free','Execution history','Email support','Playwright automation','Test suites & coverage'],
                 ai: false,
               },
               {
-                name: 'Pro', price: 19, color: 'violet', highlight: true,
+                name: 'Pro', price: 19, color: 'violet', highlight: true, isFree: false,
                 seats: 'Up to 20 seats',
                 desc: 'For teams that want AI to do the heavy lifting.',
                 features: ['Everything in Starter','AI Playwright script gen','AI test case generation','AI self-healing tests','Release readiness score','AI defect creation','Priority support'],
                 ai: true,
               },
               {
-                name: 'Business', price: 29, color: 'indigo', highlight: false,
+                name: 'Business', price: 29, color: 'indigo', highlight: false, isFree: false,
                 seats: 'Unlimited seats',
                 desc: 'For scaling teams that need more power.',
                 features: ['Everything in Pro','Unlimited seats','Advanced analytics','Custom integrations','Audit logs','Dedicated onboarding','SLA support'],
@@ -649,33 +658,54 @@ export default function Landing() {
                     <div className="flex items-center gap-2 mb-1">
                       <h3 className="text-lg font-bold text-white">{plan.name}</h3>
                       {plan.ai && <span className="px-2 py-0.5 bg-violet-500/15 border border-violet-500/30 text-violet-300 text-[10px] font-semibold rounded-full">AI</span>}
+                      {plan.isFree && <span className="px-2 py-0.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold rounded-full">Free forever</span>}
                     </div>
                     <p className="text-slate-500 text-xs">{plan.seats}</p>
                   </div>
                   <div>
-                    <span className="text-4xl font-extrabold text-white">${plan.price}</span>
-                    <span className="text-slate-400 text-sm ml-1">/seat/mo</span>
-                    <p className="text-slate-500 text-xs mt-1">${Math.round(plan.price * 10)}/seat/yr — save 2 months</p>
+                    {plan.isFree ? (
+                      <span className="text-4xl font-extrabold text-white">$0</span>
+                    ) : (
+                      <>
+                        <span className="text-4xl font-extrabold text-white">${plan.price}</span>
+                        <span className="text-slate-400 text-sm ml-1">/seat/mo</span>
+                        <p className="text-slate-500 text-xs mt-1">${Math.round(plan.price * 10)}/seat/yr — save 2 months</p>
+                      </>
+                    )}
                   </div>
                   <p className="text-slate-400 text-sm">{plan.desc}</p>
                   <ul className="space-y-2.5 flex-1">
                     {plan.features.map(f => (
                       <li key={f} className="flex items-center gap-2.5">
-                        <svg className={`w-4 h-4 shrink-0 ${plan.highlight ? 'text-violet-400' : 'text-emerald-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                        <svg className={`w-4 h-4 shrink-0 ${plan.highlight ? 'text-violet-400' : plan.isFree ? 'text-emerald-400' : 'text-emerald-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
                         <span className="text-sm text-slate-300">{f}</span>
                       </li>
                     ))}
+                    {plan.isFree && (
+                      <li className="flex items-center gap-2.5 opacity-50">
+                        <svg className="w-4 h-4 shrink-0 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                        <span className="text-sm text-slate-500">AI features</span>
+                      </li>
+                    )}
                   </ul>
-                  <button onClick={() => setEnquiryOpen(true)}
-                    className={`w-full mt-2 flex items-center justify-center gap-2 px-5 py-3 font-semibold text-sm rounded-xl transition-all ${plan.highlight ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/25' : 'border border-slate-600 hover:border-slate-400 text-slate-300 hover:text-white'}`}>
-                    Get started
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
-                  </button>
+                  {plan.isFree ? (
+                    <a href="/register"
+                      className="w-full mt-2 flex items-center justify-center gap-2 px-5 py-3 font-semibold text-sm rounded-xl transition-all border border-emerald-700 hover:border-emerald-500 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-300 hover:text-emerald-200">
+                      Start for free
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                    </a>
+                  ) : (
+                    <button onClick={() => setEnquiryOpen(true)}
+                      className={`w-full mt-2 flex items-center justify-center gap-2 px-5 py-3 font-semibold text-sm rounded-xl transition-all ${plan.highlight ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/25' : 'border border-slate-600 hover:border-slate-400 text-slate-300 hover:text-white'}`}>
+                      Get started
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
           </div>
-          <p className="text-center text-slate-600 text-sm mt-8">All plans include 14-day free trial · No credit card required · Cancel anytime</p>
+          <p className="text-center text-slate-600 text-sm mt-8">Free plan available · Paid plans billed per seat · Cancel anytime</p>
         </div>
       </section>
 
@@ -699,24 +729,15 @@ export default function Landing() {
               Book a Demo
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
             </button>
-            <div className="flex flex-col items-center sm:items-start">
-              <form onSubmit={handleLaunch} className="flex items-center gap-2">
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-mono select-none">org/</span>
-                  <input type="text" value={orgSlug} onChange={e => setOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} placeholder="your-org"
-                    className="pl-9 pr-4 py-3.5 bg-slate-800 border border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 text-white text-sm rounded-xl outline-none transition-all placeholder-slate-600 w-40" />
-                </div>
-                <button type="submit" className="flex items-center gap-1.5 px-5 py-3.5 border border-slate-700 hover:border-indigo-500 text-slate-300 hover:text-white text-sm font-semibold rounded-xl transition-all">
-                  Open App →
-                </button>
-              </form>
-              <p className="text-slate-600 text-xs mt-1.5 pl-1">Already have a workspace? Jump straight in.</p>
-            </div>
+            <a href="/register"
+              className="flex items-center gap-2 px-8 py-4 border border-emerald-700 hover:border-emerald-500 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-300 hover:text-emerald-200 font-bold text-base rounded-xl transition-all">
+              Start for free →
+            </a>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-slate-500">
-            <div className="flex items-center gap-1.5"><svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>No credit card to try</div>
+            <div className="flex items-center gap-1.5"><svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>Free plan, no card needed</div>
             <div className="flex items-center gap-1.5"><svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>Setup in under 5 minutes</div>
-            <div className="flex items-center gap-1.5"><svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>Full AI features included</div>
+            <div className="flex items-center gap-1.5"><svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>AI features on paid plans</div>
           </div>
         </div>
       </section>
