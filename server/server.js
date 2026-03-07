@@ -5151,6 +5151,8 @@ app.patch('/platform-bug-reports/:id/status', requireAuth, async (req, res) => {
 // ============================================================
 // PERFORMANCE TESTING — k6-based routes
 // ============================================================
+// NOTE: top-level `fs` is require('fs').promises — use fsSync for synchronous calls
+const fsSync = require('fs');
 
 /**
  * Generate a k6 script from a performance test definition.
@@ -5374,10 +5376,10 @@ app.post('/performance-tests/:id/run', requireAuth, async (req, res) => {
 
     // Write k6 script to temp file
     const scriptDir = path.join(__dirname, 'temp');
-    if (!fs.existsSync(scriptDir)) fs.mkdirSync(scriptDir, { recursive: true });
+    if (!fsSync.existsSync(scriptDir)) fsSync.mkdirSync(scriptDir, { recursive: true });
     const scriptPath = path.join(scriptDir, `perf_${execution.id}.js`);
     const outputPath = path.join(scriptDir, `perf_out_${execution.id}.json`);
-    fs.writeFileSync(scriptPath, generateK6Script(test));
+    fsSync.writeFileSync(scriptPath, generateK6Script(test));
 
     // Return execution id immediately; spawned process saves results async
     res.status(202).json({ executionId: execution.id });
@@ -5396,10 +5398,10 @@ app.post('/performance-tests/:id/run', requireAuth, async (req, res) => {
       try {
         // Parse output file if it exists
         let metrics = [];
-        if (fs.existsSync(outputPath)) {
-          const raw = fs.readFileSync(outputPath, 'utf8');
+        if (fsSync.existsSync(outputPath)) {
+          const raw = fsSync.readFileSync(outputPath, 'utf8');
           metrics = parseK6Output(raw);
-          fs.unlinkSync(outputPath);
+          fsSync.unlinkSync(outputPath);
         }
 
         // Build summary
@@ -5445,7 +5447,7 @@ app.post('/performance-tests/:id/run', requireAuth, async (req, res) => {
         console.error('Error saving k6 results:', saveErr);
         await performanceOperations.updateExecutionStatus(execution.id, 'failed', { error: saveErr.message });
       } finally {
-        try { if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath); } catch {}
+        try { if (fsSync.existsSync(scriptPath)) fsSync.unlinkSync(scriptPath); } catch {}
       }
     });
 
