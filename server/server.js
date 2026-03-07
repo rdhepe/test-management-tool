@@ -6,7 +6,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, objectRepositoryOperations, orFolderOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations, performanceOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, objectRepositoryOperations, orFolderOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations, performanceOperations, perfFolderOperations, perfSuiteOperations } = require('./db');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -129,7 +129,8 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/or-folders') ||
       p.startsWith('/platform-feedback') || p.startsWith('/platform-bug-reports') ||
       p.startsWith('/debug-session') || p.startsWith('/debug-migrate-globalvars') ||
-      p.startsWith('/performance-tests') || p.startsWith('/performance-executions')
+      p.startsWith('/performance-tests') || p.startsWith('/performance-executions') ||
+      p.startsWith('/perf-folders') || p.startsWith('/perf-suites') || p.startsWith('/perf-suite-executions')
     ) return next();
     // Only serve the SPA shell for GET requests (browser navigation)
     if (req.method !== 'GET') return next();
@@ -5542,6 +5543,328 @@ app.get('/performance-executions/:id/status', requireAuth, async (req, res) => {
     res.json({ id: exec.id, status: exec.status, started_at: exec.started_at, ended_at: exec.ended_at, summary_json: exec.summary_json });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch status' });
+  }
+});
+
+// ── Perf Folder Routes ───────────────────────────────────────────────────────
+app.get('/perf-folders', requireAuth, async (req, res) => {
+  try {
+    const folders = await perfFolderOperations.getAll(req.session.orgId);
+    res.json(folders);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch folders' });
+  }
+});
+
+app.post('/perf-folders', requireAuth, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Name required' });
+    const folder = await perfFolderOperations.create({ org_id: req.session.orgId, name: name.trim() });
+    res.status(201).json(folder);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create folder' });
+  }
+});
+
+app.put('/perf-folders/:id', requireAuth, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Name required' });
+    const updated = await perfFolderOperations.update(req.params.id, req.session.orgId, name.trim());
+    if (!updated) return res.status(404).json({ error: 'Not found' });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update folder' });
+  }
+});
+
+app.delete('/perf-folders/:id', requireAuth, async (req, res) => {
+  try {
+    await perfFolderOperations.delete(req.params.id, req.session.orgId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete folder' });
+  }
+});
+
+// ── Perf Suite Routes ────────────────────────────────────────────────────────
+app.get('/perf-suites', requireAuth, async (req, res) => {
+  try {
+    const suites = await perfSuiteOperations.getAll(req.session.orgId);
+    const suitesWithCount = await Promise.all(suites.map(async (s) => {
+      const tests = await perfSuiteOperations.getTests(s.id);
+      return { ...s, test_count: tests.length };
+    }));
+    res.json(suitesWithCount);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch suites' });
+  }
+});
+
+app.post('/perf-suites', requireAuth, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Name required' });
+    const suite = await perfSuiteOperations.create({
+      org_id: req.session.orgId, name: name.trim(), description,
+    });
+    res.status(201).json(suite);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create suite' });
+  }
+});
+
+app.put('/perf-suites/:id', requireAuth, async (req, res) => {
+  try {
+    const suite = await perfSuiteOperations.getById(req.params.id, req.session.orgId);
+    if (!suite) return res.status(404).json({ error: 'Not found' });
+    const updated = await perfSuiteOperations.update(req.params.id, req.session.orgId, req.body);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update suite' });
+  }
+});
+
+app.delete('/perf-suites/:id', requireAuth, async (req, res) => {
+  try {
+    await perfSuiteOperations.delete(req.params.id, req.session.orgId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete suite' });
+  }
+});
+
+app.get('/perf-suites/:id/tests', requireAuth, async (req, res) => {
+  try {
+    const suite = await perfSuiteOperations.getById(req.params.id, req.session.orgId);
+    if (!suite) return res.status(404).json({ error: 'Not found' });
+    const tests = await perfSuiteOperations.getTests(req.params.id);
+    res.json(tests);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch suite tests' });
+  }
+});
+
+app.post('/perf-suites/:id/tests', requireAuth, async (req, res) => {
+  try {
+    const suite = await perfSuiteOperations.getById(req.params.id, req.session.orgId);
+    if (!suite) return res.status(404).json({ error: 'Not found' });
+    const { test_id } = req.body;
+    if (!test_id) return res.status(400).json({ error: 'test_id required' });
+    const test = await performanceOperations.getTestById(test_id);
+    if (!test || parseInt(test.org_id) !== parseInt(req.session.orgId)) {
+      return res.status(404).json({ error: 'Test not found' });
+    }
+    await perfSuiteOperations.addTest(req.params.id, test_id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add test to suite' });
+  }
+});
+
+app.delete('/perf-suites/:id/tests/:testId', requireAuth, async (req, res) => {
+  try {
+    const suite = await perfSuiteOperations.getById(req.params.id, req.session.orgId);
+    if (!suite) return res.status(404).json({ error: 'Not found' });
+    await perfSuiteOperations.removeTest(req.params.id, req.params.testId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to remove test from suite' });
+  }
+});
+
+// POST /perf-suites/:id/run — run all tests in suite sequentially
+app.post('/perf-suites/:id/run', requireAuth, async (req, res) => {
+  try {
+    const orgResult = await pool.query('SELECT plan FROM organizations WHERE id = $1', [req.session.orgId]);
+    const plan = orgResult.rows[0]?.plan || 'free';
+    if (plan === 'free') {
+      return res.status(403).json({ error: 'Suite runs require a Pro plan or higher.' });
+    }
+
+    const suite = await perfSuiteOperations.getById(req.params.id, req.session.orgId);
+    if (!suite) return res.status(404).json({ error: 'Not found' });
+
+    const suiteTests = await perfSuiteOperations.getTests(req.params.id);
+    if (suiteTests.length === 0) return res.status(400).json({ error: 'Suite has no tests. Add tests before running.' });
+
+    const suiteExec = await perfSuiteOperations.createExecution({
+      suite_id: suite.id,
+      org_id: req.session.orgId,
+      triggered_by: req.session.username,
+    });
+
+    res.status(202).json({ suiteExecutionId: suiteExec.id, suiteExecution: suiteExec });
+
+    // Run tests sequentially in background
+    (async () => {
+      const results = [];
+      for (const st of suiteTests) {
+        try {
+          const test = await performanceOperations.getTestById(st.perf_test_id);
+          if (!test) {
+            results.push({ test_id: st.perf_test_id, test_name: st.test_name, status: 'failed', error: 'Test not found' });
+            continue;
+          }
+
+          const execution = await performanceOperations.createExecution({
+            org_id: req.session.orgId,
+            perf_test_id: test.id,
+            triggered_by: req.session.username,
+          });
+
+          results.push({ test_id: test.id, test_name: test.name, execution_id: execution.id, status: 'running' });
+          await perfSuiteOperations.updateExecution(suiteExec.id, 'running', { test_executions: results });
+
+          await new Promise((resolve) => {
+            const scriptDir = path.join(__dirname, 'temp');
+            if (!fsSync.existsSync(scriptDir)) fsSync.mkdirSync(scriptDir, { recursive: true });
+            const scriptPath = path.join(scriptDir, `suite_${suiteExec.id}_${execution.id}.js`);
+            const outputPath = path.join(scriptDir, `suite_out_${suiteExec.id}_${execution.id}.json`);
+            fsSync.writeFileSync(scriptPath, generateK6Script(test));
+
+            const k6 = spawn('k6', ['run', '--out', `json=${outputPath}`, '--no-color', scriptPath], {
+              env: { ...process.env }, cwd: scriptDir,
+            });
+
+            const maxMs = (test.ramp_duration + test.hold_duration + 120) * 1000;
+            const killTimer = setTimeout(() => { try { k6.kill('SIGTERM'); } catch {} }, maxMs);
+            const logLines = [];
+            k6.stdout.on('data', d => logLines.push(d.toString()));
+            k6.stderr.on('data', d => logLines.push(d.toString()));
+
+            k6.on('close', async (code) => {
+              clearTimeout(killTimer);
+              try {
+                let metrics = [];
+                if (fsSync.existsSync(outputPath)) {
+                  const raw = fsSync.readFileSync(outputPath, 'utf8');
+                  metrics = parseK6Output(raw);
+                  fsSync.unlinkSync(outputPath);
+                }
+
+                const summary = {};
+                if (metrics.length > 0) {
+                  const allDur = metrics.map(m => m.avg_latency);
+                  const allP95 = metrics.map(m => m.p95_latency);
+                  const totalReqs = metrics.reduce((s, m) => s + m.req_count, 0);
+                  const totalErrors = metrics.reduce((s, m) => s + m.error_count, 0);
+                  summary.total_requests = totalReqs;
+                  summary.error_rate = totalReqs > 0 ? parseFloat((totalErrors / totalReqs).toFixed(4)) : 0;
+                  summary.avg_latency = parseFloat((allDur.reduce((s, v) => s + v, 0) / allDur.length).toFixed(2));
+                  summary.p95_latency = parseFloat((allP95.reduce((s, v) => s + v, 0) / allP95.length).toFixed(2));
+                  summary.peak_vus = Math.max(...metrics.map(m => m.active_vus));
+                }
+                summary.exit_code = code;
+                summary.logs = logLines.join('').slice(-2000);
+
+                const thresholdResults = (test.thresholds_json || []).map(t => {
+                  let actual = null;
+                  if (summary.p95_latency !== undefined && t.metric === 'p95') actual = summary.p95_latency;
+                  if (summary.avg_latency !== undefined && t.metric === 'avg_latency') actual = summary.avg_latency;
+                  if (summary.error_rate !== undefined && t.metric === 'error_rate') actual = summary.error_rate * 100;
+                  let passed = false;
+                  if (actual !== null) {
+                    if (t.operator === '<') passed = actual < parseFloat(t.value);
+                    if (t.operator === '>') passed = actual > parseFloat(t.value);
+                    if (t.operator === '<=') passed = actual <= parseFloat(t.value);
+                    if (t.operator === '>=') passed = actual >= parseFloat(t.value);
+                  }
+                  return { metric: t.metric, operator: t.operator, threshold: parseFloat(t.value), actual, passed };
+                });
+
+                const allPassed = thresholdResults.every(t => t.passed);
+                const testStatus = code === 0 && allPassed ? 'passed' : (code === 0 ? 'thresholds_failed' : 'failed');
+
+                await performanceOperations.updateExecutionStatus(execution.id, testStatus, summary);
+                if (metrics.length > 0) await performanceOperations.insertMetrics(execution.id, metrics);
+                if (thresholdResults.length > 0) await performanceOperations.insertThresholdResults(execution.id, thresholdResults);
+
+                const idx = results.findIndex(r => r.execution_id === execution.id);
+                if (idx >= 0) results[idx] = { ...results[idx], status: testStatus, avg_latency: summary.avg_latency, p95_latency: summary.p95_latency, error_rate: summary.error_rate };
+              } catch (saveErr) {
+                console.error('Suite test save error:', saveErr);
+                await performanceOperations.updateExecutionStatus(execution.id, 'failed', { error: saveErr.message });
+                const idx = results.findIndex(r => r.execution_id === execution.id);
+                if (idx >= 0) results[idx] = { ...results[idx], status: 'failed' };
+              } finally {
+                try { if (fsSync.existsSync(scriptPath)) fsSync.unlinkSync(scriptPath); } catch {}
+                resolve();
+              }
+            });
+
+            k6.on('error', async (err) => {
+              clearTimeout(killTimer);
+              console.error('Suite k6 spawn error:', err);
+              await performanceOperations.updateExecutionStatus(execution.id, 'failed', { error: err.message });
+              const idx = results.findIndex(r => r.execution_id === execution.id);
+              if (idx >= 0) results[idx] = { ...results[idx], status: 'failed' };
+              resolve();
+            });
+          });
+        } catch (testErr) {
+          console.error('Suite test run error:', testErr);
+          results.push({ test_id: st.perf_test_id, test_name: st.test_name, status: 'failed', error: testErr.message });
+        }
+      }
+
+      const anyFailed = results.some(r => r.status === 'failed' || r.status === 'thresholds_failed');
+      const finalStatus = anyFailed ? 'failed' : 'passed';
+      await perfSuiteOperations.updateExecution(suiteExec.id, finalStatus, {
+        test_executions: results,
+        total: results.length,
+        passed: results.filter(r => r.status === 'passed').length,
+        failed: results.filter(r => r.status !== 'passed').length,
+      });
+    })().catch(err => {
+      console.error('Suite run background error:', err);
+      perfSuiteOperations.updateExecution(suiteExec.id, 'failed', { error: err.message });
+    });
+
+  } catch (err) {
+    console.error('POST /perf-suites/:id/run error:', err);
+    res.status(500).json({ error: 'Failed to start suite run' });
+  }
+});
+
+// ── Perf Suite Execution Routes ──────────────────────────────────────────────
+app.get('/perf-suite-executions', requireAuth, async (req, res) => {
+  try {
+    const execs = await perfSuiteOperations.getAllExecutions(req.session.orgId);
+    res.json(execs);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch suite executions' });
+  }
+});
+
+app.get('/perf-suite-executions/:id', requireAuth, async (req, res) => {
+  try {
+    const exec = await perfSuiteOperations.getExecution(req.params.id, req.session.orgId);
+    if (!exec) return res.status(404).json({ error: 'Not found' });
+    res.json(exec);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch suite execution' });
+  }
+});
+
+app.get('/perf-suites/:id/executions', requireAuth, async (req, res) => {
+  try {
+    const suite = await perfSuiteOperations.getById(req.params.id, req.session.orgId);
+    if (!suite) return res.status(404).json({ error: 'Not found' });
+    const execs = await perfSuiteOperations.getExecutionsForSuite(req.params.id, req.session.orgId);
+    res.json(execs);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch suite executions' });
+  }
+});
+
+app.delete('/perf-suite-executions/:id', requireAuth, async (req, res) => {
+  try {
+    await perfSuiteOperations.deleteExecution(req.params.id, req.session.orgId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete suite execution' });
   }
 });
 

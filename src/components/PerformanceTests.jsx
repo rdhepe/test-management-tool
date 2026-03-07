@@ -114,9 +114,9 @@ function ThresholdEditor({ thresholds, onChange }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Create / Edit modal
+// Create / Edit modal (with folder picker)
 // ─────────────────────────────────────────────────────────────────────────────
-function TestModal({ test, onClose, onSave, plan }) {
+function TestModal({ test, onClose, onSave, plan, folders }) {
   const isEnterprise = plan === 'enterprise';
   const [form, setForm] = useState({
     name: test?.name || '',
@@ -127,6 +127,7 @@ function TestModal({ test, onClose, onSave, plan }) {
     ramp_duration: test?.ramp_duration ?? 60,
     hold_duration: test?.hold_duration ?? 300,
     thresholds_json: test?.thresholds_json || [],
+    folder_id: test?.folder_id || '',
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -144,10 +145,11 @@ function TestModal({ test, onClose, onSave, plan }) {
       const token = localStorage.getItem('auth_token');
       const url = test ? `${API_URL}/performance-tests/${test.id}` : `${API_URL}/performance-tests`;
       const method = test ? 'PUT' : 'POST';
+      const body = { ...form, folder_id: form.folder_id || null };
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -189,6 +191,18 @@ function TestModal({ test, onClose, onSave, plan }) {
               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors"
               placeholder="Optional description" />
           </div>
+
+          {/* Folder */}
+          {folders && folders.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1.5">Folder</label>
+              <select value={form.folder_id} onChange={e => set('folder_id', e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors">
+                <option value="">No folder</option>
+                {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </div>
+          )}
 
           {/* Template picker */}
           <div>
@@ -305,7 +319,7 @@ function ExecutionDetail({ executionId, onClose }) {
 
   useEffect(() => {
     let pollCount = 0;
-    const MAX_POLLS = 300; // 15 min at 3s interval
+    const MAX_POLLS = 300;
     load().then(status => {
       if (status === 'running' || status === 'pending') {
         pollRef.current = setInterval(async () => {
@@ -317,7 +331,6 @@ function ExecutionDetail({ executionId, onClose }) {
             return;
           }
           const s = await load().catch(() => null);
-          // Only stop polling on a confirmed terminal status; null = transient error, keep polling
           const terminal = ['passed', 'failed', 'thresholds_failed'];
           if (s !== null && terminal.includes(s)) clearInterval(pollRef.current);
         }, 3000);
@@ -391,7 +404,6 @@ function ExecutionDetail({ executionId, onClose }) {
             </div>
           )}
 
-          {/* Summary metrics */}
           {!isRunning && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {[
@@ -410,7 +422,6 @@ function ExecutionDetail({ executionId, onClose }) {
             </div>
           )}
 
-          {/* Threshold results */}
           {thresholds.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-slate-300 mb-3">Threshold Results</h3>
@@ -431,7 +442,6 @@ function ExecutionDetail({ executionId, onClose }) {
             </div>
           )}
 
-          {/* Sparklines */}
           {metrics.length > 1 && (
             <div>
               <h3 className="text-sm font-semibold text-slate-300 mb-3">Metrics Over Time</h3>
@@ -460,7 +470,6 @@ function ExecutionDetail({ executionId, onClose }) {
             </div>
           )}
 
-          {/* Logs */}
           {s.logs && (
             <div>
               <h3 className="text-sm font-semibold text-slate-300 mb-2">k6 Output</h3>
@@ -486,22 +495,371 @@ function ExecutionDetail({ executionId, onClose }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Suite Execution Detail modal
+// ─────────────────────────────────────────────────────────────────────────────
+function SuiteExecutionDetail({ suiteExecId, onClose, onViewTestRun }) {
+  const [exec, setExec] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const pollRef = useRef(null);
+
+  const load = useCallback(async () => {
+    const token = localStorage.getItem('auth_token');
+    try {
+      const res = await fetch(`${API_URL}/perf-suite-executions/${suiteExecId}`, { headers: { 'x-auth-token': token } });
+      if (!res.ok) return null;
+      const data = await res.json();
+      setExec(data);
+      return data?.status;
+    } catch {
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [suiteExecId]);
+
+  useEffect(() => {
+    let count = 0;
+    load().then(status => {
+      if (status === 'running') {
+        pollRef.current = setInterval(async () => {
+          count++;
+          if (count >= 200) { clearInterval(pollRef.current); return; }
+          const s = await load().catch(() => null);
+          if (s && s !== 'running') clearInterval(pollRef.current);
+        }, 3000);
+      }
+    });
+    return () => clearInterval(pollRef.current);
+  }, [load]);
+
+  const modalShell = (body) => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
+      <div className="w-full max-w-3xl rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+          <h2 className="text-lg font-semibold text-white">Suite Run Detail</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6">{body}</div>
+      </div>
+    </div>
+  );
+
+  if (loading) return modalShell(
+    <div className="flex items-center justify-center h-40">
+      <svg className="w-6 h-6 animate-spin text-indigo-400" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      </svg>
+    </div>
+  );
+  if (!exec) return modalShell(<div className="text-center text-slate-400 py-12">Suite execution not found.</div>);
+
+  const isRunning = exec.status === 'running';
+  const summary = typeof exec.summary_json === 'string' ? JSON.parse(exec.summary_json || '{}') : (exec.summary_json || {});
+  const testResults = summary.test_executions || [];
+  const statusStyle = STATUS_STYLES[exec.status] || STATUS_STYLES.pending;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
+      <div className="w-full max-w-3xl rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+          <div className="flex items-center gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-white">{exec.suite_name}</h2>
+              <p className="text-xs text-slate-500">Suite Run #{exec.id}</p>
+            </div>
+            <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusStyle}`}>
+              {isRunning && <span className="inline-block w-1.5 h-1.5 rounded-full bg-current mr-1.5 animate-pulse" />}
+              {STATUS_LABEL[exec.status] || exec.status}
+            </span>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {isRunning && (
+            <div className="flex items-center gap-3 p-4 rounded-xl bg-blue-400/10 border border-blue-400/20 text-blue-300 text-sm">
+              <svg className="w-4 h-4 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Suite is running tests sequentially — live progress below.
+            </div>
+          )}
+
+          {/* Summary stats */}
+          {testResults.length > 0 && !isRunning && (
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Total Tests', value: summary.total ?? testResults.length },
+                { label: 'Passed', value: summary.passed ?? testResults.filter(t => t.status === 'passed').length, color: 'text-green-400' },
+                { label: 'Failed', value: summary.failed ?? testResults.filter(t => t.status !== 'passed').length, color: 'text-red-400' },
+              ].map(m => (
+                <div key={m.label} className="bg-slate-900/60 rounded-xl p-3 border border-slate-700/50 text-center">
+                  <p className="text-xs text-slate-400 mb-1">{m.label}</p>
+                  <p className={`text-2xl font-semibold ${m.color || 'text-white'}`}>{m.value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Per-test results */}
+          {testResults.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-slate-300 mb-3">Test Results</h3>
+              <div className="space-y-2">
+                {testResults.map((tr, i) => {
+                  const ts = STATUS_STYLES[tr.status] || STATUS_STYLES.pending;
+                  return (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl border"
+                      style={{ borderColor: 'rgb(var(--border-primary))' }}>
+                      <span className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border ${ts}`}>
+                        {tr.status === 'running' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-current mr-1.5 animate-pulse" />}
+                        {STATUS_LABEL[tr.status] || tr.status}
+                      </span>
+                      <span className="text-sm text-white flex-1 truncate">{tr.test_name}</span>
+                      {tr.avg_latency != null && (
+                        <span className="text-xs text-slate-400 flex-shrink-0">
+                          avg: {fmt(tr.avg_latency)} · p95: {fmt(tr.p95_latency)}
+                        </span>
+                      )}
+                      {tr.execution_id && onViewTestRun && (
+                        <button onClick={() => onViewTestRun(tr.execution_id)}
+                          className="flex-shrink-0 text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
+                          View →
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {testResults.length === 0 && !isRunning && (
+            <p className="text-slate-400 text-sm text-center py-8">No test results available.</p>
+          )}
+
+          <div className="text-xs text-slate-500 space-y-1">
+            <p>Started: {fmtDatetime(exec.started_at)}</p>
+            {exec.ended_at && <p>Ended: {fmtDatetime(exec.ended_at)}</p>}
+            {exec.triggered_by && <p>Triggered by: {exec.triggered_by}</p>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Suite Manage Drawer (slide-in from right)
+// ─────────────────────────────────────────────────────────────────────────────
+function SuiteDrawer({ suite, allTests, onClose, onRunSuite, canRun }) {
+  const [suiteTests, setSuiteTests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState('');
+  const authHeader = () => ({ 'x-auth-token': localStorage.getItem('auth_token') });
+
+  const loadTests = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/perf-suites/${suite.id}/tests`, { headers: authHeader() });
+      if (res.ok) setSuiteTests(await res.json());
+    } catch {}
+    finally { setLoading(false); }
+  }, [suite.id]);
+
+  useEffect(() => { loadTests(); }, [loadTests]);
+
+  const addTest = async (testId) => {
+    await fetch(`${API_URL}/perf-suites/${suite.id}/tests`, {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ test_id: testId }),
+    });
+    loadTests();
+  };
+
+  const removeTest = async (testId) => {
+    await fetch(`${API_URL}/perf-suites/${suite.id}/tests/${testId}`, {
+      method: 'DELETE', headers: authHeader(),
+    });
+    loadTests();
+  };
+
+  const handleRun = async () => {
+    if (!canRun) { setError('Upgrade to Pro or higher to run suite.'); return; }
+    setRunning(true); setError('');
+    try {
+      const res = await fetch(`${API_URL}/perf-suites/${suite.id}/run`, {
+        method: 'POST', headers: authHeader(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Run failed');
+      onRunSuite(data.suiteExecutionId);
+      onClose();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const suiteTestIds = new Set(suiteTests.map(t => t.perf_test_id));
+  const unaddedTests = allTests.filter(t => !suiteTestIds.has(t.id));
+
+  return (
+    <div className="fixed inset-0 z-50 flex" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
+      <div className="ml-auto w-full max-w-lg h-full flex flex-col border-l shadow-2xl overflow-hidden"
+        style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}
+        onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+          <div>
+            <h2 className="text-lg font-semibold text-white">{suite.name}</h2>
+            <p className="text-xs text-slate-400">{suiteTests.length} test{suiteTests.length !== 1 ? 's' : ''} in suite</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handleRun} disabled={running || suiteTests.length === 0 || !canRun}
+              title={!canRun ? 'Upgrade to run suites' : suiteTests.length === 0 ? 'Add tests first' : 'Run suite'}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${canRun && suiteTests.length > 0 ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-700 text-slate-400 cursor-not-allowed'} ${running ? 'opacity-60' : ''}`}>
+              {running
+                ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> Starting...</>
+                : <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Run Suite</>
+              }
+            </button>
+            <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mx-6 mt-4 p-3 rounded-xl bg-red-400/10 border border-red-400/20 text-red-300 text-sm flex items-center justify-between">
+            {error}
+            <button onClick={() => setError('')} className="text-red-400 hover:text-red-300 ml-2">×</button>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Tests in suite */}
+          <div>
+            <h3 className="text-sm font-semibold text-slate-300 mb-3">Tests in Suite</h3>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <svg className="w-5 h-5 animate-spin text-indigo-400" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              </div>
+            ) : suiteTests.length === 0 ? (
+              <p className="text-slate-500 text-sm italic">No tests yet. Add tests from below.</p>
+            ) : (
+              <div className="space-y-2">
+                {suiteTests.map((t, i) => {
+                  const tpl = TEMPLATES.find(tp => tp.id === t.template) || TEMPLATES[1];
+                  return (
+                    <div key={t.perf_test_id} className="flex items-center gap-3 p-3 rounded-xl border"
+                      style={{ borderColor: 'rgb(var(--border-primary))' }}>
+                      <span className="text-xs text-slate-500 w-5 flex-shrink-0">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium truncate">{t.test_name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className={`text-xs ${tpl.color}`}>{tpl.label}</span>
+                          <span className="text-xs text-slate-500">{t.target_url}</span>
+                        </div>
+                      </div>
+                      <button onClick={() => removeTest(t.perf_test_id)}
+                        className="flex-shrink-0 p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                        title="Remove from suite">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Add tests picker */}
+          {unaddedTests.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-slate-300 mb-3">Add Tests</h3>
+              <div className="space-y-2">
+                {unaddedTests.map(t => {
+                  const tpl = TEMPLATES.find(tp => tp.id === t.template) || TEMPLATES[1];
+                  return (
+                    <div key={t.id} className="flex items-center gap-3 p-3 rounded-xl border"
+                      style={{ borderColor: 'rgb(var(--border-primary))' }}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white truncate">{t.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className={`text-xs ${tpl.color}`}>{tpl.label}</span>
+                          <span className="text-xs text-slate-500 truncate">{t.target_url}</span>
+                        </div>
+                      </div>
+                      <button onClick={() => addTest(t.id)}
+                        className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-600/40 transition-colors text-xs font-medium">
+                        + Add
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {unaddedTests.length === 0 && suiteTests.length > 0 && (
+            <p className="text-slate-500 text-sm text-center">All available tests are in this suite.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main page
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PerformanceTests({ orgInfo, currentUser }) {
   const plan = orgInfo?.plan || 'free';
   const canRun = ['pro', 'premium', 'enterprise'].includes(plan);
 
-  const [tab, setTab] = useState('tests');          // 'tests' | 'runs'
+  const [tab, setTab] = useState('tests');          // 'tests' | 'suites' | 'runs'
   const [tests, setTests] = useState([]);
   const [runs, setRuns] = useState([]);
+  const [folders, setFolders] = useState([]);
+  const [suites, setSuites] = useState([]);
+  const [suiteRuns, setSuiteRuns] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Tests tab state
+  const [selectedFolder, setSelectedFolder] = useState(null);   // null = all
+  const [showFolderInput, setShowFolderInput] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editTest, setEditTest] = useState(null);
   const [selectedExecId, setSelectedExecId] = useState(null);
   const [runningId, setRunningId] = useState(null);
   const [runError, setRunError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);  // { type, id }
+
+  // Suites tab state
+  const [showSuiteModal, setShowSuiteModal] = useState(false);
+  const [editSuite, setEditSuite] = useState(null);
+  const [suiteForm, setSuiteForm] = useState({ name: '', description: '' });
+  const [suiteModalSaving, setSuiteModalSaving] = useState(false);
+  const [suiteModalErr, setSuiteModalErr] = useState('');
+  const [managingSuite, setManagingSuite] = useState(null);
+  const [selectedSuiteExecId, setSelectedSuiteExecId] = useState(null);
+  const [viewingTestRunFromSuite, setViewingTestRunFromSuite] = useState(null);
 
   const authHeader = () => ({ 'x-auth-token': localStorage.getItem('auth_token') });
 
@@ -516,17 +874,21 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
     setLoading(true);
     try {
       const headers = authHeader();
-      const [testsRes, runsRes] = await Promise.all([
+      const [testsRes, runsRes, foldersRes, suitesRes, suiteRunsRes] = await Promise.all([
         fetch(`${API_URL}/performance-tests`, { headers }),
         fetch(`${API_URL}/performance-executions`, { headers }),
+        fetch(`${API_URL}/perf-folders`, { headers }),
+        fetch(`${API_URL}/perf-suites`, { headers }),
+        fetch(`${API_URL}/perf-suite-executions`, { headers }),
       ]);
-      const testsData = await safeJson(testsRes);
-      const runsData = await safeJson(runsRes);
-      if (testsData === null) console.warn('[perf] tests fetch failed, status:', testsRes.status);
-      if (runsData === null) console.warn('[perf] runs fetch failed, status:', runsRes.status);
-      // Only update state if we got valid data — don't wipe on fetch failure
+      const [testsData, runsData, foldersData, suitesData, suiteRunsData] = await Promise.all([
+        safeJson(testsRes), safeJson(runsRes), safeJson(foldersRes), safeJson(suitesRes), safeJson(suiteRunsRes),
+      ]);
       if (testsData !== null) setTests(testsData);
       if (runsData !== null) setRuns(runsData);
+      if (foldersData !== null) setFolders(foldersData);
+      if (suitesData !== null) setSuites(suitesData);
+      if (suiteRunsData !== null) setSuiteRuns(suiteRunsData);
     } catch (e) {
       console.error('perf load error:', e);
     } finally {
@@ -536,29 +898,45 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // ── Folder CRUD ──────────────────────────────────────────────────────────
+  const createFolder = async () => {
+    if (!newFolderName.trim()) return;
+    const res = await fetch(`${API_URL}/perf-folders`, {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newFolderName.trim() }),
+    });
+    if (res.ok) {
+      const f = await res.json();
+      setFolders(prev => [...prev, f]);
+    }
+    setNewFolderName('');
+    setShowFolderInput(false);
+  };
+
+  const deleteFolder = async (id) => {
+    await fetch(`${API_URL}/perf-folders/${id}`, { method: 'DELETE', headers: authHeader() });
+    setFolders(prev => prev.filter(f => f.id !== id));
+    if (selectedFolder === id) setSelectedFolder(null);
+  };
+
+  // ── Individual test run ───────────────────────────────────────────────────
   const handleRun = async (test) => {
     if (!canRun) { setRunError('Upgrade to Pro or higher to run performance tests.'); return; }
     setRunError('');
     setRunningId(test.id);
     try {
       const res = await fetch(`${API_URL}/performance-tests/${test.id}/run`, {
-        method: 'POST',
-        headers: authHeader(),
+        method: 'POST', headers: authHeader(),
       });
       const ct = res.headers.get('content-type') || '';
       const data = ct.includes('application/json') ? await res.json() : {};
       if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
       const execId = data.executionId;
       if (!execId) throw new Error('Server did not return an execution ID');
-      // Immediately add the new execution to the runs list so it appears right away,
-      // without waiting for loadData to round-trip
-      if (data.execution) {
-        setRuns(prev => [data.execution, ...prev.filter(r => r.id !== execId)]);
-      }
-      // Switch to Runs tab and open detail modal immediately
+      if (data.execution) setRuns(prev => [data.execution, ...prev.filter(r => r.id !== execId)]);
       setTab('runs');
       setSelectedExecId(execId);
-      // Also refresh in background to pick up any race-condition status update
       setTimeout(() => loadData(), 2000);
     } catch (e) {
       setRunError(e.message);
@@ -567,23 +945,61 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
     }
   };
 
+  // ── Delete ────────────────────────────────────────────────────────────────
   const handleDelete = async () => {
     if (!deleteConfirm) return;
     const { type, id } = deleteConfirm;
-    const url = type === 'test'
-      ? `${API_URL}/performance-tests/${id}`
-      : `${API_URL}/performance-executions/${id}`;
-      await fetch(url, { method: 'DELETE', headers: authHeader() });
+    const urlMap = {
+      test: `${API_URL}/performance-tests/${id}`,
+      run: `${API_URL}/performance-executions/${id}`,
+      suite: `${API_URL}/perf-suites/${id}`,
+      suiteRun: `${API_URL}/perf-suite-executions/${id}`,
+    };
+    await fetch(urlMap[type], { method: 'DELETE', headers: authHeader() });
     setDeleteConfirm(null);
     loadData();
   };
 
+  // ── Suite CRUD ────────────────────────────────────────────────────────────
+  const openSuiteModal = (suite = null) => {
+    setEditSuite(suite);
+    setSuiteForm({ name: suite?.name || '', description: suite?.description || '' });
+    setSuiteModalErr('');
+    setShowSuiteModal(true);
+  };
+
+  const saveSuite = async () => {
+    if (!suiteForm.name.trim()) { setSuiteModalErr('Name required'); return; }
+    setSuiteModalSaving(true); setSuiteModalErr('');
+    try {
+      const url = editSuite ? `${API_URL}/perf-suites/${editSuite.id}` : `${API_URL}/perf-suites`;
+      const method = editSuite ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { ...authHeader(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(suiteForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save failed');
+      if (editSuite) {
+        setSuites(prev => prev.map(s => s.id === data.id ? { ...s, ...data } : s));
+      } else {
+        setSuites(prev => [{ ...data, test_count: 0 }, ...prev]);
+      }
+      setShowSuiteModal(false);
+    } catch (e) {
+      setSuiteModalErr(e.message);
+    } finally {
+      setSuiteModalSaving(false);
+    }
+  };
+
   const tpl = (id) => TEMPLATES.find(t => t.id === id) || TEMPLATES[1];
 
-  // ── Locked state for free plan ──
-  if (!canRun && tab === 'tests' && tests.length === 0) {
-    /* still show the page but with upgrade CTA */
-  }
+  // Filter tests by folder
+  const filteredTests = selectedFolder
+    ? tests.filter(t => t.folder_id === selectedFolder || String(t.folder_id) === String(selectedFolder))
+    : tests;
 
   return (
     <div className="space-y-6">
@@ -593,11 +1009,20 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
           <h1 className="text-2xl font-semibold text-white">Performance Testing</h1>
           <p className="text-slate-400 text-sm mt-1">k6-powered load, stress, and spike tests for your application</p>
         </div>
-        <button onClick={() => { setEditTest(null); setShowModal(true); }}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-600/30">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-          New Test
-        </button>
+        {tab === 'tests' && (
+          <button onClick={() => { setEditTest(null); setShowModal(true); }}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-600/30">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            New Test
+          </button>
+        )}
+        {tab === 'suites' && (
+          <button onClick={() => openSuiteModal()}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-600/30">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            New Suite
+          </button>
+        )}
       </div>
 
       {/* Plan banner */}
@@ -621,10 +1046,14 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
 
       {/* Tabs */}
       <div className="flex border-b" style={{ borderColor: 'rgb(var(--border-primary))' }}>
-        {['tests', 'runs'].map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 ${tab === t ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}>
-            {t === 'tests' ? `Tests (${tests.length})` : `Runs (${runs.length})`}
+        {[
+          { key: 'tests',  label: `Tests (${tests.length})` },
+          { key: 'suites', label: `Suites (${suites.length})` },
+          { key: 'runs',   label: `Runs (${runs.length})` },
+        ].map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 ${tab === t.key ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}>
+            {t.label}
           </button>
         ))}
       </div>
@@ -637,83 +1066,275 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
           </svg>
         </div>
       ) : tab === 'tests' ? (
-        /* ── Tests tab ─────────────────────────────────────────────────────── */
-        tests.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-600/20 flex items-center justify-center mb-4">
-              <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-white mb-2">No performance tests yet</h3>
-            <p className="text-slate-400 text-sm mb-6 max-w-md">Create your first performance test to measure how your application handles load.</p>
-            <button onClick={() => { setEditTest(null); setShowModal(true); }}
-              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors">
-              Create First Test
+        /* ── Tests tab (with folder sidebar) ─────────────────────────────── */
+        <div className="flex gap-5">
+          {/* Folder sidebar */}
+          <div className="w-48 flex-shrink-0 space-y-1">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-2">Folders</p>
+            <button onClick={() => setSelectedFolder(null)}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors text-left ${selectedFolder === null ? 'bg-indigo-600/20 text-indigo-300' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
+              <span className="truncate flex-1">All Tests</span>
+              <span className="text-xs text-slate-500">{tests.length}</span>
             </button>
+
+            {folders.map(f => (
+              <div key={f.id} className="group relative">
+                <button onClick={() => setSelectedFolder(f.id)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors text-left pr-7 ${selectedFolder === f.id ? 'bg-indigo-600/20 text-indigo-300' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
+                  <span className="truncate flex-1">{f.name}</span>
+                  <span className="text-xs text-slate-500">
+                    {tests.filter(t => String(t.folder_id) === String(f.id)).length}
+                  </span>
+                </button>
+                <button onClick={() => deleteFolder(f.id)}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-slate-500 hover:text-red-400 transition-colors">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            ))}
+
+            {/* Add folder */}
+            {showFolderInput ? (
+              <div className="px-2">
+                <input autoFocus value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') { setShowFolderInput(false); setNewFolderName(''); } }}
+                  placeholder="Folder name…"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 mb-1" />
+                <div className="flex gap-1">
+                  <button onClick={createFolder} className="flex-1 text-xs py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">Add</button>
+                  <button onClick={() => { setShowFolderInput(false); setNewFolderName(''); }} className="flex-1 text-xs py-1 text-slate-400 hover:text-white border border-slate-700 rounded-lg transition-colors">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setShowFolderInput(true)}
+                className="w-full flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs text-slate-500 hover:text-indigo-400 transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                New Folder
+              </button>
+            )}
           </div>
-        ) : (
-          <div className="space-y-3">
-            {tests.map(test => {
-              const t = tpl(test.template);
-              const isRunning = runningId === test.id;
-              const recentRuns = runs.filter(r => r.perf_test_id === test.id).slice(0, 3);
-              return (
-                <div key={test.id} className="border rounded-xl p-5 transition-colors hover:border-slate-600"
-                  style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-base font-semibold text-white">{test.name}</h3>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.color} ${t.bg}`}>{t.label}</span>
-                      </div>
-                      {test.description && <p className="text-slate-400 text-sm mt-1">{test.description}</p>}
-                      <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-slate-500">
-                        <span className="flex items-center gap-1">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-                          <span className="truncate max-w-xs">{test.target_url}</span>
-                        </span>
-                        <span>{test.vus} VUs</span>
-                        <span>ramp {test.ramp_duration}s</span>
-                        <span>hold {test.hold_duration}s</span>
-                      </div>
-                      {/* Recent runs badges */}
-                      {recentRuns.length > 0 && (
-                        <div className="flex items-center gap-1.5 mt-3">
-                          <span className="text-xs text-slate-500">Recent:</span>
-                          {recentRuns.map(r => (
-                            <button key={r.id} onClick={() => setSelectedExecId(r.id)}
-                              className={`text-xs px-2 py-0.5 rounded-full border cursor-pointer hover:opacity-80 transition-opacity ${STATUS_STYLES[r.status] || STATUS_STYLES.pending}`}>
-                              {STATUS_LABEL[r.status] || r.status}
-                            </button>
-                          ))}
+
+          {/* Test list */}
+          <div className="flex-1 min-w-0">
+            {filteredTests.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-600/20 flex items-center justify-center mb-4">
+                  <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-white mb-2">
+                  {selectedFolder ? 'No tests in this folder' : 'No performance tests yet'}
+                </h3>
+                <p className="text-slate-400 text-sm mb-6 max-w-md">
+                  {selectedFolder ? 'Create a test and assign it to this folder.' : 'Create your first performance test to measure how your application handles load.'}
+                </p>
+                <button onClick={() => { setEditTest(null); setShowModal(true); }}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors">
+                  Create First Test
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredTests.map(test => {
+                  const t = tpl(test.template);
+                  const isRunning = runningId === test.id;
+                  const recentRuns = runs.filter(r => r.perf_test_id === test.id).slice(0, 3);
+                  const folder = folders.find(f => String(f.id) === String(test.folder_id));
+                  return (
+                    <div key={test.id} className="border rounded-xl p-5 transition-colors hover:border-slate-600"
+                      style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-base font-semibold text-white">{test.name}</h3>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.color} ${t.bg}`}>{t.label}</span>
+                            {folder && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-400 border border-slate-600 flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
+                                {folder.name}
+                              </span>
+                            )}
+                          </div>
+                          {test.description && <p className="text-slate-400 text-sm mt-1">{test.description}</p>}
+                          <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-slate-500">
+                            <span className="flex items-center gap-1">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                              <span className="truncate max-w-xs">{test.target_url}</span>
+                            </span>
+                            <span>{test.vus} VUs</span>
+                            <span>ramp {test.ramp_duration}s</span>
+                            <span>hold {test.hold_duration}s</span>
+                          </div>
+                          {recentRuns.length > 0 && (
+                            <div className="flex items-center gap-1.5 mt-3">
+                              <span className="text-xs text-slate-500">Recent:</span>
+                              {recentRuns.map(r => (
+                                <button key={r.id} onClick={() => setSelectedExecId(r.id)}
+                                  className={`text-xs px-2 py-0.5 rounded-full border cursor-pointer hover:opacity-80 transition-opacity ${STATUS_STYLES[r.status] || STATUS_STYLES.pending}`}>
+                                  {STATUS_LABEL[r.status] || r.status}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button onClick={() => handleRun(test)} disabled={isRunning || !canRun}
+                            title={!canRun ? 'Upgrade to run tests' : 'Run test'}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${canRun ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-700 text-slate-400 cursor-not-allowed'} ${isRunning ? 'opacity-60' : ''}`}>
+                            {isRunning
+                              ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> Running</>
+                              : <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Run</>
+                            }
+                          </button>
+                          <button onClick={() => { setEditTest(test); setShowModal(true); }}
+                            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                          </button>
+                          <button onClick={() => setDeleteConfirm({ type: 'test', id: test.id })}
+                            className="p-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-400/10 transition-colors">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button onClick={() => handleRun(test)} disabled={isRunning || !canRun}
-                        title={!canRun ? 'Upgrade to run tests' : 'Run test'}
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${canRun ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-700 text-slate-400 cursor-not-allowed'} ${isRunning ? 'opacity-60' : ''}`}>
-                        {isRunning
-                          ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> Running</>
-                          : <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Run</>
-                        }
-                      </button>
-                      <button onClick={() => { setEditTest(test); setShowModal(true); }}
-                        className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                      </button>
-                      <button onClick={() => setDeleteConfirm({ type: 'test', id: test.id })}
-                        className="p-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-400/10 transition-colors">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                      </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : tab === 'suites' ? (
+        /* ── Suites tab ───────────────────────────────────────────────────── */
+        <div className="space-y-6">
+          {/* Suite list */}
+          {suites.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-purple-600/10 border border-purple-600/20 flex items-center justify-center mb-4">
+                <svg className="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 10h16M4 14h8m-8 4h4" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-white mb-2">No performance suites yet</h3>
+              <p className="text-slate-400 text-sm mb-6 max-w-md">Create a suite to group multiple tests and run them sequentially in CI style.</p>
+              <button onClick={() => openSuiteModal()}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors">
+                Create First Suite
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {suites.map(suite => {
+                const recentRuns = suiteRuns.filter(r => r.suite_id === suite.id).slice(0, 3);
+                return (
+                  <div key={suite.id} className="border rounded-xl p-5 transition-colors hover:border-slate-600"
+                    style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-base font-semibold text-white">{suite.name}</h3>
+                          <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-600/15 text-purple-300 border border-purple-600/20 font-medium">
+                            {suite.test_count ?? 0} test{(suite.test_count ?? 0) !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        {suite.description && <p className="text-slate-400 text-sm mt-1">{suite.description}</p>}
+                        {recentRuns.length > 0 && (
+                          <div className="flex items-center gap-1.5 mt-3">
+                            <span className="text-xs text-slate-500">Recent runs:</span>
+                            {recentRuns.map(r => {
+                              const summary = typeof r.summary_json === 'string' ? JSON.parse(r.summary_json || '{}') : (r.summary_json || {});
+                              return (
+                                <button key={r.id} onClick={() => setSelectedSuiteExecId(r.id)}
+                                  className={`text-xs px-2 py-0.5 rounded-full border cursor-pointer hover:opacity-80 transition-opacity ${STATUS_STYLES[r.status] || STATUS_STYLES.pending}`}>
+                                  {r.status === 'running' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-current mr-1 animate-pulse" />}
+                                  {STATUS_LABEL[r.status] || r.status}
+                                  {summary.total ? ` ${summary.passed ?? 0}/${summary.total}` : ''}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button onClick={() => setManagingSuite(suite)}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-700 transition-colors text-sm">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
+                          Manage
+                        </button>
+                        <button onClick={() => openSuiteModal(suite)}
+                          className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                        </button>
+                        <button onClick={() => setDeleteConfirm({ type: 'suite', id: suite.id })}
+                          className="p-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-400/10 transition-colors">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )
+                );
+              })}
+            </div>
+          )}
+
+          {/* Suite run history */}
+          {suiteRuns.length > 0 && (
+            <div>
+              <h2 className="text-base font-semibold text-white mb-3">Suite Run History</h2>
+              <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-slate-400 text-xs uppercase tracking-wider" style={{ borderColor: 'rgb(var(--border-primary))', backgroundColor: 'rgb(var(--bg-elevated))' }}>
+                      <th className="px-4 py-3 text-left">Suite</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                      <th className="px-4 py-3 text-left">Results</th>
+                      <th className="px-4 py-3 text-left">Started</th>
+                      <th className="px-4 py-3 text-left">Duration</th>
+                      <th className="px-4 py-3 text-left">Triggered By</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y" style={{ divideColor: 'rgb(var(--border-primary))' }}>
+                    {suiteRuns.map(run => {
+                      const summary = typeof run.summary_json === 'string' ? JSON.parse(run.summary_json || '{}') : (run.summary_json || {});
+                      return (
+                        <tr key={run.id} className="transition-colors" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+                          <td className="px-4 py-3 text-white font-medium">{run.suite_name}</td>
+                          <td className="px-4 py-3">
+                            <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${STATUS_STYLES[run.status] || STATUS_STYLES.pending}`}>
+                              {run.status === 'running' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-current mr-1.5 animate-pulse" />}
+                              {STATUS_LABEL[run.status] || run.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 text-xs">
+                            {summary.total ? `${summary.passed ?? 0}/${summary.total} passed` : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 text-xs">{fmtDatetime(run.started_at)}</td>
+                          <td className="px-4 py-3 text-slate-400 text-xs">{fmtDuration(run.started_at, run.ended_at)}</td>
+                          <td className="px-4 py-3 text-slate-400 text-xs">{run.triggered_by || '—'}</td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button onClick={() => setSelectedSuiteExecId(run.id)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                              </button>
+                              <button onClick={() => setDeleteConfirm({ type: 'suiteRun', id: run.id })}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/10 transition-colors">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         /* ── Runs tab ──────────────────────────────────────────────────────── */
         runs.length === 0 ? (
@@ -744,8 +1365,7 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
                 {runs.map(run => {
                   const t = tpl(run.template);
                   return (
-                    <tr key={run.id} className="transition-colors"
-                      style={{ borderColor: 'rgb(var(--border-primary))' }}>
+                    <tr key={run.id} className="transition-colors" style={{ borderColor: 'rgb(var(--border-primary))' }}>
                       <td className="px-4 py-3 text-white font-medium">{run.test_name}</td>
                       <td className="px-4 py-3">
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.color} ${t.bg}`}>{t.label}</span>
@@ -780,9 +1400,9 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
         )
       )}
 
-      {/* Modals */}
+      {/* ── Modals ─────────────────────────────────────────────────────────── */}
       {showModal && (
-        <TestModal test={editTest} plan={plan}
+        <TestModal test={editTest} plan={plan} folders={folders}
           onClose={() => { setShowModal(false); setEditTest(null); }}
           onSave={(saved) => {
             if (editTest) {
@@ -798,6 +1418,80 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
         <ExecutionDetail executionId={selectedExecId} onClose={() => { setSelectedExecId(null); loadData(); }} />
       )}
 
+      {/* Suite create/edit modal */}
+      {showSuiteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+          <div className="w-full max-w-md rounded-2xl border shadow-2xl overflow-hidden"
+            style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+            <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+              <h2 className="text-lg font-semibold text-white">{editSuite ? 'Edit Suite' : 'New Performance Suite'}</h2>
+              <button onClick={() => setShowSuiteModal(false)} className="text-slate-400 hover:text-white transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">Suite Name *</label>
+                <input value={suiteForm.name} onChange={e => setSuiteForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500"
+                  placeholder="Smoke Suite" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">Description</label>
+                <input value={suiteForm.description} onChange={e => setSuiteForm(f => ({ ...f, description: e.target.value }))}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500"
+                  placeholder="Optional description" />
+              </div>
+              {suiteModalErr && <p className="text-red-400 text-sm">{suiteModalErr}</p>}
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setShowSuiteModal(false)}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors text-sm">
+                  Cancel
+                </button>
+                <button onClick={saveSuite} disabled={suiteModalSaving}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors text-sm disabled:opacity-60">
+                  {suiteModalSaving ? 'Saving...' : (editSuite ? 'Update Suite' : 'Create Suite')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Suite Manage Drawer */}
+      {managingSuite && (
+        <SuiteDrawer
+          suite={managingSuite}
+          allTests={tests}
+          canRun={canRun}
+          onClose={() => { setManagingSuite(null); loadData(); }}
+          onRunSuite={(suiteExecId) => {
+            loadData();
+            setTab('suites');
+            setSelectedSuiteExecId(suiteExecId);
+          }}
+        />
+      )}
+
+      {/* Suite Execution Detail */}
+      {selectedSuiteExecId && !viewingTestRunFromSuite && (
+        <SuiteExecutionDetail
+          suiteExecId={selectedSuiteExecId}
+          onClose={() => { setSelectedSuiteExecId(null); loadData(); }}
+          onViewTestRun={(execId) => {
+            setViewingTestRunFromSuite(execId);
+          }}
+        />
+      )}
+
+      {/* Individual test run detail opened from suite detail */}
+      {viewingTestRunFromSuite && (
+        <ExecutionDetail
+          executionId={viewingTestRunFromSuite}
+          onClose={() => setViewingTestRunFromSuite(null)}
+        />
+      )}
+
       {/* Delete confirm */}
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
@@ -807,6 +1501,10 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
             <p className="text-slate-400 text-sm mb-6">
               {deleteConfirm.type === 'test'
                 ? 'This will delete the test definition and all its run history permanently.'
+                : deleteConfirm.type === 'suite'
+                ? 'This will delete the suite and all its run history permanently.'
+                : deleteConfirm.type === 'suiteRun'
+                ? 'This will delete this suite run record permanently.'
                 : 'This will delete this run and its metrics permanently.'}
             </p>
             <div className="flex gap-3">

@@ -650,6 +650,57 @@ async function initDB() {
     )
   `);
 
+  // Perf Folders
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS perf_folders (
+      id         SERIAL PRIMARY KEY,
+      org_id     INTEGER NOT NULL DEFAULT 1,
+      name       TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Add folder_id to performance_tests
+  await pool.query(`
+    ALTER TABLE performance_tests ADD COLUMN IF NOT EXISTS folder_id INTEGER REFERENCES perf_folders(id) ON DELETE SET NULL
+  `).catch(() => {}); // ignore if already exists or constraint issue
+
+  // Perf suites
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS perf_suites (
+      id          SERIAL PRIMARY KEY,
+      org_id      INTEGER NOT NULL DEFAULT 1,
+      name        TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Perf suite tests (join table)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS perf_suite_tests (
+      id           SERIAL PRIMARY KEY,
+      suite_id     INTEGER NOT NULL REFERENCES perf_suites(id) ON DELETE CASCADE,
+      perf_test_id INTEGER NOT NULL REFERENCES performance_tests(id) ON DELETE CASCADE,
+      position     INTEGER DEFAULT 0,
+      UNIQUE(suite_id, perf_test_id)
+    )
+  `);
+
+  // Perf suite executions
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS perf_suite_executions (
+      id           SERIAL PRIMARY KEY,
+      suite_id     INTEGER NOT NULL REFERENCES perf_suites(id) ON DELETE CASCADE,
+      org_id       INTEGER NOT NULL DEFAULT 1,
+      status       TEXT NOT NULL DEFAULT 'running',
+      triggered_by TEXT,
+      started_at   TIMESTAMPTZ DEFAULT NOW(),
+      ended_at     TIMESTAMPTZ,
+      summary_json TEXT DEFAULT '{}'
+    )
+  `);
+
   await seedDefaultOrg();
   await seedDefaultUsers();
   console.log('Database initialised');
@@ -2177,12 +2228,12 @@ const performanceOperations = {
     };
   },
 
-  createTest: async ({ org_id = 1, name, description = '', template = 'load', target_url, vus = 10, ramp_duration = 60, hold_duration = 300, scenarios_json = [], thresholds_json = [], created_by = null }) => {
+  createTest: async ({ org_id = 1, name, description = '', template = 'load', target_url, vus = 10, ramp_duration = 60, hold_duration = 300, scenarios_json = [], thresholds_json = [], created_by = null, folder_id = null }) => {
     const r = await pool.query(
-      `INSERT INTO performance_tests (org_id, name, description, template, target_url, vus, ramp_duration, hold_duration, scenarios_json, thresholds_json, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      `INSERT INTO performance_tests (org_id, name, description, template, target_url, vus, ramp_duration, hold_duration, scenarios_json, thresholds_json, created_by, folder_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
       [org_id, name, description, template, target_url, vus, ramp_duration, hold_duration,
-       JSON.stringify(scenarios_json), JSON.stringify(thresholds_json), created_by]
+       JSON.stringify(scenarios_json), JSON.stringify(thresholds_json), created_by, folder_id || null]
     );
     return performanceOperations.getTestById(r.rows[0].id);
   },
@@ -2191,7 +2242,7 @@ const performanceOperations = {
     const cols = [];
     const vals = [];
     let i = 1;
-    const allowed = ['name','description','template','target_url','vus','ramp_duration','hold_duration','scenarios_json','thresholds_json'];
+    const allowed = ['name','description','template','target_url','vus','ramp_duration','hold_duration','scenarios_json','thresholds_json','folder_id'];
     for (const k of allowed) {
       if (fields[k] !== undefined) {
         cols.push(`${k}=$${i++}`);
@@ -2307,6 +2358,152 @@ const performanceOperations = {
 };
 
 // ---------------------------------------------------------------------------
+// Perf Folder Operations
+// ---------------------------------------------------------------------------
+const perfFolderOperations = {
+  getAll: async (orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM perf_folders WHERE org_id = $1 ORDER BY name',
+      [orgId]
+    );
+    return r.rows;
+  },
+  create: async ({ org_id, name }) => {
+    const r = await pool.query(
+      'INSERT INTO perf_folders (org_id, name) VALUES ($1, $2) RETURNING *',
+      [org_id, name]
+    );
+    return r.rows[0];
+  },
+  update: async (id, orgId, name) => {
+    const r = await pool.query(
+      'UPDATE perf_folders SET name = $1 WHERE id = $2 AND org_id = $3 RETURNING *',
+      [name, id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  delete: async (id, orgId) => {
+    await pool.query('DELETE FROM perf_folders WHERE id = $1 AND org_id = $2', [id, orgId]);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Perf Suite Operations
+// ---------------------------------------------------------------------------
+const perfSuiteOperations = {
+  getAll: async (orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM perf_suites WHERE org_id = $1 ORDER BY created_at DESC',
+      [orgId]
+    );
+    return r.rows;
+  },
+  getById: async (id, orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM perf_suites WHERE id = $1 AND org_id = $2',
+      [id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  create: async ({ org_id, name, description }) => {
+    const r = await pool.query(
+      'INSERT INTO perf_suites (org_id, name, description) VALUES ($1, $2, $3) RETURNING *',
+      [org_id, name, description || '']
+    );
+    return r.rows[0];
+  },
+  update: async (id, orgId, { name, description }) => {
+    const r = await pool.query(
+      'UPDATE perf_suites SET name = $1, description = $2 WHERE id = $3 AND org_id = $4 RETURNING *',
+      [name, description || '', id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  delete: async (id, orgId) => {
+    await pool.query('DELETE FROM perf_suites WHERE id = $1 AND org_id = $2', [id, orgId]);
+  },
+
+  // Suite Test management
+  getTests: async (suiteId) => {
+    const r = await pool.query(
+      `SELECT pst.*, pt.name AS test_name, pt.template, pt.target_url, pt.vus, pt.ramp_duration, pt.hold_duration
+       FROM perf_suite_tests pst
+       JOIN performance_tests pt ON pt.id = pst.perf_test_id
+       WHERE pst.suite_id = $1
+       ORDER BY pst.position, pst.id`,
+      [suiteId]
+    );
+    return r.rows;
+  },
+  addTest: async (suiteId, testId) => {
+    const r = await pool.query(
+      'INSERT INTO perf_suite_tests (suite_id, perf_test_id) VALUES ($1, $2) ON CONFLICT (suite_id, perf_test_id) DO NOTHING RETURNING *',
+      [suiteId, testId]
+    );
+    return r.rows[0];
+  },
+  removeTest: async (suiteId, testId) => {
+    await pool.query(
+      'DELETE FROM perf_suite_tests WHERE suite_id = $1 AND perf_test_id = $2',
+      [suiteId, testId]
+    );
+  },
+
+  // Suite Executions
+  createExecution: async ({ suite_id, org_id, triggered_by }) => {
+    const r = await pool.query(
+      'INSERT INTO perf_suite_executions (suite_id, org_id, triggered_by, summary_json) VALUES ($1, $2, $3, $4) RETURNING *',
+      [suite_id, org_id, triggered_by || null, '{}']
+    );
+    return r.rows[0];
+  },
+  getAllExecutions: async (orgId) => {
+    const r = await pool.query(
+      `SELECT se.*, ps.name AS suite_name
+       FROM perf_suite_executions se
+       JOIN perf_suites ps ON ps.id = se.suite_id
+       WHERE se.org_id = $1
+       ORDER BY se.started_at DESC`,
+      [orgId]
+    );
+    return r.rows;
+  },
+  getExecution: async (id, orgId) => {
+    const r = await pool.query(
+      `SELECT se.*, ps.name AS suite_name
+       FROM perf_suite_executions se
+       JOIN perf_suites ps ON ps.id = se.suite_id
+       WHERE se.id = $1 AND se.org_id = $2`,
+      [id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  getExecutionsForSuite: async (suiteId, orgId) => {
+    const r = await pool.query(
+      `SELECT se.*, ps.name AS suite_name
+       FROM perf_suite_executions se
+       JOIN perf_suites ps ON ps.id = se.suite_id
+       WHERE se.suite_id = $1 AND se.org_id = $2
+       ORDER BY se.started_at DESC`,
+      [suiteId, orgId]
+    );
+    return r.rows;
+  },
+  updateExecution: async (id, status, summaryJson) => {
+    await pool.query(
+      'UPDATE perf_suite_executions SET status = $1, summary_json = $2, ended_at = $3 WHERE id = $4',
+      [status, JSON.stringify(summaryJson), new Date(), id]
+    );
+  },
+  deleteExecution: async (id, orgId) => {
+    await pool.query(
+      'DELETE FROM perf_suite_executions WHERE id = $1 AND org_id = $2',
+      [id, orgId]
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Initialise on startup
 // ---------------------------------------------------------------------------
 initDB().catch((err) => {
@@ -2356,5 +2553,7 @@ module.exports = {
   enquiryOperations,
   platformFeedbackOperations,
   platformBugReportOperations,
-  performanceOperations
+  performanceOperations,
+  perfFolderOperations,
+  perfSuiteOperations
 };
