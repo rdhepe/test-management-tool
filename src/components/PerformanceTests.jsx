@@ -526,11 +526,18 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
       const ct = res.headers.get('content-type') || '';
       const data = ct.includes('application/json') ? await res.json() : {};
       if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
-      // Switch to Runs tab and open detail immediately — don't await loadData first
+      const execId = data.executionId;
+      if (!execId) throw new Error('Server did not return an execution ID');
+      // Immediately add the new execution to the runs list so it appears right away,
+      // without waiting for loadData to round-trip
+      if (data.execution) {
+        setRuns(prev => [data.execution, ...prev.filter(r => r.id !== execId)]);
+      }
+      // Switch to Runs tab and open detail modal immediately
       setTab('runs');
-      setSelectedExecId(data.executionId);
-      // Reload runs list in background
-      loadData();
+      setSelectedExecId(execId);
+      // Also refresh in background to pick up any race-condition status update
+      setTimeout(() => loadData(), 2000);
     } catch (e) {
       setRunError(e.message);
     } finally {

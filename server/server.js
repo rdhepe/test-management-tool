@@ -5381,8 +5381,8 @@ app.post('/performance-tests/:id/run', requireAuth, async (req, res) => {
     const outputPath = path.join(scriptDir, `perf_out_${execution.id}.json`);
     fsSync.writeFileSync(scriptPath, generateK6Script(test));
 
-    // Return execution id immediately; spawned process saves results async
-    res.status(202).json({ executionId: execution.id });
+    // Return execution id + snapshot immediately; spawned process saves results async
+    res.status(202).json({ executionId: execution.id, execution });
 
     // Spawn k6
     const k6 = spawn('k6', ['run', '--out', `json=${outputPath}`, '--no-color', scriptPath], {
