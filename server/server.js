@@ -128,7 +128,8 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/object-repository') ||
       p.startsWith('/or-folders') ||
       p.startsWith('/platform-feedback') || p.startsWith('/platform-bug-reports') ||
-      p.startsWith('/debug-session') || p.startsWith('/debug-migrate-globalvars')
+      p.startsWith('/debug-session') || p.startsWith('/debug-migrate-globalvars') ||
+      p.startsWith('/performance-tests') || p.startsWith('/performance-executions')
     ) return next();
     // Only serve the SPA shell for GET requests (browser navigation)
     if (req.method !== 'GET') return next();
