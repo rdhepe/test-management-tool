@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs').promises;
@@ -6228,35 +6228,23 @@ app.post('/accessibility-ai/fix-suggestions', requireAuth, async (req, res) => {
 
 // =============================================================================
 // MOBILE TESTING ROUTES
+// Reuse existing automation test files — run them with Playwright device emulation
 // =============================================================================
 
-// Helper: get AI key gated behind ai_healing_enabled (reusable)
-async function getMobileAIKey(orgId) {
-  const org = await organizationOperations.getById(orgId);
-  if (!org) { const e = new Error('Org not found'); e.status = 403; throw e; }
-  if (!org.ai_healing_enabled) { const e = new Error('AI features are not enabled for this organisation.'); e.status = 403; throw e; }
-  const key = org.openai_api_key || process.env.OPENAI_API_KEY;
-  if (!key) { const e = new Error('No OpenAI API key configured.'); e.status = 400; throw e; }
-  return key;
-}
-
-// GET /mobile-tests
-app.get('/mobile-tests', requireAuth, async (req, res) => {
+// GET /mobile-tests/test-files — all test files with their module names
+app.get('/mobile-tests/test-files', requireAuth, async (req, res) => {
   try {
-    const tests = await mobileOperations.getAllTests(req.session.orgId);
-    res.json(tests);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// POST /mobile-tests
-app.post('/mobile-tests', requireAuth, async (req, res) => {
-  try {
-    const { name, description, device_profile, target_url, extra_pages, custom_script } = req.body;
-    if (!name || !target_url) return res.status(400).json({ error: 'name and target_url are required' });
-    const test = await mobileOperations.createTest({
-      org_id: req.session.orgId, name, description, device_profile, target_url, extra_pages, custom_script
-    });
-    res.status(201).json(test);
+    const orgId = req.session.orgId;
+    const r = await pool.query(
+      `SELECT tf.id, tf.name, tf.module_id, tf.content,
+              m.name AS module_name, m.base_url AS module_base_url
+       FROM test_files tf
+       LEFT JOIN modules m ON m.id = tf.module_id
+       WHERE tf.org_id = $1
+       ORDER BY m.name, tf.name`,
+      [orgId]
+    );
+    res.json(r.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -6285,163 +6273,170 @@ app.delete('/mobile-tests/executions/:execId', requireAuth, async (req, res) => 
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /mobile-tests/:id
-app.put('/mobile-tests/:id', requireAuth, async (req, res) => {
-  try {
-    const { name, description, device_profile, target_url, extra_pages, custom_script } = req.body;
-    if (!name || !target_url) return res.status(400).json({ error: 'name and target_url are required' });
-    const test = await mobileOperations.updateTest(parseInt(req.params.id), req.session.orgId, {
-      name, description, device_profile, target_url, extra_pages, custom_script
-    });
-    if (!test) return res.status(404).json({ error: 'Test not found' });
-    res.json(test);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+// POST /mobile-tests/run — run an existing test file with device emulation
+app.post('/mobile-tests/run', requireAuth, async (req, res) => {
+  const { testFileId, device_profile } = req.body;
+  if (!testFileId || !device_profile) {
+    return res.status(400).json({ error: 'testFileId and device_profile are required' });
+  }
+  const orgId = req.session.orgId;
 
-// DELETE /mobile-tests/:id
-app.delete('/mobile-tests/:id', requireAuth, async (req, res) => {
   try {
-    await mobileOperations.deleteTest(parseInt(req.params.id), req.session.orgId);
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+    const testFile = await testFileOperations.getById(parseInt(testFileId));
+    if (!testFile || testFile.org_id !== orgId) {
+      return res.status(404).json({ error: 'Test file not found' });
+    }
 
-// GET /mobile-tests/:id/executions
-app.get('/mobile-tests/:id/executions', requireAuth, async (req, res) => {
-  try {
-    const executions = await mobileOperations.getExecutionsForTest(parseInt(req.params.id), req.session.orgId);
-    res.json(executions);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+    // Resolve module name for display
+    let moduleName = '';
+    try {
+      const mod = await moduleOperations.getById(testFile.module_id);
+      if (mod) moduleName = mod.name;
+    } catch (_) {}
 
-// POST /mobile-tests/:id/run
-app.post('/mobile-tests/:id/run', requireAuth, async (req, res) => {
-  try {
-    const test = await mobileOperations.getTestById(parseInt(req.params.id), req.session.orgId);
-    if (!test) return res.status(404).json({ error: 'Test not found' });
+    // Build device emulation config (strip defaultBrowserType; always use chromium for portability)
+    const playwrightDevices = (() => {
+      try { return require('@playwright/test').devices || {}; } catch { return {}; }
+    })();
+    let deviceProps = {};
+    if (device_profile === 'Custom') {
+      deviceProps = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2,
+        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1' };
+    } else {
+      const d = playwrightDevices[device_profile] || {};
+      const { defaultBrowserType: _drop, ...rest } = d;
+      deviceProps = rest;
+    }
 
     const execution = await mobileOperations.createExecution({
-      org_id: req.session.orgId,
-      test_id: test.id,
-      device_profile: test.device_profile
+      org_id: orgId,
+      test_file_id: testFile.id,
+      test_file_name: testFile.name,
+      module_name: moduleName,
+      device_profile,
     });
 
     res.json({ executionId: execution.id, status: 'running' });
 
-    // Run Playwright in background
+    // ── Async Playwright run ──────────────────────────────────────────────
     (async () => {
-      const { chromium, devices } = require('@playwright/test');
-      let browser;
+      const startTime = Date.now();
+      const tempDir = path.join(dataDir, 'temp', `mobile-${Date.now()}`);
       try {
-        const allPages = [test.target_url, ...(test.extra_pages || [])].filter(Boolean);
+        await fs.mkdir(tempDir, { recursive: true });
 
-        // Build device config
-        let deviceConfig = {};
-        if (test.device_profile !== 'Custom') {
-          deviceConfig = devices[test.device_profile] || {};
-        } else {
-          deviceConfig = {
-            viewport: { width: 390, height: 844 },
-            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
-            isMobile: true,
-            hasTouch: true,
-            deviceScaleFactor: 2,
-          };
+        // Write Object Repository
+        const orContent = await objectRepositoryOperations.generateORFileContent(orgId);
+        await fs.writeFile(path.join(tempDir, '_or.js'), orContent, 'utf8');
+
+        // Resolve dependencies (same as /run-test)
+        let filesToRun = [];
+        try {
+          const execOrder = await testFileDependencyOperations.getExecutionOrder(parseInt(testFileId));
+          for (const dep of (execOrder.before || [])) {
+            const depFile = await testFileOperations.getById(dep.dependency_file_id);
+            if (depFile && depFile.content) filesToRun.push({ label: 'before', name: dep.dependency_name || depFile.name, content: depFile.content });
+          }
+          filesToRun.push({ label: 'main', name: testFile.name, content: testFile.content || '' });
+          for (const dep of (execOrder.after || [])) {
+            const depFile = await testFileOperations.getById(dep.dependency_file_id);
+            if (depFile && depFile.content) filesToRun.push({ label: 'after', name: dep.dependency_name || depFile.name, content: depFile.content });
+          }
+        } catch (_) {
+          filesToRun = [{ label: 'main', name: testFile.name, content: testFile.content || '' }];
         }
 
-        browser = await chromium.launch({ headless: true });
-        const context = await browser.newContext({ ...deviceConfig, ignoreHTTPSErrors: true });
-        const pageResults = [];
+        // Module-level imports
+        let moduleImportBlock = '';
+        try {
+          const mod = await moduleOperations.getById(testFile.module_id);
+          if (mod && mod.imports && mod.imports.trim()) moduleImportBlock = '\n' + mod.imports.trim() + '\n';
+        } catch (_) {}
 
-        for (const url of allPages) {
-          const consoleErrors = [];
-          const page = await context.newPage();
-          page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
-          const t0 = Date.now();
-          let status = 'passed';
-          let screenshotB64 = null;
+        // Build combined spec
+        const combinedSteps = filesToRun.map(f => {
+          const cleaned = f.content.replace(/^[^\S\n]*const\s+OR\s*=\s*require\s*\(['"]\.\/(_or|_or\.js)['"]\)\s*;?\s*$/gm, '');
+          const indented = cleaned.trim().split('\n').join('\n  ');
+          return `  // ── ${f.name} (${f.label}) ──\n  ${indented}`;
+        }).join('\n\n');
 
-          try {
-            const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            if (response && response.status() >= 400) status = 'failed';
+        const combinedTestName = filesToRun.map(f => f.name).join(' → ');
+        const specContent = `import { test, expect } from '@playwright/test';
+import OR from './_or.js';${moduleImportBlock}
+test(${JSON.stringify(`[Mobile: ${device_profile}] ${combinedTestName}`)}, async ({ page, request, browser, context, browserName }) => {
+${combinedSteps}
+});
+`;
+        await fs.writeFile(path.join(tempDir, 'combined.spec.ts'), specContent, 'utf8');
+        await fs.writeFile(path.join(tempDir, 'package.json'), JSON.stringify({ type: 'module', name: 'temp-test', version: '1.0.0' }, null, 2), 'utf8');
 
-            // Run custom script if provided
-            if (test.custom_script && test.custom_script.trim()) {
-              try {
-                const scriptFn = new Function('page', `return (async () => { ${test.custom_script} })()`);
-                await scriptFn(page);
-              } catch (scriptErr) {
-                consoleErrors.push('Custom script error: ' + scriptErr.message);
-                status = 'failed';
+        // Build playwright.config.ts with device emulation
+        const useBlock = JSON.stringify({ ...deviceProps, headless: true, screenshot: 'only-on-failure' });
+        const configContent = `import { defineConfig } from '@playwright/test';
+export default defineConfig({
+  workers: 1,
+  use: { headless: true },
+  reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
+  projects: [{ name: 'mobile', use: ${useBlock} }],
+});
+`;
+        await fs.writeFile(path.join(tempDir, 'playwright.config.ts'), configContent, 'utf8');
+
+        // Run
+        const globalVarsEnv = await globalVariableOperations.getAllAsEnv(orgId);
+        let logs = '', screenshotBase64 = null;
+        let runStatus = 'passed';
+
+        try {
+          const { stdout, stderr } = await execAsync('npx playwright test', {
+            cwd: tempDir,
+            timeout: 90000,
+            env: { ...process.env, ...globalVarsEnv, NODE_PATH: nodePathEnv },
+          });
+          logs = [stdout, stderr].filter(s => s && s.trim()).join('\n').trim();
+        } catch (runErr) {
+          runStatus = 'failed';
+          logs = [runErr.stderr, runErr.stdout, runErr.message].filter(s => s && s.trim()).join('\n').trim();
+        }
+
+        // Collect screenshot
+        try {
+          const trDir = path.join(tempDir, 'test-results');
+          const entries = await fs.readdir(trDir);
+          for (const sub of entries) {
+            const subPath = path.join(trDir, sub);
+            if ((await fs.stat(subPath)).isDirectory()) {
+              const files = await fs.readdir(subPath);
+              const png = files.find(f => f.endsWith('.png'));
+              if (png) {
+                screenshotBase64 = (await fs.readFile(path.join(subPath, png))).toString('base64');
+                break;
               }
             }
-
-            // Take screenshot
-            const screenshotBuf = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false });
-            screenshotB64 = screenshotBuf.toString('base64');
-          } catch (pageErr) {
-            status = 'failed';
-            consoleErrors.push(pageErr.message);
           }
+        } catch (_) {}
 
-          const loadTimeMs = Date.now() - t0;
-          pageResults.push({ url, status, load_time_ms: loadTimeMs, console_errors: consoleErrors, screenshot_base64: screenshotB64 });
-          await page.close();
-        }
-
-        await context.close();
-        await browser.close();
-
-        const anyFailed = pageResults.some(r => r.status === 'failed');
+        const durationMs = Date.now() - startTime;
         await mobileOperations.updateExecution(execution.id, {
-          status: anyFailed ? 'failed' : 'passed',
-          results_json: pageResults,
-          error_message: null
+          status: runStatus,
+          logs,
+          screenshot_base64: screenshotBase64,
+          duration_ms: durationMs,
+          error_message: runStatus === 'failed' ? (logs.slice(-500) || 'Test failed') : null,
         });
       } catch (err) {
-        if (browser) { try { await browser.close(); } catch (_) {} }
         await mobileOperations.updateExecution(execution.id, {
           status: 'error',
-          results_json: [],
-          error_message: err.message
+          logs: err.message,
+          duration_ms: Date.now() - startTime,
+          error_message: err.message,
         });
+      } finally {
+        fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
       }
     })();
+
   } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// POST /mobile-ai/script-gen — AI mobile script generator
-app.post('/mobile-ai/script-gen', requireAuth, async (req, res) => {
-  try {
-    const apiKey = await getMobileAIKey(req.session.orgId);
-    const { instruction, device_profile, target_url } = req.body;
-    if (!instruction) return res.status(400).json({ error: 'instruction is required' });
-
-    const { default: OpenAI } = await import('openai');
-    const client = new OpenAI({ apiKey });
-
-    const systemPrompt = `You are an expert Playwright mobile testing engineer. Generate a Playwright script body (the code that runs inside an async function that receives a "page" object — do NOT include async function declaration or imports).
-Use mobile-friendly selectors and interactions: tap(), touchscreen.tap(), mobile gestures where appropriate.
-The script runs inside a Playwright context already configured for ${device_profile || 'a mobile device'}.
-Return ONLY the raw JavaScript code with no markdown code fences.`;
-
-    const userPrompt = `Target URL: ${target_url || 'the page'}
-Device: ${device_profile || 'mobile'}
-Task: ${instruction}
-
-Write a Playwright script body that performs this task on a mobile device.`;
-
-    const resp = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-      max_tokens: 800,
-      temperature: 0.3
-    });
-
-    let script = resp.choices[0]?.message?.content?.trim() || '';
-    script = script.replace(/```javascript\s*/gi, '').replace(/```js\s*/gi, '').replace(/```\s*/g, '').trim();
-    res.json({ script });
-  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 app.listen(PORT, () => {

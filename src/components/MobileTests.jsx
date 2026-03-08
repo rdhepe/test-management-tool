@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
 import API_URL from '../apiUrl';
 
 // ---------------------------------------------------------------------------
 // Device catalogue
 // ---------------------------------------------------------------------------
 const DEVICE_GROUPS = [
-  { group: '📱 iPhone', devices: ['iPhone SE', 'iPhone 15', 'iPhone 15 Pro Max'] },
+  { group: '📱 iPhone', devices: ['iPhone SE', 'iPhone 15', 'iPhone 15 Pro', 'iPhone 15 Pro Max'] },
   { group: '🤖 Android', devices: ['Pixel 7', 'Galaxy S9+'] },
   { group: '📟 Tablet', devices: ['iPad Mini', 'iPad Pro 11'] },
   { group: '⚙️ Custom', devices: ['Custom'] },
@@ -16,18 +16,59 @@ const ALL_DEVICES = DEVICE_GROUPS.flatMap(g => g.devices);
 function deviceEmoji(profile) {
   if (!profile) return '📱';
   const p = profile.toLowerCase();
-  if (p.includes('iphone') || p.includes('ipad')) return '🍎';
-  if (p.includes('pixel') || p.includes('galaxy') || p.includes('android')) return '🤖';
-  if (p.includes('tablet') || p.includes('ipad')) return '📟';
+  if (p.includes('ipad')) return '📟';
+  if (p.includes('iphone')) return '🍎';
+  if (p.includes('pixel') || p.includes('galaxy')) return '🤖';
+  if (p.includes('custom')) return '⚙️';
   return '📱';
 }
 
-function deviceBadgeColor(profile) {
+function deviceBadgeClass(profile) {
   if (!profile) return 'bg-slate-700 text-slate-300';
   const p = profile.toLowerCase();
-  if (p.includes('iphone') || p.includes('ipad')) return 'bg-blue-500/20 text-blue-300';
-  if (p.includes('pixel') || p.includes('galaxy')) return 'bg-green-500/20 text-green-300';
-  return 'bg-purple-500/20 text-purple-300';
+  if (p.includes('iphone') || p.includes('ipad')) return 'bg-blue-500/20 text-blue-300 border border-blue-500/30';
+  if (p.includes('pixel') || p.includes('galaxy')) return 'bg-green-500/20 text-green-300 border border-green-500/30';
+  return 'bg-purple-500/20 text-purple-300 border border-purple-500/30';
+}
+
+function statusBadge(status) {
+  if (!status) return null;
+  const map = {
+    running:  'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30',
+    passed:   'bg-green-500/20  text-green-300  border border-green-500/30',
+    failed:   'bg-red-500/20    text-red-300    border border-red-500/30',
+    error:    'bg-red-500/20    text-red-300    border border-red-500/30',
+    pending:  'bg-slate-600/40  text-slate-300  border border-slate-500/30',
+  };
+  return map[status] || map.pending;
+}
+
+function StatusDot({ status }) {
+  if (status === 'running') return (
+    <span className="inline-flex items-center gap-1">
+      <svg className="animate-spin h-3 w-3 text-yellow-400" viewBox="0 0 24 24" fill="none">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+      </svg>
+      Running
+    </span>
+  );
+  if (status === 'passed')  return <span className="text-green-400">✓ Passed</span>;
+  if (status === 'failed')  return <span className="text-red-400">✗ Failed</span>;
+  if (status === 'error')   return <span className="text-red-400">✗ Error</span>;
+  return <span className="text-slate-400">—</span>;
+}
+
+function formatDuration(ms) {
+  if (!ms && ms !== 0) return '—';
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString();
 }
 
 const auth = () => {
@@ -36,315 +77,99 @@ const auth = () => {
 };
 
 // ---------------------------------------------------------------------------
-// TestModal — create / edit
-// ---------------------------------------------------------------------------
-function TestModal({ test, onClose, onSave, aiEnabled }) {
-  const parseExtraPages = (val) => {
-    if (!val) return '';
-    if (Array.isArray(val)) return val.join('\n');
-    try { return JSON.parse(val).join('\n'); } catch { return val; }
-  };
-
-  const [form, setForm] = useState({
-    name: test?.name || '',
-    description: test?.description || '',
-    device_profile: test?.device_profile || 'iPhone 15',
-    target_url: test?.target_url || '',
-    extra_pages: parseExtraPages(test?.extra_pages),
-    custom_script: test?.custom_script || '',
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [aiInstruction, setAiInstruction] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState('');
-  const [showAiPanel, setShowAiPanel] = useState(false);
-
-  const handleSave = async () => {
-    if (!form.name.trim()) return setError('Name is required');
-    if (!form.target_url.trim()) return setError('Target URL is required');
-    setSaving(true);
-    setError('');
-    const extra_pages = form.extra_pages.split('\n').map(l => l.trim()).filter(Boolean);
-    await onSave({ ...form, extra_pages });
-    setSaving(false);
-  };
-
-  const handleGenScript = async () => {
-    if (!aiInstruction.trim()) return;
-    setAiLoading(true);
-    setAiError('');
-    try {
-      const r = await fetch(`${API_URL}/mobile-ai/script-gen`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...auth() },
-        body: JSON.stringify({
-          instruction: aiInstruction,
-          device_profile: form.device_profile,
-          target_url: form.target_url || '',
-        }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'AI request failed');
-      setForm(f => ({ ...f, custom_script: data.script }));
-      setAiError('');
-    } catch (err) {
-      setAiError(err.message);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-2xl border shadow-2xl p-6 space-y-4"
-        style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
-        <h2 className="text-lg font-semibold">{test ? 'Edit Mobile Test' : 'New Mobile Test'}</h2>
-
-        {error && <p className="text-sm text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{error}</p>}
-
-        <div className="space-y-3">
-          {/* Name */}
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'rgb(var(--text-secondary))' }}>Name *</label>
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              className="w-full rounded-xl px-3 py-2 text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              style={{ backgroundColor: 'rgb(var(--bg-secondary))', borderColor: 'rgb(var(--border-primary))', color: 'rgb(var(--text-primary))' }}
-              placeholder="Mobile Homepage Check" />
-          </div>
-
-          {/* Device profile */}
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'rgb(var(--text-secondary))' }}>Device Profile *</label>
-            <select value={form.device_profile} onChange={e => setForm(f => ({ ...f, device_profile: e.target.value }))}
-              className="w-full rounded-xl px-3 py-2 text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              style={{ backgroundColor: 'rgb(var(--bg-secondary))', borderColor: 'rgb(var(--border-primary))', color: 'rgb(var(--text-primary))' }}>
-              {DEVICE_GROUPS.map(g => (
-                <optgroup key={g.group} label={g.group}>
-                  {g.devices.map(d => <option key={d} value={d}>{d}</option>)}
-                </optgroup>
-              ))}
-            </select>
-          </div>
-
-          {/* Target URL */}
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'rgb(var(--text-secondary))' }}>Target URL *</label>
-            <input value={form.target_url} onChange={e => setForm(f => ({ ...f, target_url: e.target.value }))}
-              className="w-full rounded-xl px-3 py-2 text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              style={{ backgroundColor: 'rgb(var(--bg-secondary))', borderColor: 'rgb(var(--border-primary))', color: 'rgb(var(--text-primary))' }}
-              placeholder="https://example.com" />
-          </div>
-
-          {/* Extra pages */}
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'rgb(var(--text-secondary))' }}>Additional pages (one URL per line)</label>
-            <textarea value={form.extra_pages} onChange={e => setForm(f => ({ ...f, extra_pages: e.target.value }))} rows={3}
-              className="w-full rounded-xl px-3 py-2 text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono resize-none"
-              style={{ backgroundColor: 'rgb(var(--bg-secondary))', borderColor: 'rgb(var(--border-primary))', color: 'rgb(var(--text-primary))' }}
-              placeholder="https://example.com/shop&#10;https://example.com/checkout" />
-          </div>
-
-          {/* Custom script */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-medium" style={{ color: 'rgb(var(--text-secondary))' }}>Custom Script (optional Playwright body)</label>
-              {aiEnabled && (
-                <button onClick={() => setShowAiPanel(v => !v)}
-                  className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
-                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14v-4H7l5-8v4h4l-5 8z"/></svg>
-                  {showAiPanel ? 'Hide AI Generator' : 'AI Script Generator'}
-                </button>
-              )}
-            </div>
-
-            {/* AI Script Generator panel */}
-            {aiEnabled && showAiPanel && (
-              <div className="mb-2 rounded-xl p-3 border space-y-2"
-                style={{ backgroundColor: 'rgb(15,23,42)', borderColor: 'rgba(99,102,241,0.3)' }}>
-                <p className="text-xs font-semibold text-indigo-400">Generate mobile script with AI</p>
-                <textarea value={aiInstruction} onChange={e => setAiInstruction(e.target.value)} rows={2}
-                  className="w-full rounded-lg px-3 py-2 text-xs border focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
-                  style={{ backgroundColor: 'rgb(var(--bg-secondary))', borderColor: 'rgb(var(--border-primary))', color: 'rgb(var(--text-primary))' }}
-                  placeholder="e.g. Tap the hamburger menu, navigate to Product page, verify Buy button is visible" />
-                {aiError && <p className="text-xs text-red-400">{aiError}</p>}
-                <button onClick={handleGenScript} disabled={aiLoading || !aiInstruction.trim()}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/30 transition-colors disabled:opacity-50">
-                  {aiLoading ? (
-                    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                  ) : (
-                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14v-4H7l5-8v4h4l-5 8z"/></svg>
-                  )}
-                  {aiLoading ? 'Generating...' : 'Generate Script'}
-                </button>
-              </div>
-            )}
-
-            <textarea value={form.custom_script} onChange={e => setForm(f => ({ ...f, custom_script: e.target.value }))} rows={5}
-              className="w-full rounded-xl px-3 py-2 text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono resize-y"
-              style={{ backgroundColor: 'rgb(var(--bg-secondary))', borderColor: 'rgb(var(--border-primary))', color: 'rgb(var(--text-primary))' }}
-              placeholder="// Playwright steps run on the mobile page&#10;// e.g. await page.tap('.menu-btn');&#10;// await page.waitForSelector('.nav-open');" />
-          </div>
-
-          {/* Description */}
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'rgb(var(--text-secondary))' }}>Description</label>
-            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2}
-              className="w-full rounded-xl px-3 py-2 text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-              style={{ backgroundColor: 'rgb(var(--bg-secondary))', borderColor: 'rgb(var(--border-primary))', color: 'rgb(var(--text-primary))' }}
-              placeholder="Optional description" />
-          </div>
-        </div>
-
-        <div className="flex gap-3 justify-end pt-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm border transition-colors hover:bg-slate-700"
-            style={{ borderColor: 'rgb(var(--border-primary))' }}>
-            Cancel
-          </button>
-          <button onClick={handleSave} disabled={saving}
-            className="px-4 py-2 rounded-xl text-sm bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors disabled:opacity-50">
-            {saving ? 'Saving…' : (test ? 'Save Changes' : 'Create Test')}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ResultModal — shows per-page results with screenshots
+// ResultModal
 // ---------------------------------------------------------------------------
 function ResultModal({ execution, onClose }) {
-  const results = Array.isArray(execution.results_json)
-    ? execution.results_json
-    : (execution.results_json ? JSON.parse(execution.results_json) : []);
-
-  const [expanded, setExpanded] = useState(0);
-
-  const statusColor = (s) => {
-    if (s === 'passed') return 'bg-green-500/20 text-green-400';
-    if (s === 'failed') return 'bg-red-500/20 text-red-400';
-    return 'bg-slate-700 text-slate-400';
-  };
-
-  const overallColor = execution.status === 'passed' ? 'text-green-400'
-    : execution.status === 'failed' ? 'text-red-400'
-    : execution.status === 'running' ? 'text-blue-400' : 'text-slate-400';
+  if (!execution) return null;
+  const isRunning = execution.status === 'running';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl p-6 space-y-5"
-        style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">{execution.test_name}</h2>
-            <p className="text-sm mt-0.5" style={{ color: 'rgb(var(--text-secondary))' }}>
-              {execution.device_profile} · {new Date(execution.started_at).toLocaleString()}
-              · <span className={`font-medium ${overallColor}`}>{execution.status}</span>
-              · {results.length} page{results.length !== 1 ? 's' : ''}
-            </p>
+        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+          <div className="flex items-center gap-3">
+            <span className="text-xl">{deviceEmoji(execution.device_profile)}</span>
+            <div>
+              <h2 className="text-white font-semibold text-lg leading-tight">
+                {execution.test_file_name || 'Mobile Run'}
+              </h2>
+              <p className="text-slate-400 text-sm">
+                {execution.module_name && <span className="mr-2">{execution.module_name}</span>}
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${deviceBadgeClass(execution.device_profile)}`}>
+                  {execution.device_profile || 'Unknown device'}
+                </span>
+              </p>
+            </div>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-700 transition-colors text-slate-400">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded transition-colors">
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
+            </svg>
           </button>
         </div>
 
-        {execution.error_message && (
-          <div className="rounded-xl p-3 bg-red-500/10 border border-red-500/20 text-sm text-red-400">
-            {execution.error_message}
+        {/* Stats row */}
+        <div className="flex gap-4 p-4 border-b border-slate-700 bg-slate-900/30">
+          <div className="flex-1 text-center">
+            <p className="text-slate-400 text-xs mb-1">Status</p>
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium ${statusBadge(execution.status) || ''}`}>
+              <StatusDot status={execution.status} />
+            </span>
           </div>
-        )}
+          <div className="flex-1 text-center">
+            <p className="text-slate-400 text-xs mb-1">Duration</p>
+            <p className="text-white font-medium">{formatDuration(execution.duration_ms)}</p>
+          </div>
+          <div className="flex-1 text-center">
+            <p className="text-slate-400 text-xs mb-1">Started</p>
+            <p className="text-white font-medium text-xs">{formatDate(execution.started_at)}</p>
+          </div>
+        </div>
 
-        {results.length === 0 && execution.status !== 'running' && (
-          <p className="text-sm text-center py-8" style={{ color: 'rgb(var(--text-secondary))' }}>No page results recorded.</p>
-        )}
-
-        {/* Per-page accordion */}
-        <div className="space-y-3">
-          {results.map((page, idx) => {
-            const isOpen = expanded === idx;
-            return (
-              <div key={idx} className="rounded-xl border overflow-hidden"
-                style={{ borderColor: page.status === 'failed' ? 'rgba(239,68,68,0.3)' : 'rgb(var(--border-primary))' }}>
-                {/* Accordion header */}
-                <button onClick={() => setExpanded(isOpen ? -1 : idx)}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800/40 transition-colors"
-                  style={{ backgroundColor: 'rgb(var(--bg-elevated))' }}>
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className={`flex-shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${statusColor(page.status)}`}>
-                      {page.status}
-                    </span>
-                    <span className="text-sm truncate" style={{ color: 'rgb(var(--text-primary))' }}>{page.url}</span>
-                  </div>
-                  <div className="flex items-center gap-3 flex-shrink-0 ml-3">
-                    <span className="text-xs" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                      {page.load_time_ms != null ? `${page.load_time_ms}ms` : ''}
-                    </span>
-                    {(page.console_errors || []).length > 0 && (
-                      <span className="text-xs text-red-400 font-medium">
-                        {page.console_errors.length} console error{page.console_errors.length !== 1 ? 's' : ''}
-                      </span>
-                    )}
-                    <svg className={`w-4 h-4 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                      fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </div>
-                </button>
-
-                {/* Accordion body */}
-                {isOpen && (
-                  <div className="px-4 pb-4 pt-2 space-y-4 border-t" style={{ borderColor: 'rgb(var(--border-primary))' }}>
-                    {/* Stats row */}
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="rounded-xl p-3 text-center border" style={{ backgroundColor: 'rgb(var(--bg-secondary))', borderColor: 'rgb(var(--border-primary))' }}>
-                        <p className="text-lg font-bold" style={{ color: 'rgb(var(--text-primary))' }}>{page.load_time_ms != null ? `${page.load_time_ms}ms` : '—'}</p>
-                        <p className="text-xs mt-0.5" style={{ color: 'rgb(var(--text-tertiary))' }}>Load Time</p>
-                      </div>
-                      <div className="rounded-xl p-3 text-center border" style={{ backgroundColor: 'rgb(var(--bg-secondary))', borderColor: 'rgb(var(--border-primary))' }}>
-                        <p className={`text-lg font-bold ${page.status === 'passed' ? 'text-green-400' : 'text-red-400'}`}>{page.status}</p>
-                        <p className="text-xs mt-0.5" style={{ color: 'rgb(var(--text-tertiary))' }}>Status</p>
-                      </div>
-                      <div className="rounded-xl p-3 text-center border" style={{ backgroundColor: 'rgb(var(--bg-secondary))', borderColor: 'rgb(var(--border-primary))' }}>
-                        <p className={`text-lg font-bold ${(page.console_errors || []).length > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                          {(page.console_errors || []).length}
-                        </p>
-                        <p className="text-xs mt-0.5" style={{ color: 'rgb(var(--text-tertiary))' }}>Console Errors</p>
-                      </div>
-                    </div>
-
-                    {/* Console errors */}
-                    {(page.console_errors || []).length > 0 && (
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'rgb(var(--text-tertiary))' }}>Console Errors</p>
-                        <div className="space-y-1">
-                          {page.console_errors.map((err, i) => (
-                            <p key={i} className="text-xs font-mono text-red-400 bg-red-500/10 rounded-lg px-3 py-1.5 break-all">{err}</p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Screenshot */}
-                    {page.screenshot_base64 && (
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'rgb(var(--text-tertiary))' }}>Screenshot</p>
-                        <div className="rounded-xl overflow-hidden border" style={{ borderColor: 'rgb(var(--border-primary))' }}>
-                          <img
-                            src={`data:image/jpeg;base64,${page.screenshot_base64}`}
-                            alt={`Screenshot of ${page.url}`}
-                            className="w-full h-auto max-h-[500px] object-contain"
-                            style={{ backgroundColor: '#0f172a' }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+        <div className="flex-1 overflow-auto p-4 space-y-4">
+          {/* Screenshot */}
+          {execution.screenshot_base64 && (
+            <div>
+              <p className="text-slate-300 text-sm font-medium mb-2">Screenshot</p>
+              <div className="flex justify-center bg-slate-900/40 rounded-lg p-3 border border-slate-700">
+                <img
+                  src={`data:image/png;base64,${execution.screenshot_base64}`}
+                  alt="Test screenshot"
+                  className="max-h-64 rounded shadow-md border border-slate-600"
+                  style={{ maxWidth: '100%', objectFit: 'contain' }}
+                />
               </div>
-            );
-          })}
+            </div>
+          )}
+
+          {/* Error message */}
+          {execution.error_message && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+              <p className="text-red-400 text-sm font-medium mb-1">Error</p>
+              <p className="text-red-300 text-sm font-mono whitespace-pre-wrap">{execution.error_message}</p>
+            </div>
+          )}
+
+          {/* Logs */}
+          {execution.logs && (
+            <div>
+              <p className="text-slate-300 text-sm font-medium mb-2">Logs</p>
+              <pre className="bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 overflow-auto max-h-80 font-mono leading-relaxed whitespace-pre-wrap">
+                {execution.logs}
+              </pre>
+            </div>
+          )}
+
+          {isRunning && !execution.logs && (
+            <div className="flex items-center justify-center gap-3 py-8 text-slate-400">
+              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              Test is running…
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -352,401 +177,503 @@ function ResultModal({ execution, onClose }) {
 }
 
 // ---------------------------------------------------------------------------
-// Main MobileTests component
+// DeviceSelect — per-row device picker
 // ---------------------------------------------------------------------------
-export default function MobileTests({ orgInfo }) {
-  const [tab, setTab] = useState('tests');
-  const [tests, setTests] = useState([]);
-  const [runs, setRuns] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [testModal, setTestModal] = useState(null); // null | 'new' | test object
-  const [selectedExecution, setSelectedExecution] = useState(null);
-  const [runningIds, setRunningIds] = useState(new Set());
-  const [pollingIds, setPollingIds] = useState(new Set());
+function DeviceSelect({ value, onChange }) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className="bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-[160px]"
+    >
+      {DEVICE_GROUPS.map(g => (
+        <optgroup key={g.group} label={g.group} className="bg-slate-800">
+          {g.devices.map(d => (
+            <option key={d} value={d} className="bg-slate-800">{d}</option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
 
-  const aiEnabled = !!orgInfo?.ai_healing_enabled;
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+export default function MobileTests() {
+  const [activeTab, setActiveTab] = useState('files');
 
-  const loadTests = useCallback(async () => {
+  // --- test files tab state ---
+  const [testFiles, setTestFiles]         = useState([]);
+  const [filesLoading, setFilesLoading]   = useState(false);
+  const [filesError, setFilesError]       = useState('');
+  const [moduleFilter, setModuleFilter]   = useState('All');
+  const [deviceSelections, setDeviceSelections] = useState({}); // fileId -> device
+  const [runningIds, setRunningIds]       = useState(new Set()); // fileIds currently launching
+
+  // --- runs tab state ---
+  const [executions, setExecutions]       = useState([]);
+  const [runsLoading, setRunsLoading]     = useState(false);
+  const [runsError, setRunsError]         = useState('');
+
+  // --- result modal ---
+  const [viewExec, setViewExec]           = useState(null);
+
+  // polling refs
+  const pollTimers = useRef({}); // execId -> intervalId
+
+  // -----------------------------------------------------------------------
+  // Fetch test files
+  // -----------------------------------------------------------------------
+  const fetchTestFiles = useCallback(async () => {
+    setFilesLoading(true);
+    setFilesError('');
     try {
-      const r = await fetch(`${API_URL}/mobile-tests`, { headers: auth() });
-      if (r.ok) setTests(await r.json());
-    } catch {}
+      const r = await fetch(`${API_URL}/mobile-tests/test-files`, { headers: auth() });
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      setTestFiles(data);
+      setDeviceSelections(prev => {
+        const next = { ...prev };
+        data.forEach(f => { if (!next[f.id]) next[f.id] = 'iPhone 15'; });
+        return next;
+      });
+    } catch (e) {
+      setFilesError(e.message || 'Failed to load test files');
+    } finally {
+      setFilesLoading(false);
+    }
   }, []);
 
-  const loadRuns = useCallback(async () => {
+  // -----------------------------------------------------------------------
+  // Fetch executions
+  // -----------------------------------------------------------------------
+  const fetchExecutions = useCallback(async () => {
+    setRunsLoading(true);
+    setRunsError('');
     try {
       const r = await fetch(`${API_URL}/mobile-tests/executions/all`, { headers: auth() });
-      if (r.ok) setRuns(await r.json());
-    } catch {}
+      if (!r.ok) throw new Error(await r.text());
+      setExecutions(await r.json());
+    } catch (e) {
+      setRunsError(e.message || 'Failed to load runs');
+    } finally {
+      setRunsLoading(false);
+    }
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      await Promise.all([loadTests(), loadRuns()]);
-      setLoading(false);
-    })();
+  useEffect(() => { fetchTestFiles(); }, [fetchTestFiles]);
+  useEffect(() => { if (activeTab === 'runs') fetchExecutions(); }, [activeTab, fetchExecutions]);
+
+  // -----------------------------------------------------------------------
+  // Poll a running execution
+  // -----------------------------------------------------------------------
+  const pollExecution = useCallback((execId, testFileId) => {
+    if (pollTimers.current[execId]) return;
+    const tick = async () => {
+      try {
+        const r = await fetch(`${API_URL}/mobile-tests/executions/${execId}`, { headers: auth() });
+        if (!r.ok) return;
+        const data = await r.json();
+        setExecutions(prev => prev.map(e => e.id === execId ? data : e));
+        setViewExec(prev => prev && prev.id === execId ? data : prev);
+        if (data.status !== 'running') {
+          clearInterval(pollTimers.current[execId]);
+          delete pollTimers.current[execId];
+          setRunningIds(prev => { const s = new Set(prev); s.delete(testFileId); return s; });
+        }
+      } catch { /* ignore */ }
+    };
+    pollTimers.current[execId] = setInterval(tick, 2500);
+    tick();
   }, []);
 
-  // Polling for running executions
-  useEffect(() => {
-    if (pollingIds.size === 0) return;
-    const intervalId = setInterval(async () => {
-      for (const execId of pollingIds) {
-        try {
-          const r = await fetch(`${API_URL}/mobile-tests/executions/${execId}`, { headers: auth() });
-          if (r.ok) {
-            const exec = await r.json();
-            if (exec.status !== 'running') {
-              setPollingIds(prev => { const s = new Set(prev); s.delete(execId); return s; });
-              setRuns(prev => prev.map(e => e.id === execId ? exec : e));
-              setRunningIds(prev => { const s = new Set(prev); s.delete(exec.test_id); return s; });
-            }
-          }
-        } catch {}
-      }
-    }, 2500);
-    return () => clearInterval(intervalId);
-  }, [pollingIds]);
+  useEffect(() => () => Object.values(pollTimers.current).forEach(clearInterval), []);
 
-  const handleRun = async (test) => {
-    setRunningIds(prev => new Set([...prev, test.id]));
+  // -----------------------------------------------------------------------
+  // Run test file on device
+  // -----------------------------------------------------------------------
+  const runFile = useCallback(async (file) => {
+    const device_profile = deviceSelections[file.id] || 'iPhone 15';
+    setRunningIds(prev => new Set(prev).add(file.id));
     try {
-      const r = await fetch(`${API_URL}/mobile-tests/${test.id}/run`, {
+      const r = await fetch(`${API_URL}/mobile-tests/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...auth() },
+        body: JSON.stringify({ testFileId: file.id, device_profile }),
       });
-      if (!r.ok) { const d = await r.json(); throw new Error(d.error || 'Run failed'); }
+      if (!r.ok) throw new Error(await r.text());
       const { executionId } = await r.json();
-      const placeholder = {
+      const newExec = {
         id: executionId,
-        test_id: test.id,
-        test_name: test.name,
-        device_profile: test.device_profile,
+        test_file_id: file.id,
+        test_file_name: file.name,
+        module_name: file.module_name,
+        device_profile,
         status: 'running',
         started_at: new Date().toISOString(),
-        results_json: [],
       };
-      setRuns(prev => [placeholder, ...prev]);
-      setPollingIds(prev => new Set([...prev, executionId]));
-      setTab('runs');
-    } catch (err) {
-      alert(err.message);
-      setRunningIds(prev => { const s = new Set(prev); s.delete(test.id); return s; });
+      setExecutions(prev => [newExec, ...prev]);
+      pollExecution(executionId, file.id);
+      setActiveTab('runs');
+    } catch (e) {
+      alert(`Failed to start run: ${e.message}`);
+      setRunningIds(prev => { const s = new Set(prev); s.delete(file.id); return s; });
     }
-  };
+  }, [deviceSelections, pollExecution]);
 
-  const handleSaveTest = async (form) => {
-    const isEdit = testModal && testModal !== 'new';
-    const url = isEdit ? `${API_URL}/mobile-tests/${testModal.id}` : `${API_URL}/mobile-tests`;
-    const r = await fetch(url, {
-      method: isEdit ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json', ...auth() },
-      body: JSON.stringify(form),
-    });
-    const data = await r.json();
-    if (!r.ok) { alert(data.error || 'Save failed'); return; }
-    if (isEdit) {
-      setTests(prev => prev.map(t => t.id === data.id ? data : t));
-    } else {
-      setTests(prev => [data, ...prev]);
+  // -----------------------------------------------------------------------
+  // View execution detail
+  // -----------------------------------------------------------------------
+  const viewExecution = useCallback(async (exec) => {
+    setViewExec({ ...exec });
+    try {
+      const r = await fetch(`${API_URL}/mobile-tests/executions/${exec.id}`, { headers: auth() });
+      if (r.ok) setViewExec(await r.json());
+    } catch { /* show what we have */ }
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Delete execution
+  // -----------------------------------------------------------------------
+  const deleteExecution = useCallback(async (execId) => {
+    if (!window.confirm('Delete this run record?')) return;
+    try {
+      const r = await fetch(`${API_URL}/mobile-tests/executions/${execId}`, {
+        method: 'DELETE', headers: auth(),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setExecutions(prev => prev.filter(e => e.id !== execId));
+    } catch (e) {
+      alert(`Delete failed: ${e.message}`);
     }
-    setTestModal(null);
-  };
+  }, []);
 
-  const handleDeleteTest = async (test) => {
-    if (!confirm(`Delete "${test.name}"? All run history will also be deleted.`)) return;
-    const r = await fetch(`${API_URL}/mobile-tests/${test.id}`, { method: 'DELETE', headers: auth() });
-    if (r.ok) {
-      setTests(prev => prev.filter(t => t.id !== test.id));
-      setRuns(prev => prev.filter(e => e.test_id !== test.id));
-    }
-  };
+  // -----------------------------------------------------------------------
+  // Derived state
+  // -----------------------------------------------------------------------
+  const moduleNames = ['All', ...Array.from(new Set(testFiles.map(f => f.module_name || 'Ungrouped')))];
+  const filteredFiles = moduleFilter === 'All'
+    ? testFiles
+    : testFiles.filter(f => (f.module_name || 'Ungrouped') === moduleFilter);
 
-  const handleDeleteRun = async (run) => {
-    if (!confirm('Delete this run?')) return;
-    const r = await fetch(`${API_URL}/mobile-tests/executions/${run.id}`, { method: 'DELETE', headers: auth() });
-    if (r.ok) setRuns(prev => prev.filter(e => e.id !== run.id));
-  };
+  const grouped = filteredFiles.reduce((acc, f) => {
+    const key = f.module_name || 'Ungrouped';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(f);
+    return acc;
+  }, {});
 
-  const openExecution = async (run) => {
-    if (!run.results_json || (Array.isArray(run.results_json) && run.results_json.length === 0 && run.status !== 'running')) {
-      try {
-        const r = await fetch(`${API_URL}/mobile-tests/executions/${run.id}`, { headers: auth() });
-        if (r.ok) { setSelectedExecution(await r.json()); return; }
-      } catch {}
-    }
-    setSelectedExecution(run);
-  };
+  const runningCount = Object.keys(pollTimers.current).length;
 
-  // -------------------------------------------------------------------------
-  // Summary helpers
-  // -------------------------------------------------------------------------
-  const calcDuration = (run) => {
-    if (!run.started_at || !run.ended_at) return null;
-    const ms = new Date(run.ended_at) - new Date(run.started_at);
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  };
-
-  // -------------------------------------------------------------------------
+  // -----------------------------------------------------------------------
   // Render
-  // -------------------------------------------------------------------------
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <svg className="w-6 h-6 animate-spin text-indigo-500" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-        </svg>
-      </div>
-    );
-  }
-
+  // -----------------------------------------------------------------------
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col h-full bg-slate-900 text-white">
       {/* Page header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Mobile Testing</h1>
-          <p className="text-sm mt-1" style={{ color: 'rgb(var(--text-secondary))' }}>
-            Device emulation via Playwright — iPhone, Android &amp; Tablet profiles
-            {aiEnabled && <span className="ml-2 text-xs text-indigo-400 font-medium">· AI Script Generator enabled</span>}
-          </p>
+      <div className="px-6 pt-6 pb-4 border-b border-slate-700">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+              📱 Mobile Tests
+            </h1>
+            <p className="text-slate-400 text-sm mt-1">
+              Run your existing automation test files on mobile devices using Playwright emulation
+            </p>
+          </div>
+          {runningCount > 0 && (
+            <span className="flex items-center gap-1.5 bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 px-3 py-1.5 rounded-full text-sm font-medium">
+              <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              {runningCount} running
+            </span>
+          )}
         </div>
-        {tab === 'tests' && (
-          <button onClick={() => setTestModal('new')}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium shadow-lg shadow-indigo-600/30 transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            New Test
-          </button>
+
+        {/* Tabs */}
+        <div className="flex gap-1 mt-4">
+          {[
+            { id: 'files', label: 'Test Files', icon: '📄' },
+            { id: 'runs',  label: `Runs${executions.length > 0 ? ` (${executions.length})` : ''}`, icon: '▶️' },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                activeTab === tab.id
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-700'
+              }`}
+            >
+              <span className="mr-1.5">{tab.icon}</span>{tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-6">
+
+        {/* ---- TAB: TEST FILES ---- */}
+        {activeTab === 'files' && (
+          <div>
+            {/* Toolbar */}
+            <div className="flex items-center justify-between mb-4 gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-slate-400 text-sm">Module:</span>
+                {moduleNames.map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setModuleFilter(m)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                      moduleFilter === m
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={fetchTestFiles}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                title="Refresh"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
+                </svg>
+              </button>
+            </div>
+
+            {filesLoading && (
+              <div className="flex items-center justify-center gap-3 py-16 text-slate-400">
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+                Loading test files…
+              </div>
+            )}
+
+            {filesError && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm">{filesError}</div>
+            )}
+
+            {!filesLoading && !filesError && filteredFiles.length === 0 && (
+              <div className="text-center py-16">
+                <div className="text-5xl mb-3">📄</div>
+                <p className="text-slate-300 font-medium">No test files found</p>
+                <p className="text-slate-500 text-sm mt-1">
+                  Create automation test files in your modules first, then run them here on any device.
+                </p>
+              </div>
+            )}
+
+            {!filesLoading && Object.entries(grouped).map(([moduleName, files]) => (
+              <div key={moduleName} className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="h-4 w-1 rounded bg-blue-500"/>
+                  <h3 className="text-slate-200 font-semibold text-sm tracking-wide">{moduleName}</h3>
+                  <span className="text-slate-500 text-xs">({files.length} file{files.length !== 1 ? 's' : ''})</span>
+                </div>
+                <div className="space-y-2">
+                  {files.map(file => {
+                    const isRunning = runningIds.has(file.id);
+                    const lastRun = executions.find(e => e.test_file_id === file.id);
+                    return (
+                      <div
+                        key={file.id}
+                        className="bg-slate-800 border border-slate-700 rounded-xl p-4 flex items-center gap-4 hover:border-slate-600 transition-colors"
+                      >
+                        {/* Name */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">📄</span>
+                            <span className="text-white font-medium truncate">{file.name}</span>
+                          </div>
+                          {file.module_base_url && (
+                            <p className="text-slate-500 text-xs mt-0.5 truncate ml-7">{file.module_base_url}</p>
+                          )}
+                        </div>
+
+                        {/* Last run status */}
+                        <div className="text-right text-xs hidden sm:block w-24">
+                          {lastRun ? (
+                            <>
+                              <p className="text-slate-500 mb-0.5">Last run</p>
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${statusBadge(lastRun.status) || ''}`}>
+                                <StatusDot status={lastRun.status} />
+                              </span>
+                            </>
+                          ) : (
+                            <p className="text-slate-600 text-xs">No runs yet</p>
+                          )}
+                        </div>
+
+                        {/* Device picker */}
+                        <DeviceSelect
+                          value={deviceSelections[file.id] || 'iPhone 15'}
+                          onChange={v => setDeviceSelections(prev => ({ ...prev, [file.id]: v }))}
+                        />
+
+                        {/* Run button */}
+                        <button
+                          onClick={() => runFile(file)}
+                          disabled={isRunning}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all flex-shrink-0 ${
+                            isRunning
+                              ? 'bg-yellow-600/40 text-yellow-300 cursor-not-allowed'
+                              : 'bg-blue-600 hover:bg-blue-500 text-white shadow hover:shadow-blue-500/30'
+                          }`}
+                        >
+                          {isRunning ? (
+                            <>
+                              <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                              </svg>
+                              Running…
+                            </>
+                          ) : (
+                            <>
+                              <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd"/>
+                              </svg>
+                              Run on Device
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ---- TAB: RUNS ---- */}
+        {activeTab === 'runs' && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-slate-400 text-sm">{executions.length} run{executions.length !== 1 ? 's' : ''} recorded</p>
+              <button
+                onClick={fetchExecutions}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                title="Refresh"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
+                </svg>
+              </button>
+            </div>
+
+            {runsLoading && (
+              <div className="flex items-center justify-center gap-3 py-16 text-slate-400">
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+                Loading runs…
+              </div>
+            )}
+
+            {runsError && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm">{runsError}</div>
+            )}
+
+            {!runsLoading && !runsError && executions.length === 0 && (
+              <div className="text-center py-16">
+                <div className="text-5xl mb-3">▶️</div>
+                <p className="text-slate-300 font-medium">No runs yet</p>
+                <p className="text-slate-500 text-sm mt-1">
+                  Go to the Test Files tab, pick a device and click "Run on Device".
+                </p>
+              </div>
+            )}
+
+            {!runsLoading && executions.length > 0 && (
+              <div className="space-y-2">
+                {executions.map(exec => (
+                  <div
+                    key={exec.id}
+                    className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 flex items-center gap-4 hover:border-slate-600 transition-colors"
+                  >
+                    {/* Status dot */}
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      exec.status === 'running' ? 'bg-yellow-400 animate-pulse' :
+                      exec.status === 'passed'  ? 'bg-green-400' :
+                      (exec.status === 'failed' || exec.status === 'error') ? 'bg-red-400' :
+                      'bg-slate-500'
+                    }`}/>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-white font-medium truncate">{exec.test_file_name || 'Unknown'}</span>
+                        {exec.module_name && (
+                          <span className="text-slate-500 text-xs bg-slate-700 px-1.5 py-0.5 rounded">{exec.module_name}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${deviceBadgeClass(exec.device_profile)}`}>
+                          {deviceEmoji(exec.device_profile)} {exec.device_profile}
+                        </span>
+                        <span className="text-slate-500 text-xs">{formatDate(exec.started_at)}</span>
+                      </div>
+                    </div>
+
+                    {/* Duration */}
+                    <div className="text-right hidden sm:block">
+                      <p className="text-slate-400 text-xs">{formatDuration(exec.duration_ms)}</p>
+                    </div>
+
+                    {/* Status badge */}
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium w-24 justify-center flex-shrink-0 ${statusBadge(exec.status) || ''}`}>
+                      <StatusDot status={exec.status}/>
+                    </span>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => viewExecution(exec)}
+                        className="text-slate-400 hover:text-blue-400 p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                        title="View details"
+                      >
+                        <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+                          <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
+                        </svg>
+                      </button>
+                      {exec.status !== 'running' && (
+                        <button
+                          onClick={() => deleteExecution(exec.id)}
+                          className="text-slate-400 hover:text-red-400 p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                          title="Delete"
+                        >
+                          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd"/>
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 border-b pb-0" style={{ borderColor: 'rgb(var(--border-primary))' }}>
-        {[
-          { key: 'tests', label: 'Tests', count: tests.length },
-          { key: 'runs', label: 'Runs', count: runs.length },
-        ].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors relative -mb-px border-b-2 ${
-              tab === t.key ? 'text-indigo-400 border-indigo-500' : 'text-slate-400 border-transparent hover:text-slate-200'
-            }`}>
-            {t.label}
-            {t.count > 0 && (
-              <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-300">{t.count}</span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* ---- TESTS TAB ---- */}
-      {tab === 'tests' && (
-        <div>
-          {tests.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="w-16 h-16 rounded-full bg-indigo-500/10 flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <p className="text-sm font-medium">No mobile tests yet</p>
-              <p className="text-xs mt-1 mb-4" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                Create a test to run device-emulated Playwright checks
-              </p>
-              <button onClick={() => setTestModal('new')}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors">
-                Create your first test
-              </button>
-            </div>
-          ) : (
-            <div className="grid gap-4">
-              {tests.map(test => {
-                const isRunning = runningIds.has(test.id);
-                const recentRun = runs.find(r => r.test_id === test.id);
-                const pages = [test.target_url, ...(Array.isArray(test.extra_pages)
-                  ? test.extra_pages
-                  : (test.extra_pages ? JSON.parse(test.extra_pages || '[]') : []))].filter(Boolean);
-
-                return (
-                  <div key={test.id}
-                    className="rounded-2xl border p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:border-indigo-500/40 transition-colors"
-                    style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-sm">{test.name}</h3>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${deviceBadgeColor(test.device_profile)}`}>
-                          {deviceEmoji(test.device_profile)} {test.device_profile}
-                        </span>
-                        {recentRun && (
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                            recentRun.status === 'passed' ? 'bg-green-500/20 text-green-400' :
-                            recentRun.status === 'failed' ? 'bg-red-500/20 text-red-400' :
-                            recentRun.status === 'running' ? 'bg-blue-500/20 text-blue-400' :
-                            'bg-slate-700 text-slate-400'
-                          }`}>
-                            {recentRun.status}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs mt-0.5 truncate" style={{ color: 'rgb(var(--text-secondary))' }}>{test.target_url}</p>
-                      <div className="flex items-center gap-3 mt-1 flex-wrap">
-                        {pages.length > 1 && (
-                          <span className="text-xs" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                            {pages.length} pages
-                          </span>
-                        )}
-                        {test.custom_script?.trim() && (
-                          <span className="text-xs text-purple-400">has custom script</span>
-                        )}
-                        {test.description && (
-                          <span className="text-xs text-slate-500 truncate max-w-[300px]">{test.description}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {recentRun && recentRun.status !== 'running' && (
-                        <button onClick={() => openExecution(recentRun)}
-                          className="px-3 py-1.5 rounded-lg text-xs border hover:bg-slate-700 transition-colors"
-                          style={{ borderColor: 'rgb(var(--border-primary))' }}>
-                          Last Run
-                        </button>
-                      )}
-                      <button onClick={() => handleRun(test)} disabled={isRunning}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors disabled:opacity-60">
-                        {isRunning ? (
-                          <>
-                            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                            </svg>
-                            Running…
-                          </>
-                        ) : 'Run Test'}
-                      </button>
-                      <button onClick={() => setTestModal(test)}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-slate-700 transition-colors text-slate-400" title="Edit">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                        </svg>
-                      </button>
-                      <button onClick={() => handleDeleteTest(test)}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-900/30 transition-colors text-slate-400 hover:text-red-400" title="Delete">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ---- RUNS TAB ---- */}
-      {tab === 'runs' && (
-        <div>
-          {runs.length === 0 ? (
-            <div className="text-center py-16">
-              <p className="text-sm font-medium" style={{ color: 'rgb(var(--text-secondary))' }}>No runs yet</p>
-              <p className="text-xs mt-1" style={{ color: 'rgb(var(--text-tertiary))' }}>Go to Tests tab and run a mobile test</p>
-            </div>
-          ) : (
-            <div className="rounded-2xl border overflow-hidden" style={{ borderColor: 'rgb(var(--border-primary))' }}>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderBottom: '1px solid rgb(var(--border-primary))' }}>
-                    {['Test', 'Device', 'Status', 'Pages', 'Duration', 'Started', ''].map(h => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider"
-                        style={{ color: 'rgb(var(--text-tertiary))' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y" style={{ borderColor: 'rgb(var(--border-primary))' }}>
-                  {runs.map(run => {
-                    const pages = Array.isArray(run.results_json)
-                      ? run.results_json.length
-                      : (run.results_json ? JSON.parse(run.results_json || '[]').length : 0);
-                    return (
-                      <tr key={run.id} className="hover:bg-slate-800/30 transition-colors group">
-                        <td className="px-4 py-3 font-medium truncate max-w-[160px]">{run.test_name}</td>
-                        <td className="px-4 py-3">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${deviceBadgeColor(run.device_profile)}`}>
-                            {deviceEmoji(run.device_profile)} {run.device_profile}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                            run.status === 'passed' ? 'bg-green-500/20 text-green-400' :
-                            run.status === 'failed' ? 'bg-red-500/20 text-red-400' :
-                            run.status === 'error' ? 'bg-orange-500/20 text-orange-400' :
-                            run.status === 'running' ? 'bg-blue-500/20 text-blue-400' :
-                            'bg-slate-700 text-slate-400'
-                          }`}>
-                            {run.status === 'running' ? (
-                              <span className="flex items-center gap-1">
-                                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                                </svg>
-                                running
-                              </span>
-                            ) : run.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                          {run.status === 'running' ? '—' : pages}
-                        </td>
-                        <td className="px-4 py-3 text-xs" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                          {calcDuration(run) || '—'}
-                        </td>
-                        <td className="px-4 py-3 text-xs" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                          {new Date(run.started_at).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {run.status !== 'running' && (
-                              <button onClick={() => openExecution(run)}
-                                className="px-2 py-1 rounded-lg text-xs bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 transition-colors">
-                                View
-                              </button>
-                            )}
-                            <button onClick={() => handleDeleteRun(run)}
-                              className="w-6 h-6 rounded flex items-center justify-center hover:bg-red-900/30 text-slate-500 hover:text-red-400 transition-colors">
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Modals */}
-      {testModal && (
-        <TestModal
-          test={testModal !== 'new' ? testModal : null}
-          onClose={() => setTestModal(null)}
-          onSave={handleSaveTest}
-          aiEnabled={aiEnabled}
-        />
-      )}
-      {selectedExecution && (
+      {/* Result modal */}
+      {viewExec && (
         <ResultModal
-          execution={selectedExecution}
-          onClose={() => setSelectedExecution(null)}
+          execution={viewExec}
+          onClose={() => setViewExec(null)}
         />
       )}
     </div>
