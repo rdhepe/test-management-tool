@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, onViewChange, isCollapsed, onToggleCollapse, currentUser, currentView }) {
   // Derive active item name from the currentView string
@@ -14,6 +14,22 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
     accessibility: 'Accessibility',
   };
   const activeItem = VIEW_TO_NAME[currentView] || 'Dashboard';
+
+  // Section expand/collapse state — all collapsed by default
+  const [expandedSections, setExpandedSections] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sidebarExpandedSections');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+
+  const toggleSection = (title) => {
+    setExpandedSections(prev => {
+      const next = { ...prev, [title]: !prev[title] };
+      localStorage.setItem('sidebarExpandedSections', JSON.stringify(next));
+      return next;
+    });
+  };
 
   const canAccess = (view) => {
     if (!currentUser) return false;
@@ -315,60 +331,84 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
       style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}
     >
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-6">
-        {displaySections.map((section, sectionIndex) => (
-          <div key={section.title}>
-            {!isCollapsed && (
-              <h3 className="text-xs font-semibold uppercase tracking-wider mb-3 px-2" style={{ color: 'rgb(var(--text-tertiary))' }}>
-                {section.title}
-              </h3>
-            )}
-            {isCollapsed && sectionIndex > 0 && (
-              <div className="border-t mb-3" style={{ borderColor: 'rgb(var(--border-primary))' }}></div>
-            )}
-            <ul className="space-y-1">
-              {section.items.map((item) => (
-                <li key={item.name} className="relative group">
-                  <button
-                    onClick={() => handleMenuClick(item)}
-                    disabled={item.disabled}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 ${
-                      activeItem === item.name
-                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/50'
-                        : item.disabled
-                        ? 'text-slate-600 cursor-not-allowed'
-                        : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-                    } ${isCollapsed ? 'justify-center' : ''}`}
-                    title={isCollapsed ? item.name : ''}
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-1">
+        {displaySections.map((section, sectionIndex) => {
+          const hasActiveItem = section.items.some(item => activeItem === item.name);
+          // In icon-only mode: always show items (no section collapse). In expanded mode: respect state.
+          const sectionOpen = isCollapsed || expandedSections[section.title] || hasActiveItem;
+
+          return (
+            <div key={section.title} className={sectionIndex > 0 ? 'mt-1' : ''}>
+              {/* Section header — clickable when sidebar is expanded */}
+              {!isCollapsed ? (
+                <button
+                  onClick={() => toggleSection(section.title)}
+                  className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg transition-colors hover:bg-slate-800/60 group mb-0.5"
+                >
+                  <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgb(var(--text-tertiary))' }}>
+                    {section.title}
+                  </h3>
+                  <svg
+                    className={`w-3.5 h-3.5 transition-transform duration-200 ${sectionOpen ? 'rotate-180' : ''}`}
+                    style={{ color: 'rgb(var(--text-tertiary))' }}
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
                   >
-                    <span className="flex-shrink-0">{item.icon}</span>
-                    {!isCollapsed && (
-                      <span className="font-medium text-sm truncate">{item.name}</span>
-                    )}
-                    {!isCollapsed && item.disabled && (
-                      <span className="ml-auto text-xs text-slate-600">Soon</span>
-                    )}
-                  </button>
-                  
-                  {/* Tooltip for collapsed state */}
-                  {isCollapsed && (
-                    <div 
-                      className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-3 py-1.5 text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-nowrap border shadow-lg z-50"
-                      style={{ 
-                        backgroundColor: 'rgb(var(--bg-tertiary))', 
-                        color: 'rgb(var(--text-primary))', 
-                        borderColor: 'rgb(var(--border-secondary))' 
-                      }}
-                    >
-                      {item.name}
-                      {item.disabled && <span className="ml-2" style={{ color: 'rgb(var(--text-tertiary))' }}>(Coming soon)</span>}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              ) : (
+                sectionIndex > 0 && (
+                  <div className="border-t mb-1" style={{ borderColor: 'rgb(var(--border-primary))' }} />
+                )
+              )}
+
+              {/* Section items */}
+              {sectionOpen && (
+                <ul className="space-y-0.5 mb-2">
+                  {section.items.map((item) => (
+                    <li key={item.name} className="relative group">
+                      <button
+                        onClick={() => handleMenuClick(item)}
+                        disabled={item.disabled}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 ${
+                          activeItem === item.name
+                            ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/50'
+                            : item.disabled
+                            ? 'text-slate-600 cursor-not-allowed'
+                            : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                        } ${isCollapsed ? 'justify-center' : ''}`}
+                        title={isCollapsed ? item.name : ''}
+                      >
+                        <span className="flex-shrink-0">{item.icon}</span>
+                        {!isCollapsed && (
+                          <span className="font-medium text-sm truncate">{item.name}</span>
+                        )}
+                        {!isCollapsed && item.disabled && (
+                          <span className="ml-auto text-xs text-slate-600">Soon</span>
+                        )}
+                      </button>
+
+                      {/* Tooltip for collapsed/icon-only state */}
+                      {isCollapsed && (
+                        <div
+                          className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-3 py-1.5 text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-nowrap border shadow-lg z-50"
+                          style={{
+                            backgroundColor: 'rgb(var(--bg-tertiary))',
+                            color: 'rgb(var(--text-primary))',
+                            borderColor: 'rgb(var(--border-secondary))'
+                          }}
+                        >
+                          {item.name}
+                          {item.disabled && <span className="ml-2" style={{ color: 'rgb(var(--text-tertiary))' }}>(Coming soon)</span>}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
       {/* Collapse Toggle */}
