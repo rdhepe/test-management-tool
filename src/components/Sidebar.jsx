@@ -11,6 +11,7 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
     userManagement: 'Users', orgManagement: 'Organizations', tutorial: 'Guide',
     enquiries: 'Enquiries', featureRequests: 'Feature Requests', bugReports: 'Bug Reports',
     performance: 'Performance',
+    accessibility: 'Accessibility',
   };
   const activeItem = VIEW_TO_NAME[currentView] || 'Dashboard';
 
@@ -209,6 +210,21 @@ function Sidebar({ selectedModule, modules, selectedTestFile, onTestFileSelect, 
             </svg>
           ),
           view: 'performance'
+        },
+      ]
+    },
+    {
+      title: 'Accessibility',
+      items: [
+        {
+          name: 'Accessibility',
+          icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 2a2 2 0 110 4 2 2 0 010-4zm9 5h-6l-1 5-2-3-2 3-1-5H3" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01" />
+            </svg>
+          ),
+          view: 'accessibility'
         },
       ]
     },

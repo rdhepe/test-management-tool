@@ -32,6 +32,7 @@ import Enquiries from './components/Enquiries';
 import FeatureRequests from './components/FeatureRequests';
 import BugReports from './components/BugReports';
 import PerformanceTests from './components/PerformanceTests';
+import AccessibilityTests from './components/AccessibilityTests';
 
 import API_URL from './apiUrl';
 
@@ -51,13 +52,16 @@ function App({ orgSlug = 'default' }) {
   // Track whether the performance view has ever been visited so we can keep it mounted
   const perfMountedRef = useRef(false);
   if (currentView === 'performance') perfMountedRef.current = true;
+  // Track whether accessibility view has ever been visited (keep-alive)
+  const accMountedRef = useRef(false);
+  if (currentView === 'accessibility') accMountedRef.current = true;
   const [executionStatus, setExecutionStatus] = useState(null); // 'running', 'completed', or null
   const [executionResult, setExecutionResult] = useState(null); // { status: 'pass'|'fail', message: string }
   const [debugActive, setDebugActive] = useState(false); // true while Playwright Inspector is open
   const [executions, setExecutions] = useState([]);
   const [selectedExecution, setSelectedExecution] = useState(null);
   const [selectedSuiteExecutionId, setSelectedSuiteExecutionId] = useState(null);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true');
   const [dependenciesModalOpen, setDependenciesModalOpen] = useState(false);
   const [dependenciesTestFile, setDependenciesTestFile] = useState(null);
 
@@ -849,6 +853,10 @@ function App({ orgSlug = 'default' }) {
       setCurrentView('performance');
       setSelectedModule(null);
       setSelectedTestFile(null);
+    } else if (view === 'accessibility') {
+      setCurrentView('accessibility');
+      setSelectedModule(null);
+      setSelectedTestFile(null);
     }
   };
 
@@ -949,7 +957,11 @@ function App({ orgSlug = 'default' }) {
           onTestFileSelect={handleTestFileSelect}
           onViewChange={handleViewChange}
           isCollapsed={isSidebarCollapsed}
-          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          onToggleCollapse={() => {
+            const next = !isSidebarCollapsed;
+            setIsSidebarCollapsed(next);
+            localStorage.setItem('sidebarCollapsed', String(next));
+          }}
           currentUser={currentUser}
           currentView={currentView}
         />
@@ -1151,6 +1163,13 @@ function App({ orgSlug = 'default' }) {
             {perfMountedRef.current && (
               <div style={{ display: currentView === 'performance' ? 'block' : 'none' }}>
                 <PerformanceTests orgInfo={orgInfo} currentUser={currentUser} />
+              </div>
+            )}
+
+            {/* AccessibilityTests stays mounted after first visit */}
+            {accMountedRef.current && (
+              <div style={{ display: currentView === 'accessibility' ? 'block' : 'none' }}>
+                <AccessibilityTests orgInfo={orgInfo} />
               </div>
             )}
           </div>

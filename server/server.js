@@ -6,7 +6,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, objectRepositoryOperations, orFolderOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations, performanceOperations, perfFolderOperations, perfSuiteOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, objectRepositoryOperations, orFolderOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations, performanceOperations, perfFolderOperations, perfSuiteOperations, accessibilityOperations } = require('./db');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -130,7 +130,8 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/platform-feedback') || p.startsWith('/platform-bug-reports') ||
       p.startsWith('/debug-session') || p.startsWith('/debug-migrate-globalvars') ||
       p.startsWith('/performance-tests') || p.startsWith('/performance-executions') ||
-      p.startsWith('/perf-folders') || p.startsWith('/perf-suites') || p.startsWith('/perf-suite-executions') || p.startsWith('/perf-ai')
+      p.startsWith('/perf-folders') || p.startsWith('/perf-suites') || p.startsWith('/perf-suite-executions') || p.startsWith('/perf-ai') ||
+      p.startsWith('/accessibility-tests') || p.startsWith('/accessibility-ai')
     ) return next();
     // Only serve the SPA shell for GET requests (browser navigation)
     if (req.method !== 'GET') return next();
@@ -6055,6 +6056,173 @@ app.post('/perf-ai/smart-suite', requireAuth, async (req, res) => {
     result.tests = tests.map(t => ({ id: t.id, name: t.name }));
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
+// ACCESSIBILITY TESTING ROUTES
+// =============================================================================
+const axeSource = require('axe-core').source;
+
+// Helper: get AI key gated behind ai_healing_enabled
+async function getAccAIKey(orgId) {
+  const org = await organizationOperations.getById(orgId);
+  if (!org) { const e = new Error('Org not found'); e.status = 403; throw e; }
+  if (!org.ai_healing_enabled) { const e = new Error('AI features are not enabled for this organisation.'); e.status = 403; throw e; }
+  const key = org.openai_api_key || process.env.OPENAI_API_KEY;
+  if (!key) { const e = new Error('No OpenAI API key configured.'); e.status = 400; throw e; }
+  return key;
+}
+
+// Helper: call OpenAI for accessibility
+async function callAccOpenAI(apiKey, messages, maxTokens) {
+  const { default: OpenAI } = await import('openai');
+  const client = new OpenAI({ apiKey });
+  const resp = await client.chat.completions.create({ model: 'gpt-4o-mini', messages, max_tokens: maxTokens || 600, temperature: 0.3 });
+  return resp.choices[0]?.message?.content?.trim() || '';
+}
+
+// GET /accessibility-tests
+app.get('/accessibility-tests', requireAuth, async (req, res) => {
+  try {
+    res.json(await accessibilityOperations.getAllTests(req.session.orgId));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /accessibility-tests/executions/all
+app.get('/accessibility-tests/executions/all', requireAuth, async (req, res) => {
+  try {
+    res.json(await accessibilityOperations.getAllExecutions(req.session.orgId));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /accessibility-tests/executions/:execId
+app.get('/accessibility-tests/executions/:execId', requireAuth, async (req, res) => {
+  try {
+    const exec = await accessibilityOperations.getExecutionById(req.params.execId, req.session.orgId);
+    if (!exec) return res.status(404).json({ error: 'Not found' });
+    res.json(exec);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /accessibility-tests/executions/:execId
+app.delete('/accessibility-tests/executions/:execId', requireAuth, async (req, res) => {
+  try {
+    await accessibilityOperations.deleteExecution(req.params.execId, req.session.orgId);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /accessibility-tests
+app.post('/accessibility-tests', requireAuth, async (req, res) => {
+  try {
+    const { name, description, target_url, pages } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+    if (!target_url?.trim()) return res.status(400).json({ error: 'target_url is required' });
+    res.json(await accessibilityOperations.createTest({ org_id: req.session.orgId, name, description, target_url, pages }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /accessibility-tests/:id
+app.put('/accessibility-tests/:id', requireAuth, async (req, res) => {
+  try {
+    const { name, description, target_url, pages } = req.body;
+    const updated = await accessibilityOperations.updateTest(req.params.id, req.session.orgId, { name, description, target_url, pages });
+    if (!updated) return res.status(404).json({ error: 'Not found' });
+    res.json(updated);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /accessibility-tests/:id
+app.delete('/accessibility-tests/:id', requireAuth, async (req, res) => {
+  try {
+    await accessibilityOperations.deleteTest(req.params.id, req.session.orgId);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /accessibility-tests/:id/executions
+app.get('/accessibility-tests/:id/executions', requireAuth, async (req, res) => {
+  try {
+    res.json(await accessibilityOperations.getExecutionsForTest(req.params.id, req.session.orgId));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /accessibility-tests/:id/run — Playwright + axe-core audit
+app.post('/accessibility-tests/:id/run', requireAuth, async (req, res) => {
+  const orgId = req.session.orgId;
+  try {
+    const test = await accessibilityOperations.getTestById(req.params.id, orgId);
+    if (!test) return res.status(404).json({ error: 'Test not found' });
+    const execution = await accessibilityOperations.createExecution({ org_id: orgId, test_id: test.id });
+    res.json({ executionId: execution.id, status: 'running' });
+
+    // Run audit asynchronously
+    (async () => {
+      const { chromium } = require('@playwright/test');
+      let browser;
+      const allViolations = [];
+      const pagesToAudit = [test.target_url];
+      try {
+        const extra = Array.isArray(test.pages) ? test.pages : JSON.parse(test.pages || '[]');
+        for (const p of extra) {
+          if (p && typeof p === 'string' && p.trim() && p.trim() !== test.target_url) pagesToAudit.push(p.trim());
+        }
+      } catch {}
+
+      try {
+        browser = await chromium.launch({ headless: true });
+        const context = await browser.newContext({ ignoreHTTPSErrors: true });
+        for (const pageUrl of pagesToAudit) {
+          const page = await context.newPage();
+          try {
+            await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForTimeout(1500);
+            await page.addScriptTag({ content: axeSource });
+            const results = await page.evaluate(async () => await window.axe.run({ reporter: 'v2' }));
+            for (const v of (results.violations || [])) {
+              allViolations.push({
+                ...v,
+                page: pageUrl,
+                nodes: (v.nodes || []).slice(0, 5).map(n => ({ html: n.html, target: n.target, failureSummary: n.failureSummary }))
+              });
+            }
+          } catch (pe) {
+            console.error('axe audit page error', pageUrl, pe.message);
+          } finally { await page.close().catch(() => {}); }
+        }
+        await context.close().catch(() => {});
+      } catch (err) {
+        await accessibilityOperations.updateExecution(execution.id, { status: 'failed', violations_json: [], pages_audited: 0, critical_count: 0, serious_count: 0, moderate_count: 0, minor_count: 0, error_message: err.message });
+        return;
+      } finally { if (browser) await browser.close().catch(() => {}); }
+
+      const counts = { critical: 0, serious: 0, moderate: 0, minor: 0 };
+      for (const v of allViolations) { if (counts[v.impact] !== undefined) counts[v.impact]++; }
+      const finalStatus = (counts.critical > 0 || counts.serious > 0) ? 'failed' : 'passed';
+      await accessibilityOperations.updateExecution(execution.id, {
+        status: finalStatus, pages_audited: pagesToAudit.length,
+        critical_count: counts.critical, serious_count: counts.serious,
+        moderate_count: counts.moderate, minor_count: counts.minor,
+        violations_json: allViolations,
+      });
+    })();
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /accessibility-ai/fix-suggestions — AI fix hints gated behind ai_healing_enabled
+app.post('/accessibility-ai/fix-suggestions', requireAuth, async (req, res) => {
+  try {
+    const apiKey = await getAccAIKey(req.session.orgId);
+    const { violations } = req.body;
+    if (!Array.isArray(violations) || violations.length === 0) return res.status(400).json({ error: 'violations array required' });
+    const subset = violations.slice(0, 10).map(v => ({ id: v.id, impact: v.impact, description: v.description, help: v.help, helpUrl: v.helpUrl, node: v.nodes?.[0]?.html?.slice(0, 300) || '' }));
+    const prompt = 'You are a web accessibility expert. For each WCAG violation, provide a concise code fix. Return ONLY valid JSON with no markdown:\n{"fixes":[{"id":"violation-id","fix":"Brief actionable fix, include short code example if helpful"}]}\n\nViolations:\n' + JSON.stringify(subset, null, 2);
+    let raw = await callAccOpenAI(apiKey, [{ role: 'user', content: prompt }], 1200);
+    raw = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    let result;
+    try { result = JSON.parse(raw); } catch { result = { fixes: [] }; }
+    res.json(result);
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 app.listen(PORT, () => {

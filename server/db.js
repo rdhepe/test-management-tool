@@ -2504,6 +2504,133 @@ const perfSuiteOperations = {
 };
 
 // ---------------------------------------------------------------------------
+// Accessibility Testing tables
+// ---------------------------------------------------------------------------
+async function initAccessibilityTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS accessibility_tests (
+      id          SERIAL PRIMARY KEY,
+      org_id      INTEGER NOT NULL,
+      name        TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      target_url  TEXT NOT NULL,
+      pages       JSONB DEFAULT '[]',
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS accessibility_executions (
+      id               SERIAL PRIMARY KEY,
+      org_id           INTEGER NOT NULL,
+      test_id          INTEGER REFERENCES accessibility_tests(id) ON DELETE CASCADE,
+      status           TEXT NOT NULL DEFAULT 'pending',
+      pages_audited    INTEGER DEFAULT 0,
+      critical_count   INTEGER DEFAULT 0,
+      serious_count    INTEGER DEFAULT 0,
+      moderate_count   INTEGER DEFAULT 0,
+      minor_count      INTEGER DEFAULT 0,
+      violations_json  JSONB DEFAULT '[]',
+      started_at       TIMESTAMPTZ DEFAULT NOW(),
+      ended_at         TIMESTAMPTZ,
+      error_message    TEXT
+    )
+  `);
+}
+
+initAccessibilityTables().catch(err => console.error('Accessibility tables init failed:', err.message));
+
+// ---------------------------------------------------------------------------
+// Accessibility operations
+// ---------------------------------------------------------------------------
+const accessibilityOperations = {
+  // Tests
+  getAllTests: async (orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM accessibility_tests WHERE org_id = $1 ORDER BY created_at DESC',
+      [orgId]
+    );
+    return r.rows;
+  },
+  getTestById: async (id, orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM accessibility_tests WHERE id = $1 AND org_id = $2',
+      [id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  createTest: async ({ org_id, name, description, target_url, pages }) => {
+    const r = await pool.query(
+      'INSERT INTO accessibility_tests (org_id, name, description, target_url, pages) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [org_id, name, description || '', target_url, JSON.stringify(pages || [])]
+    );
+    return r.rows[0];
+  },
+  updateTest: async (id, orgId, { name, description, target_url, pages }) => {
+    const r = await pool.query(
+      'UPDATE accessibility_tests SET name=$1, description=$2, target_url=$3, pages=$4, updated_at=NOW() WHERE id=$5 AND org_id=$6 RETURNING *',
+      [name, description || '', target_url, JSON.stringify(pages || []), id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  deleteTest: async (id, orgId) => {
+    await pool.query('DELETE FROM accessibility_tests WHERE id = $1 AND org_id = $2', [id, orgId]);
+  },
+
+  // Executions
+  createExecution: async ({ org_id, test_id }) => {
+    const r = await pool.query(
+      'INSERT INTO accessibility_executions (org_id, test_id, status) VALUES ($1, $2, $3) RETURNING *',
+      [org_id, test_id, 'running']
+    );
+    return r.rows[0];
+  },
+  updateExecution: async (id, { status, pages_audited, critical_count, serious_count, moderate_count, minor_count, violations_json, error_message }) => {
+    await pool.query(
+      `UPDATE accessibility_executions SET status=$1, pages_audited=$2, critical_count=$3,
+       serious_count=$4, moderate_count=$5, minor_count=$6, violations_json=$7,
+       ended_at=NOW(), error_message=$8 WHERE id=$9`,
+      [status, pages_audited || 0, critical_count || 0, serious_count || 0,
+       moderate_count || 0, minor_count || 0, JSON.stringify(violations_json || []),
+       error_message || null, id]
+    );
+  },
+  getExecutionsForTest: async (testId, orgId) => {
+    const r = await pool.query(
+      `SELECT ae.*, at.name AS test_name FROM accessibility_executions ae
+       JOIN accessibility_tests at ON at.id = ae.test_id
+       WHERE ae.test_id = $1 AND ae.org_id = $2
+       ORDER BY ae.started_at DESC`,
+      [testId, orgId]
+    );
+    return r.rows;
+  },
+  getExecutionById: async (id, orgId) => {
+    const r = await pool.query(
+      `SELECT ae.*, at.name AS test_name, at.target_url FROM accessibility_executions ae
+       JOIN accessibility_tests at ON at.id = ae.test_id
+       WHERE ae.id = $1 AND ae.org_id = $2`,
+      [id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  getAllExecutions: async (orgId) => {
+    const r = await pool.query(
+      `SELECT ae.*, at.name AS test_name FROM accessibility_executions ae
+       JOIN accessibility_tests at ON at.id = ae.test_id
+       WHERE ae.org_id = $1
+       ORDER BY ae.started_at DESC LIMIT 200`,
+      [orgId]
+    );
+    return r.rows;
+  },
+  deleteExecution: async (id, orgId) => {
+    await pool.query('DELETE FROM accessibility_executions WHERE id=$1 AND org_id=$2', [id, orgId]);
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Initialise on startup
 // ---------------------------------------------------------------------------
 initDB().catch((err) => {
@@ -2555,5 +2682,6 @@ module.exports = {
   platformBugReportOperations,
   performanceOperations,
   perfFolderOperations,
-  perfSuiteOperations
+  perfSuiteOperations,
+  accessibilityOperations
 };
