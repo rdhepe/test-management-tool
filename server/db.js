@@ -2834,6 +2834,133 @@ const mobileSuiteOperations = {
 };
 
 // ---------------------------------------------------------------------------
+// Security Testing tables
+// ---------------------------------------------------------------------------
+async function initSecurityTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS security_scans (
+      id              SERIAL PRIMARY KEY,
+      org_id          INTEGER NOT NULL,
+      name            TEXT NOT NULL,
+      target_url      TEXT NOT NULL,
+      description     TEXT DEFAULT '',
+      custom_headers  JSONB DEFAULT '{}',
+      active_scan     BOOLEAN DEFAULT false,
+      schedule        TEXT DEFAULT '',
+      last_run_at     TIMESTAMPTZ,
+      last_run_status TEXT,
+      last_score      INTEGER,
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS security_scan_runs (
+      id          SERIAL PRIMARY KEY,
+      org_id      INTEGER NOT NULL,
+      scan_id     INTEGER REFERENCES security_scans(id) ON DELETE CASCADE,
+      scan_name   TEXT NOT NULL DEFAULT '',
+      target_url  TEXT NOT NULL DEFAULT '',
+      status      TEXT NOT NULL DEFAULT 'running',
+      score       INTEGER,
+      grade       TEXT,
+      findings    JSONB DEFAULT '[]',
+      error       TEXT,
+      started_at  TIMESTAMPTZ DEFAULT NOW(),
+      ended_at    TIMESTAMPTZ
+    )
+  `);
+}
+
+initSecurityTables().catch(err => console.error('Security tables init failed:', err.message));
+
+// ---------------------------------------------------------------------------
+// Security operations
+// ---------------------------------------------------------------------------
+const securityOperations = {
+  getAllScans: async (orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM security_scans WHERE org_id = $1 ORDER BY created_at DESC',
+      [orgId]
+    );
+    return r.rows;
+  },
+  getScanById: async (id, orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM security_scans WHERE id = $1 AND org_id = $2',
+      [id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  createScan: async ({ org_id, name, target_url, description, custom_headers, active_scan, schedule }) => {
+    const r = await pool.query(
+      `INSERT INTO security_scans (org_id, name, target_url, description, custom_headers, active_scan, schedule)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [org_id, name, target_url, description || '', JSON.stringify(custom_headers || {}), active_scan || false, schedule || '']
+    );
+    return r.rows[0];
+  },
+  updateScan: async (id, orgId, { name, target_url, description, custom_headers, active_scan, schedule }) => {
+    const r = await pool.query(
+      `UPDATE security_scans SET name=$1, target_url=$2, description=$3, custom_headers=$4,
+       active_scan=$5, schedule=$6, updated_at=NOW()
+       WHERE id=$7 AND org_id=$8 RETURNING *`,
+      [name, target_url, description || '', JSON.stringify(custom_headers || {}), active_scan || false, schedule || '', id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  deleteScan: async (id, orgId) => {
+    await pool.query('DELETE FROM security_scans WHERE id = $1 AND org_id = $2', [id, orgId]);
+  },
+  createRun: async ({ org_id, scan_id, scan_name, target_url }) => {
+    const r = await pool.query(
+      `INSERT INTO security_scan_runs (org_id, scan_id, scan_name, target_url, status)
+       VALUES ($1, $2, $3, $4, 'running') RETURNING *`,
+      [org_id, scan_id, scan_name, target_url]
+    );
+    return r.rows[0];
+  },
+  updateRun: async (id, { status, score, grade, findings, error }) => {
+    await pool.query(
+      `UPDATE security_scan_runs SET status=$1, score=$2, grade=$3, findings=$4,
+       error=$5, ended_at=NOW() WHERE id=$6`,
+      [status, score ?? null, grade ?? null, JSON.stringify(findings || []), error || null, id]
+    );
+  },
+  updateScanLastRun: async (id, { status, score }) => {
+    await pool.query(
+      `UPDATE security_scans SET last_run_at=NOW(), last_run_status=$1, last_score=$2 WHERE id=$3`,
+      [status, score ?? null, id]
+    );
+  },
+  getAllRuns: async (orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM security_scan_runs WHERE org_id = $1 ORDER BY started_at DESC LIMIT 300',
+      [orgId]
+    );
+    return r.rows;
+  },
+  getRunsForScan: async (scanId, orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM security_scan_runs WHERE scan_id = $1 AND org_id = $2 ORDER BY started_at DESC LIMIT 50',
+      [scanId, orgId]
+    );
+    return r.rows;
+  },
+  getRunById: async (id, orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM security_scan_runs WHERE id = $1 AND org_id = $2',
+      [id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  deleteRun: async (id, orgId) => {
+    await pool.query('DELETE FROM security_scan_runs WHERE id = $1 AND org_id = $2', [id, orgId]);
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Initialise on startup
 // ---------------------------------------------------------------------------
 initDB().catch((err) => {
@@ -2888,5 +3015,6 @@ module.exports = {
   perfSuiteOperations,
   accessibilityOperations,
   mobileOperations,
-  mobileSuiteOperations
+  mobileSuiteOperations,
+  securityOperations
 };

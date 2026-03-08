@@ -34,6 +34,7 @@ import BugReports from './components/BugReports';
 import PerformanceTests from './components/PerformanceTests';
 import AccessibilityTests from './components/AccessibilityTests';
 import MobileTests from './components/MobileTests';
+import SecurityTests from './components/SecurityTests';
 
 import API_URL from './apiUrl';
 
@@ -59,6 +60,8 @@ function App({ orgSlug = 'default' }) {
   // Track whether mobile view has ever been visited (keep-alive)
   const mobileMountedRef = useRef(false);
   if (currentView === 'mobile') mobileMountedRef.current = true;
+  const securityMountedRef = useRef(false);
+  if (currentView === 'security') securityMountedRef.current = true;
   const [executionStatus, setExecutionStatus] = useState(null); // 'running', 'completed', or null
   const [executionResult, setExecutionResult] = useState(null); // { status: 'pass'|'fail', message: string }
   const [debugActive, setDebugActive] = useState(false); // true while Playwright Inspector is open
@@ -865,6 +868,10 @@ function App({ orgSlug = 'default' }) {
       setCurrentView('mobile');
       setSelectedModule(null);
       setSelectedTestFile(null);
+    } else if (view === 'security') {
+      setCurrentView('security');
+      setSelectedModule(null);
+      setSelectedTestFile(null);
     }
   };
 
@@ -1185,6 +1192,12 @@ function App({ orgSlug = 'default' }) {
             {mobileMountedRef.current && (
               <div style={{ display: currentView === 'mobile' ? 'block' : 'none' }}>
                 <MobileTests orgInfo={orgInfo} />
+              </div>
+            )}
+            {/* SecurityTests stays mounted after first visit */}
+            {securityMountedRef.current && (
+              <div style={{ display: currentView === 'security' ? 'block' : 'none' }}>
+                <SecurityTests orgInfo={orgInfo} />
               </div>
             )}
           </div>

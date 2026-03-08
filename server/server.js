@@ -6,7 +6,11 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, objectRepositoryOperations, orFolderOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations, performanceOperations, perfFolderOperations, perfSuiteOperations, accessibilityOperations, mobileOperations, mobileSuiteOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, objectRepositoryOperations, orFolderOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations, performanceOperations, perfFolderOperations, perfSuiteOperations, accessibilityOperations, mobileOperations, mobileSuiteOperations, securityOperations } = require('./db');
+const _https = require('https');
+const _http  = require('http');
+const _tls   = require('tls');
+const { URL: _URL } = require('url');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -133,7 +137,8 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/perf-folders') || p.startsWith('/perf-suites') || p.startsWith('/perf-suite-executions') || p.startsWith('/perf-ai') ||
       p.startsWith('/accessibility-tests') || p.startsWith('/accessibility-ai') ||
       p.startsWith('/mobile-tests') || p.startsWith('/mobile-ai') ||
-      p.startsWith('/mobile-suites') || p.startsWith('/mobile-suite-runs')
+      p.startsWith('/mobile-suites') || p.startsWith('/mobile-suite-runs') ||
+      p.startsWith('/security-scans') || p.startsWith('/security-scan-runs')
     ) return next();
     // Only serve the SPA shell for GET requests (browser navigation)
     if (req.method !== 'GET') return next();
@@ -6661,6 +6666,310 @@ app.get('/mobile-suite-runs/:runId', requireAuth, async (req, res) => {
 app.delete('/mobile-suite-runs/:runId', requireAuth, async (req, res) => {
   try {
     await mobileSuiteOperations.deleteSuiteRun(parseInt(req.params.runId), req.session.orgId);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
+// SECURITY TESTING ROUTES
+// =============================================================================
+
+// ── Scan engine ──────────────────────────────────────────────────────────────
+function _secMakeRequest(url, extraHeaders) {
+  return new Promise((resolve, reject) => {
+    const parsed = new _URL(url);
+    const mod = parsed.protocol === 'https:' ? _https : _http;
+    const req = mod.get({
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      headers: { 'User-Agent': 'SecurityScanner/1.0', ...extraHeaders },
+      timeout: 15000,
+      rejectUnauthorized: false,
+    }, (res) => {
+      let body = '';
+      res.on('data', d => { body += d; if (body.length > 300000) body = body.slice(0, 300000); });
+      res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body, redirectUrl: res.headers['location'] || '' }));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+  });
+}
+
+function _secCheckTLS(hostname, port) {
+  return new Promise((resolve) => {
+    const socket = _tls.connect({ host: hostname, port: port || 443, rejectUnauthorized: false, timeout: 10000 }, () => {
+      const cert = socket.getPeerCertificate();
+      const protocol = socket.getProtocol();
+      const authorized = socket.authorized;
+      socket.destroy();
+      resolve({ cert, protocol, authorized });
+    });
+    socket.on('error', () => resolve(null));
+    socket.on('timeout', () => { socket.destroy(); resolve(null); });
+  });
+}
+
+async function runSecurityScan(targetUrl, customHeaders = {}, activeMode = false) {
+  const findings = [];
+  const parsed = new _URL(targetUrl);
+
+  // 1. HTTP → HTTPS redirect check
+  if (parsed.protocol === 'http:') {
+    try {
+      const resp = await _secMakeRequest(targetUrl, customHeaders);
+      const loc = resp.redirectUrl;
+      if (resp.statusCode >= 300 && resp.statusCode < 400 && loc.startsWith('https://')) {
+        findings.push({ category: 'Transport', name: 'HTTP→HTTPS Redirect', status: 'pass', severity: 'info', description: 'HTTP redirects to HTTPS correctly.', recommendation: '' });
+      } else {
+        findings.push({ category: 'Transport', name: 'HTTP→HTTPS Redirect', status: 'fail', severity: 'high', description: 'The HTTP URL does not redirect to HTTPS.', recommendation: 'Issue a 301 redirect from HTTP to HTTPS on your server.' });
+      }
+    } catch (e) {
+      findings.push({ category: 'Transport', name: 'HTTP→HTTPS Redirect', status: 'fail', severity: 'high', description: `Could not connect via HTTP: ${e.message}`, recommendation: 'Ensure HTTPS is properly configured.' });
+    }
+  }
+
+  // 2. Fetch the main resource
+  let resp;
+  try { resp = await _secMakeRequest(targetUrl, customHeaders); }
+  catch (e) { throw new Error(`Failed to reach target URL: ${e.message}`); }
+  const h = resp.headers;
+
+  // 3. Security headers
+  const secHeaders = [
+    { header: 'content-security-policy',      name: 'Content-Security-Policy',            severity: 'high',   absent: 'CSP header is missing. This allows XSS attacks.',                                    rec: "Add CSP, e.g. default-src 'self'; script-src 'self'." },
+    { header: 'strict-transport-security',    name: 'HTTP Strict Transport Security',      severity: 'high',   absent: 'HSTS is missing. Browsers may downgrade connections to HTTP.',                      rec: 'Add: Strict-Transport-Security: max-age=31536000; includeSubDomains' },
+    { header: 'x-frame-options',              name: 'X-Frame-Options',                    severity: 'medium', absent: 'X-Frame-Options is missing — clickjacking risk.',                                  rec: 'Add: X-Frame-Options: SAMEORIGIN' },
+    { header: 'x-content-type-options',       name: 'X-Content-Type-Options',             severity: 'medium', absent: 'X-Content-Type-Options: nosniff is missing — MIME sniffing risk.',                 rec: 'Add: X-Content-Type-Options: nosniff' },
+    { header: 'referrer-policy',              name: 'Referrer-Policy',                    severity: 'low',    absent: 'Referrer-Policy is missing — URLs may leak to third-party requests.',              rec: 'Add: Referrer-Policy: strict-origin-when-cross-origin' },
+    { header: 'permissions-policy',           name: 'Permissions-Policy',                 severity: 'low',    absent: 'Permissions-Policy is missing — browser APIs are unrestricted.',                   rec: 'Add a Permissions-Policy header to restrict camera, microphone, geolocation, etc.' },
+  ];
+  for (const sh of secHeaders) {
+    const val = h[sh.header];
+    if (val) {
+      findings.push({ category: 'Security Headers', name: sh.name, status: 'pass', severity: 'info', description: `Present: ${val.slice(0, 120)}`, recommendation: '' });
+    } else {
+      findings.push({ category: 'Security Headers', name: sh.name, status: 'fail', severity: sh.severity, description: sh.absent, recommendation: sh.rec });
+    }
+  }
+
+  // 4. Information disclosure
+  if (h['server']) {
+    const val = h['server'];
+    if (/[\d.]/.test(val)) {
+      findings.push({ category: 'Information Disclosure', name: 'Server Version Exposed', status: 'fail', severity: 'low', description: `Server header reveals version: "${val}".`, recommendation: 'Return a generic Server header without version numbers.' });
+    } else {
+      findings.push({ category: 'Information Disclosure', name: 'Server Header', status: 'pass', severity: 'info', description: `Server header present but version-free: "${val}".`, recommendation: '' });
+    }
+  }
+  if (h['x-powered-by']) {
+    findings.push({ category: 'Information Disclosure', name: 'X-Powered-By Exposed', status: 'fail', severity: 'low', description: `X-Powered-By reveals technology stack: "${h['x-powered-by']}".`, recommendation: 'Remove X-Powered-By. In Express: app.disable("x-powered-by").' });
+  }
+
+  // 5. CORS
+  const allowOrigin = h['access-control-allow-origin'];
+  if (allowOrigin === '*') {
+    findings.push({ category: 'CORS', name: 'Wildcard CORS Origin', status: 'fail', severity: 'medium', description: 'Access-Control-Allow-Origin: * allows any origin to read API responses.', recommendation: 'Restrict CORS to specific trusted origins.' });
+  } else if (allowOrigin) {
+    findings.push({ category: 'CORS', name: 'CORS Origin', status: 'pass', severity: 'info', description: `CORS restricted to: "${allowOrigin}".`, recommendation: '' });
+  }
+
+  // 6. Cookie security
+  const rawCookies = h['set-cookie'];
+  if (rawCookies) {
+    const cookies = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
+    for (const c of cookies) {
+      const name = c.split('=')[0].trim();
+      const lower = c.toLowerCase();
+      if (!lower.includes('secure'))   findings.push({ category: 'Cookies', name: `Cookie "${name}": No Secure flag`,   status: 'fail', severity: 'medium', description: `Cookie "${name}" can be sent over plain HTTP.`,        recommendation: `Add the Secure flag to cookie "${name}".` });
+      if (!lower.includes('httponly')) findings.push({ category: 'Cookies', name: `Cookie "${name}": No HttpOnly flag`, status: 'fail', severity: 'medium', description: `Cookie "${name}" is readable by JavaScript.`,     recommendation: `Add HttpOnly to cookie "${name}".` });
+      if (!lower.includes('samesite')) findings.push({ category: 'Cookies', name: `Cookie "${name}": No SameSite flag`, status: 'fail', severity: 'low',    description: `Cookie "${name}" has no SameSite attribute.`, recommendation: `Add SameSite=Lax or SameSite=Strict to cookie "${name}".` });
+    }
+  }
+
+  // 7. SSL/TLS certificate (HTTPS only)
+  if (parsed.protocol === 'https:') {
+    const port = parseInt(parsed.port, 10) || 443;
+    const sslInfo = await _secCheckTLS(parsed.hostname, port);
+    if (sslInfo) {
+      if (sslInfo.cert && sslInfo.cert.valid_to) {
+        const expiry = new Date(sslInfo.cert.valid_to);
+        const daysLeft = Math.floor((expiry - Date.now()) / 86400000);
+        if (daysLeft < 0) {
+          findings.push({ category: 'SSL/TLS', name: 'Certificate Expired', status: 'fail', severity: 'critical', description: `SSL certificate expired ${Math.abs(daysLeft)} days ago.`, recommendation: 'Renew the SSL certificate immediately.' });
+        } else if (daysLeft < 30) {
+          findings.push({ category: 'SSL/TLS', name: 'Certificate Expiring Soon', status: 'fail', severity: 'high', description: `Certificate expires in ${daysLeft} days (${expiry.toDateString()}).`, recommendation: 'Renew the SSL certificate before it expires.' });
+        } else {
+          findings.push({ category: 'SSL/TLS', name: 'Certificate Valid', status: 'pass', severity: 'info', description: `Valid for ${daysLeft} more days (expires ${expiry.toDateString()}).`, recommendation: '' });
+        }
+      }
+      if (!sslInfo.authorized) {
+        findings.push({ category: 'SSL/TLS', name: 'Untrusted Certificate', status: 'fail', severity: 'high', description: 'Certificate is not trusted by a recognised CA (may be self-signed).', recommendation: "Obtain a certificate from a trusted CA (e.g. Let's Encrypt)." });
+      }
+      if (sslInfo.protocol) {
+        const isModern = sslInfo.protocol === 'TLSv1.2' || sslInfo.protocol === 'TLSv1.3';
+        if (isModern) {
+          findings.push({ category: 'SSL/TLS', name: 'TLS Version', status: 'pass', severity: 'info', description: `Protocol: ${sslInfo.protocol}.`, recommendation: '' });
+        } else {
+          findings.push({ category: 'SSL/TLS', name: 'Outdated TLS', status: 'fail', severity: 'high', description: `Outdated protocol in use: ${sslInfo.protocol}. TLS 1.0/1.1 are deprecated.`, recommendation: 'Upgrade to TLS 1.2 or 1.3.' });
+        }
+      }
+    }
+  }
+
+  // 8. Active probing: SQLi + XSS reflection (only if opted in and URL has query params)
+  if (activeMode && parsed.search) {
+    const params = new URLSearchParams(parsed.search);
+    const paramNames = [...params.keys()].slice(0, 5);
+    const baseUrl = parsed.origin + parsed.pathname;
+    for (const pname of paramNames) {
+      // SQLi
+      let sqliFound = false;
+      for (const payload of ["' OR '1'='1", "1 OR 1=1--"]) {
+        if (sqliFound) break;
+        try {
+          const tp = new URLSearchParams(params); tp.set(pname, payload);
+          const r2 = await _secMakeRequest(baseUrl + '?' + tp.toString(), customHeaders);
+          const sqlErr = /sql\s*syntax|mysql_fetch|sqlite3?|ora-\d+|microsoft jet|unclosed quotation|server error/i.test(r2.body);
+          if (r2.body.includes(payload) || sqlErr) {
+            findings.push({ category: 'Active Scan', name: `SQL Injection: param "${pname}"`, status: 'fail', severity: 'critical', description: `SQLi payload reflected or SQL error triggered via param "${pname}". Possible vulnerability.`, recommendation: 'Use parameterised queries. Never concatenate user input into SQL strings.' });
+            sqliFound = true;
+          }
+        } catch (_) {}
+      }
+      // XSS
+      try {
+        const xssPayload = '<svg/onload=alert(1)>';
+        const tp = new URLSearchParams(params); tp.set(pname, xssPayload);
+        const r3 = await _secMakeRequest(baseUrl + '?' + tp.toString(), customHeaders);
+        if (r3.body.includes(xssPayload)) {
+          findings.push({ category: 'Active Scan', name: `XSS Reflection: param "${pname}"`, status: 'fail', severity: 'high', description: `XSS payload reflected unescaped in response from param "${pname}".`, recommendation: 'HTML-encode all user-supplied output. Use a strict Content-Security-Policy.' });
+        }
+      } catch (_) {}
+    }
+  }
+
+  // Score calculation
+  const deductions = { critical: 25, high: 15, medium: 8, low: 3 };
+  let score = 100;
+  for (const f of findings) {
+    if (f.status === 'fail') score -= (deductions[f.severity] || 0);
+  }
+  score = Math.max(0, score);
+  const grade = score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : score >= 55 ? 'D' : 'F';
+  return { score, grade, findings };
+}
+
+// Simple cron-expression matcher (5-part: min hour dom month dow)
+function _matchesCron(expr, now) {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return false;
+  const [min, hour, dom, month, dow] = parts;
+  const chk = (f, v) => f === '*' || parseInt(f, 10) === v;
+  return chk(min, now.getMinutes()) && chk(hour, now.getHours()) &&
+         chk(dom, now.getDate()) && chk(month, now.getMonth() + 1) && chk(dow, now.getDay());
+}
+
+// Check scheduled scans every minute
+setInterval(async () => {
+  try {
+    const now = new Date();
+    const r = await pool.query(`SELECT * FROM security_scans WHERE schedule IS NOT NULL AND schedule != ''`);
+    for (const scan of r.rows) {
+      if (!_matchesCron(scan.schedule, now)) continue;
+      (async () => {
+        const run = await securityOperations.createRun({ org_id: scan.org_id, scan_id: scan.id, scan_name: scan.name, target_url: scan.target_url });
+        try {
+          const ch = (typeof scan.custom_headers === 'object' && scan.custom_headers) ? scan.custom_headers : {};
+          const result = await runSecurityScan(scan.target_url, ch, scan.active_scan || false);
+          await securityOperations.updateRun(run.id, { status: 'completed', ...result });
+          await securityOperations.updateScanLastRun(scan.id, { status: 'completed', score: result.score });
+        } catch (err) {
+          await securityOperations.updateRun(run.id, { status: 'failed', error: err.message });
+          await securityOperations.updateScanLastRun(scan.id, { status: 'failed', score: null });
+        }
+      })();
+    }
+  } catch (_) {}
+}, 60000);
+
+// ── CRUD routes ───────────────────────────────────────────────────────────────
+
+// GET /security-scans
+app.get('/security-scans', requireAuth, async (req, res) => {
+  try { res.json(await securityOperations.getAllScans(req.session.orgId)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /security-scans
+app.post('/security-scans', requireAuth, async (req, res) => {
+  try {
+    const { name, target_url, description, custom_headers, active_scan, schedule } = req.body;
+    if (!name || !target_url) return res.status(400).json({ error: 'name and target_url are required' });
+    const scan = await securityOperations.createScan({ org_id: req.session.orgId, name, target_url, description, custom_headers, active_scan, schedule });
+    res.status(201).json(scan);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /security-scans/:id
+app.put('/security-scans/:id', requireAuth, async (req, res) => {
+  try {
+    const { name, target_url, description, custom_headers, active_scan, schedule } = req.body;
+    const scan = await securityOperations.updateScan(parseInt(req.params.id), req.session.orgId, { name, target_url, description, custom_headers, active_scan, schedule });
+    if (!scan) return res.status(404).json({ error: 'Scan not found' });
+    res.json(scan);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /security-scans/:id
+app.delete('/security-scans/:id', requireAuth, async (req, res) => {
+  try {
+    await securityOperations.deleteScan(parseInt(req.params.id), req.session.orgId);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /security-scans/:id/run  — triggers a scan asynchronously
+app.post('/security-scans/:id/run', requireAuth, async (req, res) => {
+  try {
+    const scan = await securityOperations.getScanById(parseInt(req.params.id), req.session.orgId);
+    if (!scan) return res.status(404).json({ error: 'Scan not found' });
+    const run = await securityOperations.createRun({ org_id: req.session.orgId, scan_id: scan.id, scan_name: scan.name, target_url: scan.target_url });
+    res.json({ runId: run.id, status: 'running' });
+    // Run async after response
+    (async () => {
+      try {
+        const ch = (typeof scan.custom_headers === 'object' && scan.custom_headers) ? scan.custom_headers : {};
+        const result = await runSecurityScan(scan.target_url, ch, scan.active_scan || false);
+        await securityOperations.updateRun(run.id, { status: 'completed', ...result });
+        await securityOperations.updateScanLastRun(scan.id, { status: 'completed', score: result.score });
+      } catch (err) {
+        await securityOperations.updateRun(run.id, { status: 'failed', error: err.message });
+        await securityOperations.updateScanLastRun(scan.id, { status: 'failed', score: null });
+      }
+    })();
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /security-scan-runs  — all runs for the org
+app.get('/security-scan-runs', requireAuth, async (req, res) => {
+  try { res.json(await securityOperations.getAllRuns(req.session.orgId)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /security-scan-runs/:runId
+app.get('/security-scan-runs/:runId', requireAuth, async (req, res) => {
+  try {
+    const run = await securityOperations.getRunById(parseInt(req.params.runId), req.session.orgId);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+    res.json(run);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /security-scan-runs/:runId
+app.delete('/security-scan-runs/:runId', requireAuth, async (req, res) => {
+  try {
+    await securityOperations.deleteRun(parseInt(req.params.runId), req.session.orgId);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
