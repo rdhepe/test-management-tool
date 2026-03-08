@@ -2631,6 +2631,131 @@ const accessibilityOperations = {
 };
 
 // ---------------------------------------------------------------------------
+// Mobile Testing tables
+// ---------------------------------------------------------------------------
+async function initMobileTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS mobile_tests (
+      id              SERIAL PRIMARY KEY,
+      org_id          INTEGER NOT NULL,
+      name            TEXT NOT NULL,
+      description     TEXT DEFAULT '',
+      device_profile  TEXT NOT NULL DEFAULT 'iPhone 15',
+      target_url      TEXT NOT NULL,
+      extra_pages     JSONB DEFAULT '[]',
+      custom_script   TEXT DEFAULT '',
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS mobile_executions (
+      id              SERIAL PRIMARY KEY,
+      org_id          INTEGER NOT NULL,
+      test_id         INTEGER REFERENCES mobile_tests(id) ON DELETE CASCADE,
+      device_profile  TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'running',
+      results_json    JSONB DEFAULT '[]',
+      error_message   TEXT,
+      started_at      TIMESTAMPTZ DEFAULT NOW(),
+      ended_at        TIMESTAMPTZ
+    )
+  `);
+}
+
+initMobileTables().catch(err => console.error('Mobile tables init failed:', err.message));
+
+// ---------------------------------------------------------------------------
+// Mobile operations
+// ---------------------------------------------------------------------------
+const mobileOperations = {
+  // Tests
+  getAllTests: async (orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM mobile_tests WHERE org_id = $1 ORDER BY created_at DESC',
+      [orgId]
+    );
+    return r.rows;
+  },
+  getTestById: async (id, orgId) => {
+    const r = await pool.query(
+      'SELECT * FROM mobile_tests WHERE id = $1 AND org_id = $2',
+      [id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  createTest: async ({ org_id, name, description, device_profile, target_url, extra_pages, custom_script }) => {
+    const r = await pool.query(
+      `INSERT INTO mobile_tests (org_id, name, description, device_profile, target_url, extra_pages, custom_script)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [org_id, name, description || '', device_profile || 'iPhone 15', target_url,
+       JSON.stringify(extra_pages || []), custom_script || '']
+    );
+    return r.rows[0];
+  },
+  updateTest: async (id, orgId, { name, description, device_profile, target_url, extra_pages, custom_script }) => {
+    const r = await pool.query(
+      `UPDATE mobile_tests SET name=$1, description=$2, device_profile=$3, target_url=$4,
+       extra_pages=$5, custom_script=$6, updated_at=NOW() WHERE id=$7 AND org_id=$8 RETURNING *`,
+      [name, description || '', device_profile || 'iPhone 15', target_url,
+       JSON.stringify(extra_pages || []), custom_script || '', id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  deleteTest: async (id, orgId) => {
+    await pool.query('DELETE FROM mobile_tests WHERE id = $1 AND org_id = $2', [id, orgId]);
+  },
+
+  // Executions
+  createExecution: async ({ org_id, test_id, device_profile }) => {
+    const r = await pool.query(
+      'INSERT INTO mobile_executions (org_id, test_id, device_profile, status) VALUES ($1, $2, $3, $4) RETURNING *',
+      [org_id, test_id, device_profile, 'running']
+    );
+    return r.rows[0];
+  },
+  updateExecution: async (id, { status, results_json, error_message }) => {
+    await pool.query(
+      `UPDATE mobile_executions SET status=$1, results_json=$2, ended_at=NOW(), error_message=$3 WHERE id=$4`,
+      [status, JSON.stringify(results_json || []), error_message || null, id]
+    );
+  },
+  getExecutionsForTest: async (testId, orgId) => {
+    const r = await pool.query(
+      `SELECT me.*, mt.name AS test_name FROM mobile_executions me
+       JOIN mobile_tests mt ON mt.id = me.test_id
+       WHERE me.test_id = $1 AND me.org_id = $2
+       ORDER BY me.started_at DESC`,
+      [testId, orgId]
+    );
+    return r.rows;
+  },
+  getExecutionById: async (id, orgId) => {
+    const r = await pool.query(
+      `SELECT me.*, mt.name AS test_name, mt.target_url FROM mobile_executions me
+       JOIN mobile_tests mt ON mt.id = me.test_id
+       WHERE me.id = $1 AND me.org_id = $2`,
+      [id, orgId]
+    );
+    return r.rows[0] || null;
+  },
+  getAllExecutions: async (orgId) => {
+    const r = await pool.query(
+      `SELECT me.*, mt.name AS test_name FROM mobile_executions me
+       JOIN mobile_tests mt ON mt.id = me.test_id
+       WHERE me.org_id = $1
+       ORDER BY me.started_at DESC LIMIT 200`,
+      [orgId]
+    );
+    return r.rows;
+  },
+  deleteExecution: async (id, orgId) => {
+    await pool.query('DELETE FROM mobile_executions WHERE id=$1 AND org_id=$2', [id, orgId]);
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Initialise on startup
 // ---------------------------------------------------------------------------
 initDB().catch((err) => {
@@ -2683,5 +2808,6 @@ module.exports = {
   performanceOperations,
   perfFolderOperations,
   perfSuiteOperations,
-  accessibilityOperations
+  accessibilityOperations,
+  mobileOperations
 };
