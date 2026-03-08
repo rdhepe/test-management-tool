@@ -336,6 +336,55 @@ function MockAccessibilityPanel() {
   );
 }
 
+function MockSecurityPanel() {
+  const findings = [
+    { cat: 'Security Headers', status: 'fail', sev: 'high', msg: 'Content-Security-Policy not set' },
+    { cat: 'Security Headers', status: 'pass', msg: 'X-Frame-Options: DENY' },
+    { cat: 'CORS', status: 'fail', sev: 'critical', msg: 'Access-Control-Allow-Origin: *' },
+    { cat: 'SSL / TLS', status: 'pass', msg: 'Certificate valid — expires in 87 days' },
+    { cat: 'Cookies', status: 'fail', sev: 'medium', msg: 'session_id missing Secure flag' },
+    { cat: 'Active Scan', status: 'pass', msg: '5 params probed — no SQLi reflected' },
+  ];
+  return (
+    <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden text-xs select-none">
+      <div className="px-4 py-3 border-b border-slate-800 bg-slate-950 flex items-center justify-between">
+        <span className="text-sm font-semibold text-white">Security Scan — app.example.com</span>
+        <div className="flex items-center gap-2">
+          <span className="text-2xl font-black text-amber-300">C</span>
+          <span className="text-[10px] text-slate-500">68 / 100</span>
+        </div>
+      </div>
+      <div className="p-4 space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          {[['3','Issues','rose'],['3','Passes','emerald'],['68','Score','amber']].map(([v,l,c]) => (
+            <div key={l} className={`bg-slate-800/70 border ${c==='rose'?'border-rose-500/25':c==='emerald'?'border-emerald-500/20':'border-amber-500/25'} rounded-xl px-3 py-2.5 text-center`}>
+              <p className={`text-base font-black ${c==='rose'?'text-rose-400':c==='emerald'?'text-emerald-400':'text-amber-300'}`}>{v}</p>
+              <p className="text-[9px] text-slate-500 mt-0.5">{l}</p>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-1.5">
+          {findings.map((f,i) => (
+            <div key={i} className={`flex items-start gap-2.5 px-3 py-2 rounded-lg ${f.status==='fail'?'bg-rose-950/25 border border-rose-500/20':'bg-emerald-950/20 border border-emerald-500/15'}`}>
+              {f.status==='fail'
+                ? <svg className="w-3.5 h-3.5 text-rose-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                : <svg className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+              }
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-slate-500">{f.cat}</span>
+                  {f.sev && <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-semibold ${f.sev==='critical'?'bg-rose-500/20 text-rose-400':f.sev==='high'?'bg-amber-500/20 text-amber-400':'bg-sky-500/20 text-sky-400'}`}>{f.sev}</span>}
+                </div>
+                <p className={`text-[10px] leading-tight mt-0.5 ${f.status==='fail'?'text-rose-200':'text-emerald-300'}`}>{f.msg}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Data ─────────────────────────────────────────────────────────────────────
 const allFeatures = [
   { icon: '🤖', color: 'violet', title: 'AI Script Generation', desc: 'Describe a test in plain English. AI writes the full Playwright step body — no boilerplate, no syntax errors.' },
@@ -349,6 +398,8 @@ const allFeatures = [
   { icon: '▶️', color: 'emerald', title: 'One-Click CI Execution', desc: 'Run full Playwright suites in headless mode with live log streaming, HTML reports, and history.' },
   { icon: '📈', color: 'cyan', title: 'Performance Testing', desc: 'k6-powered load, stress, spike, soak, and smoke tests — run from the browser. AI analyses regressions, anomalies, and suggests thresholds.' },
   { icon: '♿', color: 'purple', title: 'Accessibility Audits', desc: 'Automated WCAG scans via Playwright + axe-core. Violations grouped by impact level — Critical to Minor — with AI fix suggestions.' },
+  { icon: '📱', color: 'sky', title: 'Mobile Testing', desc: 'Run Playwright tests against real device profiles — iPhone, Android, Galaxy Tab and more. Simulate viewport, touch events, and user agent strings in one click.' },
+  { icon: '🔒', color: 'rose', title: 'Security Testing', desc: 'Automated security scans — HTTP headers, SSL/TLS, CORS, cookies, and active SQLi/XSS probing. Every scan scored A–F with actionable fix recommendations.' },
 ];
 
 const colorMap = {
@@ -392,7 +443,7 @@ const includedItems = [
   'Test file dependency ordering', 'Global variables & environment config',
   'Multi-sprint planning', 'Defect deduplication', 'User & role management',
   'Organisation-scoped workspaces', 'Full execution history & audit trail',
-  'k6 performance testing (load, stress, spike, soak, smoke)', 'Accessibility audits — WCAG violations by impact level', 'Dark-mode UI (of course)',
+  'k6 performance testing (load, stress, spike, soak, smoke)', 'Accessibility audits — WCAG violations by impact level', 'Mobile device testing (30+ profiles — iPhone, Android, tablet)', 'Security scanning — headers, SSL/TLS, CORS, cookies, active SQLi/XSS (scored A–F)', 'Dark-mode UI (of course)',
 ];
 
 // ─── Landing ──────────────────────────────────────────────────────────────────
@@ -433,6 +484,8 @@ export default function Landing() {
             <a href="#ai" className="hover:text-white transition-colors">AI Capabilities</a>
             <a href="#performance" className="hover:text-white transition-colors">Performance</a>
             <a href="#accessibility" className="hover:text-white transition-colors">Accessibility</a>
+            <a href="#mobile" className="hover:text-white transition-colors">Mobile</a>
+            <a href="#security" className="hover:text-white transition-colors">Security</a>
             <a href="#how" className="hover:text-white transition-colors">How it works</a>
             <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
             <a href="/docs" className="hover:text-white transition-colors">Docs</a>
@@ -759,6 +812,80 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ──────────── MOBILE ──────────── */}
+      <section id="mobile" className="py-20 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs font-medium mb-4">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+              Mobile Device Testing
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-4">Test on every device<br/>without owning a single one</h2>
+            <p className="text-slate-400 text-lg max-w-2xl mx-auto">Run your full Playwright suite against 30+ real device profiles — iPhones, Android phones, and tablets — with accurate viewports, touch events, and user agent strings. No devices required.</p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 max-w-4xl mx-auto">
+            {[['iPhone 15 Pro','390 × 844','iOS / Safari'],['Galaxy S24','360 × 780','Android / Chrome'],['iPad Pro 12.9"','1024 × 1366','iPadOS / Safari'],['Pixel 8','412 × 915','Android / Chrome'],['iPhone SE','375 × 667','iOS / Safari'],['Galaxy Tab S8','800 × 1280','Android / Chrome']].map(([name,vp,ua]) => (
+              <div key={name} className="bg-slate-900 border border-slate-700 rounded-2xl p-5 flex items-center gap-4 hover:border-sky-500/40 transition-colors">
+                <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white">{name}</p>
+                  <p className="text-xs text-slate-500">{vp} · {ua}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ──────────── SECURITY ──────────── */}
+      <section id="security" className="py-20 px-6 bg-slate-900/30 border-y border-slate-800">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-medium mb-4">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+              Security Testing
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-4">Find security gaps<br/>before attackers do</h2>
+            <p className="text-slate-400 text-lg max-w-2xl mx-auto">Point TestStudio at any URL and get an instant security assessment — HTTP headers, SSL/TLS, CORS, cookies, and active injection probing. Results graded A–F with specific fix recommendations.</p>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-16 items-start">
+            <div className="space-y-4">
+              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${colorMap.rose.badge} border ${colorMap.rose.border}`}>Passive &amp; Active scanning</div>
+              <h3 className="text-2xl font-bold text-white">Eight check categories, one score</h3>
+              <p className="text-slate-400 leading-relaxed">Each scan runs eight categories of checks. Results are aggregated into a 0–100 score with a letter grade — making it easy to track security posture over time and across environments.</p>
+              <ul className="space-y-2.5">
+                {[
+                  '🛡️ Security headers — CSP, HSTS, X-Frame-Options, Referrer-Policy, and more',
+                  '🔒 SSL / TLS — certificate validity, expiry countdown, and TLS version',
+                  '🌐 CORS — flags wildcard Access-Control-Allow-Origin',
+                  '🍪 Cookies — checks Secure, HttpOnly, and SameSite flags per cookie',
+                  '↩️ HTTP → HTTPS redirect — verifies plain-HTTP requests are redirected',
+                  '🔍 Info disclosure — Server header and X-Powered-By leakage',
+                  '💉 Active scan — SQLi and XSS reflection tested on query parameters',
+                  '📅 Scheduled scans — run automatically on any cron expression',
+                ].map(item => (
+                  <li key={item} className="flex items-start gap-2.5">
+                    <svg className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                    <span className="text-sm text-slate-300">{item}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className={`rounded-xl border ${colorMap.rose.border} bg-rose-950/20 p-4 mt-2`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-3.5 h-3.5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                  <span className="text-xs font-semibold text-rose-300">Custom Headers for Auth</span>
+                </div>
+                <p className="text-sm text-slate-400 leading-relaxed">Add custom request headers (e.g. <strong className="text-white">Authorization: Bearer …</strong>) per scan config to test authenticated pages and API endpoints behind login walls.</p>
+              </div>
+            </div>
+            <MockSecurityPanel />
+          </div>
+        </div>
+      </section>
+
       {/* ──────────── HOW IT WORKS ──────────── */}
       <section id="how" className="py-20 px-6 bg-slate-900/40 border-y border-slate-800">
         <div className="max-w-5xl mx-auto">
@@ -981,6 +1108,8 @@ export default function Landing() {
               <a href="#ai" className="hover:text-slate-300 transition-colors">AI</a>
               <a href="#performance" className="hover:text-slate-300 transition-colors">Performance</a>
               <a href="#accessibility" className="hover:text-slate-300 transition-colors">Accessibility</a>
+              <a href="#mobile" className="hover:text-slate-300 transition-colors">Mobile</a>
+              <a href="#security" className="hover:text-slate-300 transition-colors">Security</a>
               <a href="#how" className="hover:text-slate-300 transition-colors">How it works</a>
               <a href="#pricing" className="hover:text-slate-300 transition-colors">Pricing</a>
               <a href="/docs" className="hover:text-slate-300 transition-colors">Docs</a>

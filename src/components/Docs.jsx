@@ -63,6 +63,25 @@ const SECTIONS = [
     ],
   },
   {
+    title: 'Mobile Testing',
+    icon: '📱',
+    articles: [
+      { id: 'mob-overview', title: 'Overview' },
+      { id: 'mob-devices', title: 'Device Profiles' },
+      { id: 'mob-run', title: 'Running Mobile Tests' },
+    ],
+  },
+  {
+    title: 'Security Testing',
+    icon: '🔒',
+    articles: [
+      { id: 'sec-overview', title: 'Overview' },
+      { id: 'sec-create', title: 'Creating a Scan' },
+      { id: 'sec-results', title: 'Scan Results & Scoring' },
+      { id: 'sec-schedule', title: 'Scheduling Scans' },
+    ],
+  },
+  {
     title: 'FAQ',
     icon: '❓',
     articles: [
@@ -777,6 +796,13 @@ const HEADINGS = {
   'bp-structure':      ['Module naming', 'Test file granularity', 'Assertions', 'Data management'],
   'bp-selectors':      ['Priority order', 'Object Repository strategy', 'Avoiding flakiness'],
   'bp-ci':             ['Running a suite via API', 'Recommended CI pipeline'],
+  'mob-overview':      ['How it works', 'What is emulated'],
+  'mob-devices':       ['Categories', 'Custom viewport'],
+  'mob-run':           ['Single run', 'Interpreting results'],
+  'sec-overview':      ['Scan categories', 'Scoring'],
+  'sec-create':        ['Steps', 'Custom Headers example'],
+  'sec-results':       ['Reading a result', 'Finding severity levels', 'Fix recommendations', 'History'],
+  'sec-schedule':      ['Cron format', 'Common schedules', 'How scheduling works'],
   'faq-general':       ['Supported browsers', 'Playwright on the server', 'Importing existing tests', 'npm packages', 'Reports storage'],
   'faq-troubleshoot':  ['Test passes locally but fails', 'require is not defined', 'AI features not working', 'Screenshots / trace missing', 'PASS but app is broken'],
 };
