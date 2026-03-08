@@ -241,6 +241,101 @@ function MockReadinessScore() {
   );
 }
 
+function MockPerformancePanel() {
+  const bars = [42, 78, 61, 95, 53, 110, 88, 72, 64, 99, 57, 83];
+  const max = Math.max(...bars);
+  return (
+    <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden text-xs select-none">
+      <div className="px-4 py-3 border-b border-slate-800 bg-slate-950 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <span className="text-sm font-semibold text-white">Load Test — Checkout API</span>
+          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">LOAD</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span className="text-[10px] text-emerald-300 font-semibold">Passed</span>
+        </div>
+      </div>
+      <div className="p-4 space-y-4">
+        <div className="grid grid-cols-3 gap-3">
+          {[['p95 Latency','187 ms','cyan'],['Throughput','142 req/s','emerald'],['Error Rate','0.2%','emerald']].map(([k,v,c]) => (
+            <div key={k} className={`bg-slate-800/70 border ${c==='cyan'?'border-cyan-500/30':'border-emerald-500/20'} rounded-xl px-3 py-2.5 text-center`}>
+              <p className={`text-base font-black ${c==='cyan'?'text-cyan-300':'text-emerald-300'}`}>{v}</p>
+              <p className="text-[9px] text-slate-500 mt-0.5">{k}</p>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] text-slate-500">Response time distribution (ms)</span>
+            <span className="text-[10px] text-slate-500">10 VUs · 30s</span>
+          </div>
+          <div className="flex items-end gap-0.5 h-14">
+            {bars.map((h, i) => (
+              <div key={i} className="flex-1 rounded-sm bg-gradient-to-t from-cyan-600 to-cyan-400/70" style={{height:`${(h/max)*100}%`, opacity: h > 90 ? 1 : 0.6}} />
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {[['p50','64 ms'],['p99','231 ms'],['VUs','10'],['Duration','30s']].map(([k,v]) => (
+            <div key={k} className="flex items-center justify-between px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg">
+              <span className="text-[10px] text-slate-500 font-mono">{k}</span>
+              <span className="text-[10px] text-slate-200 font-mono">{v}</span>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5 px-3 py-2 bg-indigo-950/40 border border-indigo-500/25 rounded-xl">
+          <svg className="w-3 h-3 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <span className="text-[10px] text-indigo-300">AI: p95 is 23% above your 7-day baseline — investigate DB query on <code>/checkout/summary</code></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MockAccessibilityPanel() {
+  const levels = [['Critical',2,'rose'],['Serious',5,'amber'],['Moderate',8,'sky'],['Minor',3,'emerald']];
+  return (
+    <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden text-xs select-none">
+      <div className="px-4 py-3 border-b border-slate-800 bg-slate-950 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-white">WCAG Audit — app.example.com</span>
+        </div>
+        <span className="text-[10px] text-slate-500">3 pages scanned · axe-core</span>
+      </div>
+      <div className="p-4 space-y-3">
+        <div className="grid grid-cols-4 gap-2">
+          {levels.map(([l,n,c]) => (
+            <div key={l} className={`rounded-xl border ${c==='rose'?'border-rose-500/30 bg-rose-950/30':c==='amber'?'border-amber-500/30 bg-amber-950/30':c==='sky'?'border-sky-500/30 bg-sky-950/30':'border-emerald-500/30 bg-emerald-950/30'} px-2 py-2.5 text-center`}>
+              <p className={`text-lg font-black ${c==='rose'?'text-rose-400':c==='amber'?'text-amber-400':c==='sky'?'text-sky-400':'text-emerald-400'}`}>{n}</p>
+              <p className="text-[9px] text-slate-500">{l}</p>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-1.5">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider">Critical violations</div>
+          {[['color-contrast','Best Practice','<button class=\"btn-primary\">Submit</button>'],['button-name','WCAG 2.1 AA','<button onclick=\"save()\">']].map(([rule,tag,el]) => (
+            <div key={rule} className="bg-slate-800 border border-rose-500/20 rounded-xl px-3 py-2.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-rose-300 font-semibold">{rule}</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-rose-500/15 text-rose-400">{tag}</span>
+                </div>
+                <div className="text-[9px] px-2 py-1 rounded-lg bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 font-semibold">AI Fix</div>
+              </div>
+              <code className="text-[9px] text-slate-400 font-mono truncate block">{el}</code>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5 px-3 py-2 bg-indigo-950/40 border border-indigo-500/25 rounded-xl">
+          <svg className="w-3 h-3 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <span className="text-[10px] text-indigo-300">AI: Add <code>aria-label</code> to icon-only buttons — 3 elements affected on the dashboard page</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Data ─────────────────────────────────────────────────────────────────────
 const allFeatures = [
   { icon: '🤖', color: 'violet', title: 'AI Script Generation', desc: 'Describe a test in plain English. AI writes the full Playwright step body — no boilerplate, no syntax errors.' },
@@ -252,6 +347,8 @@ const allFeatures = [
   { icon: '🗂️', color: 'indigo', title: 'Full Traceability', desc: 'Features → Requirements → Test Cases → Playwright Files. Every requirement covered, every gap surfaced.' },
   { icon: '🏃', color: 'violet', title: 'Sprint & Taskboard', desc: 'Kanban board with user and sprint filters, blocker highlights, and real-time task assignment.' },
   { icon: '▶️', color: 'emerald', title: 'One-Click CI Execution', desc: 'Run full Playwright suites in headless mode with live log streaming, HTML reports, and history.' },
+  { icon: '📈', color: 'cyan', title: 'Performance Testing', desc: 'k6-powered load, stress, spike, soak, and smoke tests — run from the browser. AI analyses regressions, anomalies, and suggests thresholds.' },
+  { icon: '♿', color: 'purple', title: 'Accessibility Audits', desc: 'Automated WCAG scans via Playwright + axe-core. Violations grouped by impact level — Critical to Minor — with AI fix suggestions.' },
 ];
 
 const colorMap = {
@@ -261,6 +358,8 @@ const colorMap = {
   amber:   { bg: 'bg-amber-500/10',   border: 'border-amber-500/30',   text: 'text-amber-400',   badge: 'bg-amber-500/15 text-amber-300' },
   emerald: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', badge: 'bg-emerald-500/15 text-emerald-300' },
   sky:     { bg: 'bg-sky-500/10',     border: 'border-sky-500/30',     text: 'text-sky-400',     badge: 'bg-sky-500/15 text-sky-300' },
+  cyan:    { bg: 'bg-cyan-500/10',    border: 'border-cyan-500/30',    text: 'text-cyan-400',    badge: 'bg-cyan-500/15 text-cyan-300' },
+  purple:  { bg: 'bg-purple-500/10',  border: 'border-purple-500/30',  text: 'text-purple-400',  badge: 'bg-purple-500/15 text-purple-300' },
 };
 
 const stats = [
@@ -292,7 +391,8 @@ const includedItems = [
   'Playwright suite execution (headless CI)', 'Live log streaming & HTML test reports',
   'Test file dependency ordering', 'Global variables & environment config',
   'Multi-sprint planning', 'Defect deduplication', 'User & role management',
-  'Organisation-scoped workspaces', 'Full execution history & audit trail', 'Dark-mode UI (of course)',
+  'Organisation-scoped workspaces', 'Full execution history & audit trail',
+  'k6 performance testing (load, stress, spike, soak, smoke)', 'Accessibility audits — WCAG violations by impact level', 'Dark-mode UI (of course)',
 ];
 
 // ─── Landing ──────────────────────────────────────────────────────────────────
@@ -331,6 +431,8 @@ export default function Landing() {
           <div className="hidden md:flex items-center gap-6 text-sm text-slate-400">
             <a href="#features" className="hover:text-white transition-colors">Features</a>
             <a href="#ai" className="hover:text-white transition-colors">AI Capabilities</a>
+            <a href="#performance" className="hover:text-white transition-colors">Performance</a>
+            <a href="#accessibility" className="hover:text-white transition-colors">Accessibility</a>
             <a href="#how" className="hover:text-white transition-colors">How it works</a>
             <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
             <a href="/docs" className="hover:text-white transition-colors">Docs</a>
@@ -537,7 +639,127 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ──────────── HOW IT WORKS ──────────── */}
+      {/* ──────────── PERFORMANCE ──────────── */}
+      <section id="performance" className="py-20 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-medium mb-4">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+              k6 Performance Testing
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-4">Load, stress &amp; spike tests<br/>without touching a terminal</h2>
+            <p className="text-slate-400 text-lg max-w-2xl mx-auto">Run production-grade k6 performance tests directly from the browser. Five test types with sensible defaults, folder organisation, suite batching, and AI-powered analysis built in.</p>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-16 items-start mb-20">
+            <div className="space-y-4">
+              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${colorMap.cyan.badge} border ${colorMap.cyan.border}`}>Run from the browser</div>
+              <h3 className="text-2xl font-bold text-white">Five test types, zero infrastructure</h3>
+              <p className="text-slate-400 leading-relaxed">Choose Smoke, Load, Stress, Spike, or Soak. Each comes with battle-tested VU and duration defaults you can override. Tests run server-side — no k6 CLI, no cloud credits, no setup.</p>
+              <ul className="space-y-2.5">
+                {['Smoke (1 VU) — sanity-check every endpoint before a release','Load (10 VUs) — simulate normal expected traffic','Stress & Spike — find breaking points and test elasticity','Soak (extended) — catch memory leaks and slow degradation','Folders + Suite Runs — batch any combination of tests'].map(item => (
+                  <li key={item} className="flex items-start gap-2.5">
+                    <svg className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                    <span className="text-sm text-slate-300">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <MockPerformancePanel />
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-16 items-start">
+            <div className="lg:order-2 space-y-4">
+              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-500/15 text-indigo-300 border border-indigo-500/30`}>AI Performance Insights</div>
+              <h3 className="text-2xl font-bold text-white">AI that turns metrics into answers</h3>
+              <p className="text-slate-400 leading-relaxed">Six AI-powered features go beyond raw numbers — they tell you what changed, why it matters, and what to fix next. Available on AI Healing plans.</p>
+              <ul className="space-y-2.5">
+                {[
+                  '🎯 Threshold Recommendations — AI suggests p95/p99 values from your run history',
+                  '📊 Regression Compare — flags metrics that degraded vs your baseline',
+                  '🔍 Anomaly Detection — spots unusual latency and error patterns',
+                  '✍️ Script Generator — plain English → ready-to-run k6 script',
+                  '🥺 Root Cause Analysis — explains why a run failed or regressed',
+                  '🧠 Smart Suite Builder — optimal test subset for minimum suite time',
+                ].map(item => (
+                  <li key={item} className="flex items-start gap-2.5">
+                    <svg className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    <span className="text-sm text-slate-300">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="lg:order-1 bg-slate-900/60 border border-indigo-500/20 rounded-2xl p-6 space-y-3">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                <span className="text-sm font-semibold text-white">AI Performance Analysis</span>
+                <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300">AI Healing plan</span>
+              </div>
+              {[
+                { icon: '🎯', label: 'Threshold Rec.', detail: 'Set p95 ≤ 220 ms based on 14-day avg of 183 ms ± 24 ms' },
+                { icon: '📊', label: 'Regression', detail: 'p99 up 41% vs last week — correlates with DB query change in auth service' },
+                { icon: '🔍', label: 'Anomaly', detail: 'Latency spike at t=18s unusual — not seen in previous 9 runs' },
+                { icon: '✍️', label: 'Script Gen', detail: '"Stress test /api/cart with 50 VUs for 2 minutes" → 12-line k6 script ready' },
+              ].map(({ icon, label, detail }) => (
+                <div key={label} className="flex gap-3 bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2.5">
+                  <span className="text-lg shrink-0">{icon}</span>
+                  <div>
+                    <p className="text-[11px] font-semibold text-white mb-0.5">{label}</p>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">{detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ──────────── ACCESSIBILITY ──────────── */}
+      <section id="accessibility" className="py-20 px-6 bg-slate-900/30 border-y border-slate-800">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs font-medium mb-4">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              WCAG Accessibility Testing
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-4">Catch accessibility issues<br/>before your users do</h2>
+            <p className="text-slate-400 text-lg max-w-2xl mx-auto">Automated WCAG audits via Playwright and axe-core. Every page scan surfaces violations grouped by impact level so your team knows exactly what to fix — and in what order.</p>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-16 items-start">
+            <div className="space-y-4">
+              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${colorMap.purple.badge} border ${colorMap.purple.border}`}>axe-core + Playwright</div>
+              <h3 className="text-2xl font-bold text-white">WCAG violations by impact, not by noise</h3>
+              <p className="text-slate-400 leading-relaxed">One click runs Playwright across every URL you configure, injects axe-core, and returns a structured violation report. Results persist so you can track improvement sprint over sprint.</p>
+              <ul className="space-y-2.5">
+                {[
+                  '🔴 Critical — completely blocks assistive technology users',
+                  '🟠 Serious — significantly degrades experience, high priority fix',
+                  '🔵 Moderate — some difficulty but a workaround may exist',
+                  '🟢 Minor — best-practice deviations to clean up over time',
+                  'Audit multiple pages in a single test run (login, checkout, dashboard…)',
+                ].map(item => (
+                  <li key={item} className="flex items-start gap-2.5">
+                    <svg className="w-4 h-4 text-purple-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                    <span className="text-sm text-slate-300">{item}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className={`rounded-xl border ${colorMap.indigo.border} bg-indigo-950/20 p-4 mt-2`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                  <span className="text-xs font-semibold text-indigo-300">AI Fix Suggestions</span>
+                  <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300">AI Healing plan</span>
+                </div>
+                <p className="text-sm text-slate-400 leading-relaxed">Click <strong className="text-white">AI Fix</strong> on any violation to get a plain-English explanation, the WCAG rule being violated, and a concrete code snippet showing the corrected HTML or ARIA attributes.</p>
+              </div>
+            </div>
+            <MockAccessibilityPanel />
+          </div>
+        </div>
+      </section>
+
+      {/* ──────────── HOW IT WORKS ──────────── */}}
       <section id="how" className="py-20 px-6 bg-slate-900/40 border-y border-slate-800">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-14">
@@ -629,14 +851,14 @@ export default function Landing() {
                 name: 'Starter', price: 12, color: 'slate', highlight: false, isFree: false,
                 seats: 'Up to 5 seats',
                 desc: 'Perfect for small QA teams getting started.',
-                features: ['Everything in Free','Execution history','Email support','Playwright automation','Test suites & coverage'],
+                features: ['Everything in Free','Execution history','Email support','Playwright automation','Test suites & coverage','Performance testing (k6)','Accessibility audits'],
                 ai: false,
               },
               {
                 name: 'Pro', price: 19, color: 'violet', highlight: true, isFree: false,
                 seats: 'Up to 20 seats',
                 desc: 'For teams that want AI to do the heavy lifting.',
-                features: ['Everything in Starter','AI Playwright script gen','AI test case generation','AI self-healing tests','Release readiness score','AI defect creation','Priority support'],
+                features: ['Everything in Starter','AI Playwright script gen','AI test case generation','AI self-healing tests','Release readiness score','AI defect creation','AI performance insights (6 features)','AI accessibility fix suggestions','Priority support'],
                 ai: true,
               },
               {
@@ -757,6 +979,8 @@ export default function Landing() {
             <div className="flex items-center gap-6 text-sm text-slate-500">
               <a href="#features" className="hover:text-slate-300 transition-colors">Features</a>
               <a href="#ai" className="hover:text-slate-300 transition-colors">AI</a>
+              <a href="#performance" className="hover:text-slate-300 transition-colors">Performance</a>
+              <a href="#accessibility" className="hover:text-slate-300 transition-colors">Accessibility</a>
               <a href="#how" className="hover:text-slate-300 transition-colors">How it works</a>
               <a href="#pricing" className="hover:text-slate-300 transition-colors">Pricing</a>
               <a href="/docs" className="hover:text-slate-300 transition-colors">Docs</a>
