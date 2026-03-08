@@ -5,23 +5,13 @@ import API_URL from '../apiUrl';
 // Device catalogue
 // ---------------------------------------------------------------------------
 const DEVICE_GROUPS = [
-  { group: '📱 iPhone', devices: ['iPhone SE', 'iPhone 15', 'iPhone 15 Pro', 'iPhone 15 Pro Max'] },
-  { group: '🤖 Android', devices: ['Pixel 7', 'Galaxy S9+'] },
-  { group: '📟 Tablet', devices: ['iPad Mini', 'iPad Pro 11'] },
-  { group: '⚙️ Custom', devices: ['Custom'] },
+  { group: 'iPhone', devices: ['iPhone SE', 'iPhone 15', 'iPhone 15 Pro', 'iPhone 15 Pro Max'] },
+  { group: 'Android', devices: ['Pixel 7', 'Galaxy S9+'] },
+  { group: 'Tablet', devices: ['iPad Mini', 'iPad Pro 11'] },
+  { group: 'Custom', devices: ['Custom'] },
 ];
 
 const ALL_DEVICES = DEVICE_GROUPS.flatMap(g => g.devices);
-
-function deviceEmoji(profile) {
-  if (!profile) return '📱';
-  const p = profile.toLowerCase();
-  if (p.includes('ipad')) return '📟';
-  if (p.includes('iphone')) return '🍎';
-  if (p.includes('pixel') || p.includes('galaxy')) return '🤖';
-  if (p.includes('custom')) return '⚙️';
-  return '📱';
-}
 
 function deviceBadgeClass(profile) {
   if (!profile) return 'bg-slate-700 text-slate-300';
@@ -31,32 +21,30 @@ function deviceBadgeClass(profile) {
   return 'bg-purple-500/20 text-purple-300 border border-purple-500/30';
 }
 
+const STATUS_STYLES = {
+  running: 'bg-blue-400/15 text-blue-300 border-blue-400/30',
+  passed:  'bg-green-400/15 text-green-300 border-green-400/30',
+  failed:  'bg-red-400/15 text-red-300 border-red-400/30',
+  error:   'bg-red-400/15 text-red-300 border-red-400/30',
+  pending: 'bg-slate-400/15 text-slate-300 border-slate-400/30',
+  partial: 'bg-yellow-400/15 text-yellow-300 border-yellow-400/30',
+};
+const STATUS_LABEL = { running: 'Running', passed: 'Passed', failed: 'Failed', error: 'Error', pending: 'Pending', partial: 'Partial' };
+
 function statusBadge(status) {
-  if (!status) return null;
-  const map = {
-    running:  'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30',
-    passed:   'bg-green-500/20  text-green-300  border border-green-500/30',
-    failed:   'bg-red-500/20    text-red-300    border border-red-500/30',
-    error:    'bg-red-500/20    text-red-300    border border-red-500/30',
-    pending:  'bg-slate-600/40  text-slate-300  border border-slate-500/30',
-  };
-  return map[status] || map.pending;
+  return STATUS_STYLES[status] || STATUS_STYLES.pending;
 }
 
 function StatusDot({ status }) {
-  if (status === 'running') return (
-    <span className="inline-flex items-center gap-1">
-      <svg className="animate-spin h-3 w-3 text-yellow-400" viewBox="0 0 24 24" fill="none">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-      </svg>
-      Running
+  const label = STATUS_LABEL[status] || status || '—';
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {status === 'running' && (
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+      )}
+      {label}
     </span>
   );
-  if (status === 'passed')  return <span className="text-green-400">✓ Passed</span>;
-  if (status === 'failed')  return <span className="text-red-400">✗ Failed</span>;
-  if (status === 'error')   return <span className="text-red-400">✗ Error</span>;
-  return <span className="text-slate-400">—</span>;
 }
 
 function formatDuration(ms) {
@@ -84,12 +72,17 @@ function ResultModal({ execution, onClose }) {
   const isRunning = execution.status === 'running';
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
+      <div className="w-full max-w-4xl rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+        <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0" style={{ borderColor: 'rgb(var(--border-primary))' }}>
           <div className="flex items-center gap-3">
-            <span className="text-xl">{deviceEmoji(execution.device_profile)}</span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+            </div>
             <div>
               <h2 className="text-white font-semibold text-lg leading-tight">
                 {execution.test_file_name || 'Mobile Run'}
@@ -102,15 +95,13 @@ function ResultModal({ execution, onClose }) {
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded transition-colors">
-            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
-            </svg>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
 
         {/* Stats row */}
-        <div className="flex gap-4 p-4 border-b border-slate-700 bg-slate-900/30">
+        <div className="flex gap-4 px-6 py-4 border-b" style={{ borderColor: 'rgb(var(--border-primary))' }}>
           <div className="flex-1 text-center">
             <p className="text-slate-400 text-xs mb-1">Status</p>
             <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium ${statusBadge(execution.status) || ''}`}>
@@ -127,7 +118,7 @@ function ResultModal({ execution, onClose }) {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto p-4 space-y-4">
+        <div className="flex-1 overflow-auto p-6 space-y-4">
           {/* Screenshot */}
           {execution.screenshot_base64 && (
             <div>
@@ -213,33 +204,32 @@ function SuiteModal({ suite, testFiles, onClose, onSave }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-slate-700">
-          <h2 className="text-white font-semibold text-lg">{suite ? 'Edit Suite' : 'New Mobile Suite'}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded transition-colors">
-            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
-            </svg>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
+      <div className="w-full max-w-2xl rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+          <h2 className="text-lg font-semibold text-white">{suite ? 'Edit Suite' : 'New Mobile Suite'}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto p-4 space-y-4">
+        <div className="flex-1 overflow-auto p-6 space-y-4">
           <div>
-            <label className="block text-slate-300 text-sm font-medium mb-1">Suite Name *</label>
+            <label className="block text-slate-300 text-sm font-medium mb-1.5">Suite Name *</label>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Smoke Tests on iPhone"
-              className="w-full bg-slate-700 border border-slate-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+              className="w-full bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500"/>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-300 text-sm font-medium mb-1">Device</label>
+              <label className="block text-slate-300 text-sm font-medium mb-1.5">Device</label>
               <DeviceSelect value={device} onChange={setDevice}/>
             </div>
             <div>
-              <label className="block text-slate-300 text-sm font-medium mb-1">Description</label>
+              <label className="block text-slate-300 text-sm font-medium mb-1.5">Description</label>
               <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional notes"
-                className="w-full bg-slate-700 border border-slate-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"/>
+                className="w-full bg-slate-900 border border-slate-700 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500"/>
             </div>
           </div>
 
@@ -275,12 +265,12 @@ function SuiteModal({ suite, testFiles, onClose, onSave }) {
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-700">
-          <button onClick={onClose} className="px-4 py-2 text-slate-400 hover:text-white text-sm transition-colors">Cancel</button>
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t flex-shrink-0" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors text-sm">Cancel</button>
           <button onClick={handleSave} disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
             {saving ? (
-              <><svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>Saving…</>
+              <><svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Saving…</>
             ) : 'Save Suite'}
           </button>
         </div>
@@ -297,32 +287,30 @@ function SuiteRunModal({ run, onClose, onViewExec }) {
   const isRunning = run.status === 'running';
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
+      <div className="w-full max-w-3xl rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0" style={{ borderColor: 'rgb(var(--border-primary))' }}>
           <div className="flex items-center gap-3">
-            <span className="text-xl">📋</span>
             <div>
-              <h2 className="text-white font-semibold text-lg leading-tight">{run.suite_name}</h2>
+              <h2 className="text-lg font-semibold text-white">{run.suite_name}</h2>
               <div className="flex items-center gap-2 mt-0.5">
                 <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${deviceBadgeClass(run.device_profile)}`}>
-                  {deviceEmoji(run.device_profile)} {run.device_profile}
+                  {run.device_profile}
                 </span>
                 <span className="text-slate-500 text-xs">{formatDate(run.started_at)}</span>
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded transition-colors">
-            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
-            </svg>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
 
         {/* Summary stats */}
-        <div className="grid grid-cols-4 border-b border-slate-700">
+        <div className="grid grid-cols-4 border-b" style={{ borderColor: 'rgb(var(--border-primary))' }}>
           {[
-            { label: 'Status', content: <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${statusBadge(run.status) || ''}`}><StatusDot status={run.status}/></span> },
+            { label: 'Status', content: <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${statusBadge(run.status)}`}><StatusDot status={run.status}/></span> },
             { label: 'Total',  content: <span className="text-white font-bold text-lg">{run.total_files}</span> },
             { label: 'Passed', content: <span className="text-green-400 font-bold text-lg">{run.passed_files || 0}</span> },
             { label: 'Failed', content: <span className="text-red-400 font-bold text-lg">{run.failed_files || 0}</span> },
@@ -346,7 +334,8 @@ function SuiteRunModal({ run, onClose, onViewExec }) {
           )}
           <div className="space-y-2">
             {(run.executions || []).map((exec, idx) => (
-              <div key={exec.id} className="bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2.5 flex items-center gap-3">
+              <div key={exec.id} className="border rounded-xl px-3 py-2.5 flex items-center gap-3 transition-colors"
+                style={{ borderColor: 'rgb(var(--border-primary))' }}>
                 <span className="text-slate-500 text-xs w-5 text-right flex-shrink-0">{idx + 1}.</span>
                 <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
                   exec.status === 'running' ? 'bg-yellow-400 animate-pulse' :
@@ -358,12 +347,12 @@ function SuiteRunModal({ run, onClose, onViewExec }) {
                   {exec.module_name && <span className="text-slate-500 text-xs ml-2 bg-slate-700 px-1.5 py-0.5 rounded">{exec.module_name}</span>}
                 </div>
                 <span className="text-slate-400 text-xs flex-shrink-0">{formatDuration(exec.duration_ms)}</span>
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium w-20 justify-center flex-shrink-0 ${statusBadge(exec.status) || ''}`}>
+                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border w-20 justify-center flex-shrink-0 ${statusBadge(exec.status)}`}>
                   <StatusDot status={exec.status}/>
                 </span>
                 {exec.status !== 'running' && (
                   <button onClick={() => onViewExec(exec)}
-                    className="text-slate-400 hover:text-blue-400 p-1 rounded hover:bg-slate-700 transition-colors flex-shrink-0"
+                    className="text-slate-400 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-700 transition-colors flex-shrink-0"
                     title="View logs">
                     <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
                       <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
@@ -388,7 +377,7 @@ function DeviceSelect({ value, onChange }) {
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-[160px]"
+      className="bg-slate-900 border border-slate-700 text-white text-sm rounded-xl px-2 py-1.5 focus:outline-none focus:border-indigo-500 min-w-[160px]"
     >
       {DEVICE_GROUPS.map(g => (
         <optgroup key={g.group} label={g.group} className="bg-slate-800">
@@ -749,20 +738,21 @@ export default function MobileTests() {
   // Render
   // -----------------------------------------------------------------------
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-white">
-      {/* Page header */}
-      <div className="px-6 pt-6 pb-4 border-b border-slate-700">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              📱 Mobile Tests
-            </h1>
-            <p className="text-slate-400 text-sm mt-1">
-              Run your existing automation test files on mobile devices using Playwright emulation
-            </p>
-          </div>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-white flex items-center gap-2.5">
+            <svg className="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+            Mobile Tests
+          </h1>
+          <p className="text-slate-400 text-sm mt-1">Run your existing automation test files on mobile devices using Playwright emulation</p>
+        </div>
+        <div className="flex items-center gap-3">
           {runningCount > 0 && (
-            <span className="flex items-center gap-1.5 bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 px-3 py-1.5 rounded-full text-sm font-medium">
+            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border bg-blue-400/15 text-blue-300 border-blue-400/30">
               <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
@@ -770,32 +760,33 @@ export default function MobileTests() {
               {runningCount} running
             </span>
           )}
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-1 mt-4">
-          {[
-            { id: 'files',  label: 'Test Files', icon: '📄' },
-            { id: 'suites', label: `Suites${suites.length > 0 ? ` (${suites.length})` : ''}`, icon: '📋' },
-            { id: 'runs',   label: `Runs${executions.length > 0 ? ` (${executions.length})` : ''}`, icon: '▶️' },
-          ].map(tab => (
+          {activeTab === 'suites' && (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                activeTab === tab.id
-                  ? 'bg-blue-600 text-white shadow'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-700'
-              }`}
+              onClick={() => { setEditingSuite(null); setShowSuiteModal(true); }}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-indigo-600/30"
             >
-              <span className="mr-1.5">{tab.icon}</span>{tab.label}
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              New Suite
             </button>
-          ))}
+          )}
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-auto p-6">
+      {/* Tabs */}
+      <div className="flex border-b" style={{ borderColor: 'rgb(var(--border-primary))' }}>
+        {[
+          { id: 'files',  label: `Files (${testFiles.length})` },
+          { id: 'suites', label: `Suites${suites.length > 0 ? ` (${suites.length})` : ''}` },
+          { id: 'runs',   label: `Runs${executions.length > 0 ? ` (${executions.length})` : ''}` },
+        ].map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)}
+            className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 ${
+              activeTab === t.id ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
         {/* ---- TAB: TEST FILES ---- */}
         {activeTab === 'files' && (
@@ -810,7 +801,7 @@ export default function MobileTests() {
                     onClick={() => setModuleFilter(m)}
                     className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                       moduleFilter === m
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-indigo-600 text-white'
                         : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                     }`}
                   >
@@ -844,19 +835,21 @@ export default function MobileTests() {
             )}
 
             {!filesLoading && !filesError && filteredFiles.length === 0 && (
-              <div className="text-center py-16">
-                <div className="text-5xl mb-3">📄</div>
-                <p className="text-slate-300 font-medium">No test files found</p>
-                <p className="text-slate-500 text-sm mt-1">
-                  Create automation test files in your modules first, then run them here on any device.
-                </p>
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-600/20 flex items-center justify-center mb-4">
+                  <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-white mb-2">No test files found</h3>
+                <p className="text-slate-400 text-sm max-w-md">Create automation test files in your modules first, then run them here on any device.</p>
               </div>
             )}
 
             {!filesLoading && Object.entries(grouped).map(([moduleName, files]) => (
               <div key={moduleName} className="mb-6">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className="h-4 w-1 rounded bg-blue-500"/>
+                  <div className="h-4 w-1 rounded bg-indigo-500"/>
                   <h3 className="text-slate-200 font-semibold text-sm tracking-wide">{moduleName}</h3>
                   <span className="text-slate-500 text-xs">({files.length} file{files.length !== 1 ? 's' : ''})</span>
                 </div>
@@ -867,12 +860,15 @@ export default function MobileTests() {
                     return (
                       <div
                         key={file.id}
-                        className="bg-slate-800 border border-slate-700 rounded-xl p-4 flex items-center gap-4 hover:border-slate-600 transition-colors"
+                        className="rounded-xl p-4 flex items-center gap-4 border transition-colors hover:border-slate-600"
+                        style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}
                       >
                         {/* Name */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-lg">📄</span>
+                            <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
                             <span className="text-white font-medium truncate">{file.name}</span>
                           </div>
                           {file.module_base_url && (
@@ -885,7 +881,7 @@ export default function MobileTests() {
                           {lastRun ? (
                             <>
                               <p className="text-slate-500 mb-0.5">Last run</p>
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${statusBadge(lastRun.status) || ''}`}>
+                              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${statusBadge(lastRun.status)}`}>
                                 <StatusDot status={lastRun.status} />
                               </span>
                             </>
@@ -904,10 +900,10 @@ export default function MobileTests() {
                         <button
                           onClick={() => runFile(file)}
                           disabled={isRunning}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all flex-shrink-0 ${
+                          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors flex-shrink-0 ${
                             isRunning
-                              ? 'bg-yellow-600/40 text-yellow-300 cursor-not-allowed'
-                              : 'bg-blue-600 hover:bg-blue-500 text-white shadow hover:shadow-blue-500/30'
+                              ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                              : 'bg-indigo-600 hover:bg-indigo-500 text-white'
                           }`}
                         >
                           {isRunning ? (
@@ -939,14 +935,6 @@ export default function MobileTests() {
         {/* ---- TAB: SUITES ---- */}
         {activeTab === 'suites' && (
           <div>
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <p className="text-slate-400 text-sm">{suites.length} suite{suites.length !== 1 ? 's' : ''} defined</p>
-              <button
-                onClick={() => { setEditingSuite(null); setShowSuiteModal(true); }}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
-              >+ New Suite</button>
-            </div>
 
             {/* Suite cards */}
             {suitesLoading ? (
@@ -954,30 +942,31 @@ export default function MobileTests() {
             ) : suitesError ? (
               <p className="text-red-400 text-sm">{suitesError}</p>
             ) : suites.length === 0 ? (
-              <div className="text-center py-12 text-slate-500">
-                <p className="text-4xl mb-3">📋</p>
-                <p className="text-lg font-medium text-slate-400">No suites yet</p>
-                <p className="text-sm mt-1">Create a suite to group test files and run them together for CI.</p>
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-600/20 flex items-center justify-center mb-4">
+                  <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 10h16M4 14h8m-8 4h4" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-white mb-2">No suites yet</h3>
+                <p className="text-slate-400 text-sm max-w-md">Create a suite to group test files and run them together for CI.</p>
               </div>
             ) : (
               <div className="grid gap-4">
                 {suites.map(suite => {
                   const isRunning = runningSuiteIds.has(suite.id);
                   const lastStatus = suite.last_run_status;
-                  const statusColor = lastStatus === 'passed'  ? 'text-green-400 bg-green-900/30'
-                                    : lastStatus === 'failed'  ? 'text-red-400 bg-red-900/30'
-                                    : lastStatus === 'partial' ? 'text-yellow-400 bg-yellow-900/30'
-                                    : 'text-slate-400 bg-slate-700';
                   return (
-                    <div key={suite.id} className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+                    <div key={suite.id} className="rounded-xl p-5 border transition-colors hover:border-slate-600"
+                      style={{ backgroundColor: 'rgb(var(--bg-elevated))', borderColor: 'rgb(var(--border-primary))' }}>
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold text-white">{suite.name}</span>
-                            <span className="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">{suite.device_profile}</span>
-                            <span className="text-xs text-slate-400">{suite.file_count ?? 0} file{suite.file_count !== 1 ? 's' : ''}</span>
+                            <span className="text-base font-semibold text-white">{suite.name}</span>
+                            <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium border ${STATUS_STYLES[suite.last_run_status] || 'bg-indigo-600/15 text-indigo-300 border-indigo-600/20'}`}>{suite.device_profile}</span>
+                            <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-700/60 text-slate-400 border border-slate-600">{suite.file_count ?? 0} file{suite.file_count !== 1 ? 's' : ''}</span>
                             {lastStatus && (
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor}`}>{lastStatus}</span>
+                              <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium border ${STATUS_STYLES[lastStatus]}`}>{STATUS_LABEL[lastStatus] || lastStatus}</span>
                             )}
                           </div>
                           {suite.description && (
@@ -988,20 +977,28 @@ export default function MobileTests() {
                           <button
                             onClick={() => runSuite(suite)}
                             disabled={isRunning}
-                            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium px-3 py-2 rounded-xl transition-colors"
                           >
                             {isRunning ? (
-                              <><span className="animate-spin inline-block">⟳</span> Running…</>
-                            ) : <>▶ Run</>}
+                              <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Running…</>
+                            ) : (
+                              <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> Run</>
+                            )}
                           </button>
                           <button
                             onClick={() => openEditSuite(suite)}
-                            className="text-slate-400 hover:text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 hover:border-slate-400 transition-colors"
-                          >Edit</button>
+                            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                            title="Edit"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                          </button>
                           <button
                             onClick={() => deleteSuite(suite.id)}
-                            className="text-red-400 hover:text-red-300 text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 hover:border-red-800 transition-colors"
-                          >Delete</button>
+                            className="p-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                            title="Delete"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1013,12 +1010,14 @@ export default function MobileTests() {
             {/* Suite Runs History */}
             <div className="mt-8">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-white font-semibold">Suite Run History</h3>
+                <h3 className="text-base font-semibold text-white">Suite Run History</h3>
                 <button
                   onClick={fetchSuiteRuns}
                   className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
                   title="Refresh"
-                >↺</button>
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                </button>
               </div>
               {suiteRunsLoading ? (
                 <p className="text-slate-400 text-sm">Loading…</p>
@@ -1028,27 +1027,31 @@ export default function MobileTests() {
                 <div className="space-y-2">
                   {suiteRuns.map(run => {
                     const isRunning = run.status === 'running';
-                    const statusColor = run.status === 'passed'  ? 'text-green-400 bg-green-900/30'
-                                     : run.status === 'failed'  ? 'text-red-400 bg-red-900/30'
-                                     : run.status === 'partial' ? 'text-yellow-400 bg-yellow-900/30'
-                                     : 'text-blue-400 bg-blue-900/30';
                     return (
-                      <div key={run.id} className="flex items-center gap-4 bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-sm">
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusColor}`}>
-                          {isRunning ? '⟳ running' : run.status}
+                      <div key={run.id} className="flex items-center gap-4 rounded-xl border px-4 py-3 text-sm transition-colors"
+                        style={{ borderColor: 'rgb(var(--border-primary))' }}>
+                        <span className={`text-xs font-medium px-2.5 py-1 rounded-full border flex-shrink-0 ${STATUS_STYLES[run.status] || STATUS_STYLES.pending}`}>
+                          {run.status === 'running' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-current mr-1.5 animate-pulse" />}
+                          {STATUS_LABEL[run.status] || run.status}
                         </span>
                         <span className="text-white flex-1 font-medium truncate">{run.suite_name}</span>
                         <span className="text-slate-400 text-xs">{run.device_profile}</span>
                         <span className="text-slate-400 text-xs">{run.passed_files}/{run.total_files} passed</span>
                         <span className="text-slate-500 text-xs">{new Date(run.started_at).toLocaleString()}</span>
                         <button
-                          onClick={() => viewSuiteRunDetail(run.id)}
-                          className="text-blue-400 hover:text-blue-300 text-xs px-2.5 py-1 rounded border border-slate-600 hover:border-blue-600 transition-colors"
-                        >View</button>
+                          onClick={() => viewSuiteRunDetail(run)}
+                          className="text-indigo-400 hover:text-indigo-300 p-1.5 rounded-lg hover:bg-slate-700 transition-colors flex-shrink-0"
+                          title="View"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                        </button>
                         <button
                           onClick={() => deleteSuiteRun(run.id)}
-                          className="text-slate-400 hover:text-red-400 text-xs px-2.5 py-1 rounded border border-slate-700 hover:border-red-800 transition-colors"
-                        >✕</button>
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/10 transition-colors flex-shrink-0"
+                          title="Delete"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
                       </div>
                     );
                   })}
@@ -1089,12 +1092,15 @@ export default function MobileTests() {
             )}
 
             {!runsLoading && !runsError && executions.length === 0 && (
-              <div className="text-center py-16">
-                <div className="text-5xl mb-3">▶️</div>
-                <p className="text-slate-300 font-medium">No runs yet</p>
-                <p className="text-slate-500 text-sm mt-1">
-                  Go to the Test Files tab, pick a device and click "Run on Device".
-                </p>
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-600/20 flex items-center justify-center mb-4">
+                  <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-white mb-2">No runs yet</h3>
+                <p className="text-slate-400 text-sm">Go to the Files tab, pick a device and click Run on Device.</p>
               </div>
             )}
 
@@ -1103,7 +1109,8 @@ export default function MobileTests() {
                 {executions.map(exec => (
                   <div
                     key={exec.id}
-                    className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 flex items-center gap-4 hover:border-slate-600 transition-colors"
+                    className="rounded-xl px-4 py-3 flex items-center gap-4 border transition-colors hover:border-slate-600"
+                    style={{ borderColor: 'rgb(var(--border-primary))' }}
                   >
                     {/* Status dot */}
                     <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
@@ -1122,8 +1129,8 @@ export default function MobileTests() {
                         )}
                       </div>
                       <div className="flex items-center gap-3 mt-0.5">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${deviceBadgeClass(exec.device_profile)}`}>
-                          {deviceEmoji(exec.device_profile)} {exec.device_profile}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium ${deviceBadgeClass(exec.device_profile)}`}>
+                          {exec.device_profile}
                         </span>
                         <span className="text-slate-500 text-xs">{formatDate(exec.started_at)}</span>
                       </div>
@@ -1135,7 +1142,7 @@ export default function MobileTests() {
                     </div>
 
                     {/* Status badge */}
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium w-24 justify-center flex-shrink-0 ${statusBadge(exec.status) || ''}`}>
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border w-24 justify-center flex-shrink-0 ${statusBadge(exec.status)}`}>
                       <StatusDot status={exec.status}/>
                     </span>
 
@@ -1143,8 +1150,7 @@ export default function MobileTests() {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => viewExecution(exec)}
-                        className="text-slate-400 hover:text-blue-400 p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
-                        title="View details"
+                        className="text-slate-400 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
                       >
                         <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                           <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
@@ -1169,7 +1175,6 @@ export default function MobileTests() {
             )}
           </div>
         )}
-      </div>
 
       {/* Result modal */}
       {viewExec && (
