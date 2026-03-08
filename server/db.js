@@ -2634,10 +2634,10 @@ const accessibilityOperations = {
 // Mobile Testing tables
 // ---------------------------------------------------------------------------
 async function initMobileTables() {
-  // Drop legacy tables from old schema (no-op if they don't exist)
-  await pool.query(`DROP TABLE IF EXISTS mobile_executions CASCADE`);
+  // Drop legacy mobile_tests table from old schema (no-op if not present)
   await pool.query(`DROP TABLE IF EXISTS mobile_tests CASCADE`);
 
+  // Base executions table — preserve data across restarts
   await pool.query(`
     CREATE TABLE IF NOT EXISTS mobile_executions (
       id                SERIAL PRIMARY KEY,
@@ -2651,8 +2651,52 @@ async function initMobileTables() {
       screenshot_base64 TEXT,
       duration_ms       INTEGER,
       error_message     TEXT,
+      suite_run_id      INTEGER,
       started_at        TIMESTAMPTZ DEFAULT NOW(),
       ended_at          TIMESTAMPTZ
+    )
+  `);
+  // Idempotent migration: add suite_run_id if schema existed before this column
+  await pool.query(`ALTER TABLE mobile_executions ADD COLUMN IF NOT EXISTS suite_run_id INTEGER`);
+
+  // Suite definitions
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS mobile_suites (
+      id             SERIAL PRIMARY KEY,
+      org_id         INTEGER NOT NULL,
+      name           TEXT NOT NULL,
+      device_profile TEXT NOT NULL DEFAULT 'iPhone 15',
+      description    TEXT DEFAULT '',
+      created_at     TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Files belonging to a suite (ordered)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS mobile_suite_files (
+      id             SERIAL PRIMARY KEY,
+      suite_id       INTEGER NOT NULL REFERENCES mobile_suites(id) ON DELETE CASCADE,
+      test_file_id   INTEGER NOT NULL,
+      test_file_name TEXT NOT NULL DEFAULT '',
+      module_name    TEXT DEFAULT '',
+      order_index    INTEGER DEFAULT 0
+    )
+  `);
+
+  // Suite run records
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS mobile_suite_runs (
+      id             SERIAL PRIMARY KEY,
+      org_id         INTEGER NOT NULL,
+      suite_id       INTEGER,
+      suite_name     TEXT NOT NULL DEFAULT '',
+      device_profile TEXT NOT NULL,
+      status         TEXT NOT NULL DEFAULT 'running',
+      total_files    INTEGER DEFAULT 0,
+      passed_files   INTEGER DEFAULT 0,
+      failed_files   INTEGER DEFAULT 0,
+      started_at     TIMESTAMPTZ DEFAULT NOW(),
+      ended_at       TIMESTAMPTZ
     )
   `);
 }
@@ -2695,6 +2739,97 @@ const mobileOperations = {
   },
   deleteExecution: async (id, orgId) => {
     await pool.query('DELETE FROM mobile_executions WHERE id=$1 AND org_id=$2', [id, orgId]);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Mobile Suite operations
+// ---------------------------------------------------------------------------
+const mobileSuiteOperations = {
+  createSuite: async ({ org_id, name, device_profile, description }) => {
+    const r = await pool.query(
+      `INSERT INTO mobile_suites (org_id, name, device_profile, description) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [org_id, name, device_profile || 'iPhone 15', description || '']
+    );
+    return r.rows[0];
+  },
+  getAllSuites: async (orgId) => {
+    const r = await pool.query(
+      `SELECT ms.*,
+              COUNT(msf.id)::int AS file_count,
+              (SELECT status FROM mobile_suite_runs WHERE suite_id=ms.id ORDER BY started_at DESC LIMIT 1) AS last_run_status,
+              (SELECT started_at FROM mobile_suite_runs WHERE suite_id=ms.id ORDER BY started_at DESC LIMIT 1) AS last_run_at
+       FROM mobile_suites ms
+       LEFT JOIN mobile_suite_files msf ON msf.suite_id = ms.id
+       WHERE ms.org_id = $1
+       GROUP BY ms.id
+       ORDER BY ms.created_at DESC`,
+      [orgId]
+    );
+    return r.rows;
+  },
+  getSuiteById: async (id, orgId) => {
+    const r = await pool.query('SELECT * FROM mobile_suites WHERE id=$1 AND org_id=$2', [id, orgId]);
+    return r.rows[0] || null;
+  },
+  updateSuite: async (id, { name, device_profile, description }) => {
+    const r = await pool.query(
+      `UPDATE mobile_suites SET name=$1, device_profile=$2, description=$3 WHERE id=$4 RETURNING *`,
+      [name, device_profile, description || '', id]
+    );
+    return r.rows[0];
+  },
+  deleteSuite: async (id, orgId) => {
+    await pool.query('DELETE FROM mobile_suites WHERE id=$1 AND org_id=$2', [id, orgId]);
+  },
+  setSuiteFiles: async (suiteId, files) => {
+    await pool.query('DELETE FROM mobile_suite_files WHERE suite_id=$1', [suiteId]);
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      await pool.query(
+        `INSERT INTO mobile_suite_files (suite_id, test_file_id, test_file_name, module_name, order_index) VALUES ($1,$2,$3,$4,$5)`,
+        [suiteId, f.test_file_id, f.test_file_name || '', f.module_name || '', i]
+      );
+    }
+  },
+  getSuiteFiles: async (suiteId) => {
+    const r = await pool.query(
+      'SELECT * FROM mobile_suite_files WHERE suite_id=$1 ORDER BY order_index',
+      [suiteId]
+    );
+    return r.rows;
+  },
+  createSuiteRun: async ({ org_id, suite_id, suite_name, device_profile, total_files }) => {
+    const r = await pool.query(
+      `INSERT INTO mobile_suite_runs (org_id, suite_id, suite_name, device_profile, total_files) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [org_id, suite_id, suite_name, device_profile, total_files]
+    );
+    return r.rows[0];
+  },
+  updateSuiteRun: async (id, { status, passed_files, failed_files }) => {
+    await pool.query(
+      `UPDATE mobile_suite_runs SET status=$1, passed_files=$2, failed_files=$3, ended_at=NOW() WHERE id=$4`,
+      [status, passed_files || 0, failed_files || 0, id]
+    );
+  },
+  getAllSuiteRuns: async (orgId) => {
+    const r = await pool.query(
+      `SELECT * FROM mobile_suite_runs WHERE org_id=$1 ORDER BY started_at DESC LIMIT 200`,
+      [orgId]
+    );
+    return r.rows;
+  },
+  getSuiteRunById: async (id, orgId) => {
+    const run = (await pool.query('SELECT * FROM mobile_suite_runs WHERE id=$1 AND org_id=$2', [id, orgId])).rows[0];
+    if (!run) return null;
+    const executions = (await pool.query(
+      'SELECT * FROM mobile_executions WHERE suite_run_id=$1 ORDER BY started_at',
+      [id]
+    )).rows;
+    return { ...run, executions };
+  },
+  deleteSuiteRun: async (id, orgId) => {
+    await pool.query('DELETE FROM mobile_suite_runs WHERE id=$1 AND org_id=$2', [id, orgId]);
   },
 };
 
@@ -2752,5 +2887,6 @@ module.exports = {
   perfFolderOperations,
   perfSuiteOperations,
   accessibilityOperations,
-  mobileOperations
+  mobileOperations,
+  mobileSuiteOperations
 };

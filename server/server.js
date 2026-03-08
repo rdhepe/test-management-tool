@@ -6,7 +6,7 @@ const path = require('path');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
-const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, objectRepositoryOperations, orFolderOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations, performanceOperations, perfFolderOperations, perfSuiteOperations, accessibilityOperations, mobileOperations } = require('./db');
+const { pool, organizationOperations, moduleOperations, testFileOperations, executionOperations, testSuiteOperations, suiteTestFileOperations, suiteExecutionOperations, suiteTestResultOperations, testFileDependencyOperations, featureOperations, requirementOperations, testCaseOperations, manualTestRunOperations, defectOperations, defectCommentOperations, defectHistoryOperations, sprintOperations, taskOperations, taskCommentOperations, taskHistoryOperations, featureCommentOperations, featureHistoryOperations, requirementCommentOperations, requirementHistoryOperations, testCaseCommentOperations, testCaseHistoryOperations, sessionOperations, userOperations, customRoleOperations, wikiOperations, settingsOperations, globalVariableOperations, objectRepositoryOperations, orFolderOperations, enquiryOperations, platformFeedbackOperations, platformBugReportOperations, performanceOperations, perfFolderOperations, perfSuiteOperations, accessibilityOperations, mobileOperations, mobileSuiteOperations } = require('./db');
 
 // On Linux containers (Railway/Docker) there is no X display — always run headless.
 // On Windows/Mac with a real display, 'headed' mode works for local development.
@@ -132,7 +132,8 @@ if (require('fs').existsSync(distPath)) {
       p.startsWith('/performance-tests') || p.startsWith('/performance-executions') ||
       p.startsWith('/perf-folders') || p.startsWith('/perf-suites') || p.startsWith('/perf-suite-executions') || p.startsWith('/perf-ai') ||
       p.startsWith('/accessibility-tests') || p.startsWith('/accessibility-ai') ||
-      p.startsWith('/mobile-tests') || p.startsWith('/mobile-ai')
+      p.startsWith('/mobile-tests') || p.startsWith('/mobile-ai') ||
+      p.startsWith('/mobile-suites') || p.startsWith('/mobile-suite-runs')
     ) return next();
     // Only serve the SPA shell for GET requests (browser navigation)
     if (req.method !== 'GET') return next();
@@ -6436,6 +6437,231 @@ export default defineConfig({
       }
     })();
 
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
+// MOBILE SUITE ROUTES
+// =============================================================================
+
+// Helper: run one test file with Playwright device emulation, returns result object
+async function runMobileTestFileCore(orgId, testFile, device_profile) {
+  const playwrightDevices = (() => {
+    try { return require('@playwright/test').devices || {}; } catch { return {}; }
+  })();
+  let deviceProps = {};
+  if (device_profile === 'Custom') {
+    deviceProps = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1' };
+  } else {
+    const d = playwrightDevices[device_profile] || {};
+    const { defaultBrowserType: _drop, ...rest } = d;
+    deviceProps = rest;
+  }
+
+  const startTime = Date.now();
+  const tempDir = path.join(dataDir, 'temp', `msuiterun-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  try {
+    await fs.mkdir(tempDir, { recursive: true });
+
+    const orContent = await objectRepositoryOperations.generateORFileContent(orgId);
+    await fs.writeFile(path.join(tempDir, '_or.js'), orContent, 'utf8');
+
+    // Resolve dependencies
+    let filesToRun = [];
+    try {
+      const execOrder = await testFileDependencyOperations.getExecutionOrder(testFile.id);
+      for (const dep of (execOrder.before || [])) {
+        const depFile = await testFileOperations.getById(dep.dependency_file_id);
+        if (depFile && depFile.content) filesToRun.push({ label: 'before', name: dep.dependency_name || depFile.name, content: depFile.content });
+      }
+      filesToRun.push({ label: 'main', name: testFile.name, content: testFile.content || '' });
+      for (const dep of (execOrder.after || [])) {
+        const depFile = await testFileOperations.getById(dep.dependency_file_id);
+        if (depFile && depFile.content) filesToRun.push({ label: 'after', name: dep.dependency_name || depFile.name, content: depFile.content });
+      }
+    } catch (_) {
+      filesToRun = [{ label: 'main', name: testFile.name, content: testFile.content || '' }];
+    }
+
+    let moduleImportBlock = '';
+    try {
+      const mod = await moduleOperations.getById(testFile.module_id);
+      if (mod && mod.imports && mod.imports.trim()) moduleImportBlock = '\n' + mod.imports.trim() + '\n';
+    } catch (_) {}
+
+    const combinedSteps = filesToRun.map(f => {
+      const cleaned = f.content.replace(/^[^\S\n]*const\s+OR\s*=\s*require\s*\(['"]\.\/(._or|_or\.js)['"]\)\s*;?\s*$/gm, '');
+      const indented = cleaned.trim().split('\n').join('\n  ');
+      return `  // ── ${f.name} (${f.label}) ──\n  ${indented}`;
+    }).join('\n\n');
+
+    const combinedTestName = filesToRun.map(f => f.name).join(' → ');
+    const specContent = `import { test, expect } from '@playwright/test';
+import OR from './_or.js';${moduleImportBlock}
+test(${JSON.stringify(`[Mobile: ${device_profile}] ${combinedTestName}`)}, async ({ page, request, browser, context, browserName }) => {
+${combinedSteps}
+});
+`;
+    await fs.writeFile(path.join(tempDir, 'combined.spec.ts'), specContent, 'utf8');
+    await fs.writeFile(path.join(tempDir, 'package.json'), JSON.stringify({ type: 'module', name: 'temp-test', version: '1.0.0' }, null, 2), 'utf8');
+
+    const useBlock = JSON.stringify({ ...deviceProps, headless: true, screenshot: 'only-on-failure' });
+    const configContent = `import { defineConfig } from '@playwright/test';
+export default defineConfig({
+  workers: 1,
+  use: { headless: true },
+  reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
+  projects: [{ name: 'mobile', use: ${useBlock} }],
+});
+`;
+    await fs.writeFile(path.join(tempDir, 'playwright.config.ts'), configContent, 'utf8');
+
+    const globalVarsEnv = await globalVariableOperations.getAllAsEnv(orgId);
+    let logs = '', screenshotBase64 = null;
+    let runStatus = 'passed';
+
+    try {
+      const { stdout, stderr } = await execAsync('npx playwright test', {
+        cwd: tempDir, timeout: 90000,
+        env: { ...process.env, ...globalVarsEnv, NODE_PATH: nodePathEnv },
+      });
+      logs = [stdout, stderr].filter(s => s && s.trim()).join('\n').trim();
+    } catch (runErr) {
+      runStatus = 'failed';
+      logs = [runErr.stderr, runErr.stdout, runErr.message].filter(s => s && s.trim()).join('\n').trim();
+    }
+
+    try {
+      const trDir = path.join(tempDir, 'test-results');
+      const entries = await fs.readdir(trDir);
+      for (const sub of entries) {
+        const subPath = path.join(trDir, sub);
+        if ((await fs.stat(subPath)).isDirectory()) {
+          const files = await fs.readdir(subPath);
+          const png = files.find(f => f.endsWith('.png'));
+          if (png) { screenshotBase64 = (await fs.readFile(path.join(subPath, png))).toString('base64'); break; }
+        }
+      }
+    } catch (_) {}
+
+    return { status: runStatus, logs, screenshotBase64, durationMs: Date.now() - startTime, errorMessage: runStatus === 'failed' ? (logs.slice(-500) || 'Test failed') : null };
+  } catch (err) {
+    return { status: 'error', logs: err.message, screenshotBase64: null, durationMs: Date.now() - startTime, errorMessage: err.message };
+  } finally {
+    fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+// GET /mobile-suites
+app.get('/mobile-suites', requireAuth, async (req, res) => {
+  try { res.json(await mobileSuiteOperations.getAllSuites(req.session.orgId)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /mobile-suites
+app.post('/mobile-suites', requireAuth, async (req, res) => {
+  const { name, device_profile, description, files } = req.body;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  try {
+    const suite = await mobileSuiteOperations.createSuite({ org_id: req.session.orgId, name, device_profile, description });
+    if (files && files.length) await mobileSuiteOperations.setSuiteFiles(suite.id, files);
+    res.json(suite);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /mobile-suites/:id
+app.get('/mobile-suites/:id', requireAuth, async (req, res) => {
+  try {
+    const suite = await mobileSuiteOperations.getSuiteById(parseInt(req.params.id), req.session.orgId);
+    if (!suite) return res.status(404).json({ error: 'Suite not found' });
+    const files = await mobileSuiteOperations.getSuiteFiles(suite.id);
+    res.json({ ...suite, files });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /mobile-suites/:id
+app.put('/mobile-suites/:id', requireAuth, async (req, res) => {
+  const { name, device_profile, description, files } = req.body;
+  try {
+    const updated = await mobileSuiteOperations.updateSuite(parseInt(req.params.id), { name, device_profile, description });
+    if (files !== undefined) await mobileSuiteOperations.setSuiteFiles(parseInt(req.params.id), files);
+    res.json(updated);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /mobile-suites/:id
+app.delete('/mobile-suites/:id', requireAuth, async (req, res) => {
+  try {
+    await mobileSuiteOperations.deleteSuite(parseInt(req.params.id), req.session.orgId);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /mobile-suites/:id/run
+app.post('/mobile-suites/:id/run', requireAuth, async (req, res) => {
+  const orgId = req.session.orgId;
+  try {
+    const suite = await mobileSuiteOperations.getSuiteById(parseInt(req.params.id), orgId);
+    if (!suite) return res.status(404).json({ error: 'Suite not found' });
+    const suiteFiles = await mobileSuiteOperations.getSuiteFiles(suite.id);
+    if (!suiteFiles.length) return res.status(400).json({ error: 'Suite has no test files' });
+
+    const suiteRun = await mobileSuiteOperations.createSuiteRun({
+      org_id: orgId, suite_id: suite.id, suite_name: suite.name,
+      device_profile: suite.device_profile, total_files: suiteFiles.length,
+    });
+    res.json({ suiteRunId: suiteRun.id, status: 'running' });
+
+    // Async: run files sequentially
+    (async () => {
+      let passed = 0, failed = 0;
+      for (const sf of suiteFiles) {
+        let testFile = null;
+        try { testFile = await testFileOperations.getById(sf.test_file_id); } catch (_) {}
+        if (!testFile) { failed++; continue; }
+
+        const execution = await mobileOperations.createExecution({
+          org_id: orgId, test_file_id: sf.test_file_id, test_file_name: sf.test_file_name,
+          module_name: sf.module_name, device_profile: suite.device_profile,
+        });
+        // Tag this execution with the suite run id
+        await pool.query('UPDATE mobile_executions SET suite_run_id=$1 WHERE id=$2', [suiteRun.id, execution.id]);
+
+        const result = await runMobileTestFileCore(orgId, testFile, suite.device_profile);
+        await mobileOperations.updateExecution(execution.id, {
+          status: result.status, logs: result.logs,
+          screenshot_base64: result.screenshotBase64,
+          duration_ms: result.durationMs, error_message: result.errorMessage,
+        });
+        if (result.status === 'passed') passed++; else failed++;
+      }
+      const overallStatus = failed === 0 ? 'passed' : (passed === 0 ? 'failed' : 'partial');
+      await mobileSuiteOperations.updateSuiteRun(suiteRun.id, { status: overallStatus, passed_files: passed, failed_files: failed });
+    })();
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /mobile-suite-runs/all
+app.get('/mobile-suite-runs/all', requireAuth, async (req, res) => {
+  try { res.json(await mobileSuiteOperations.getAllSuiteRuns(req.session.orgId)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /mobile-suite-runs/:runId
+app.get('/mobile-suite-runs/:runId', requireAuth, async (req, res) => {
+  try {
+    const run = await mobileSuiteOperations.getSuiteRunById(parseInt(req.params.runId), req.session.orgId);
+    if (!run) return res.status(404).json({ error: 'Suite run not found' });
+    res.json(run);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /mobile-suite-runs/:runId
+app.delete('/mobile-suite-runs/:runId', requireAuth, async (req, res) => {
+  try {
+    await mobileSuiteOperations.deleteSuiteRun(parseInt(req.params.runId), req.session.orgId);
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

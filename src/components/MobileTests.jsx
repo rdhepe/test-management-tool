@@ -177,6 +177,210 @@ function ResultModal({ execution, onClose }) {
 }
 
 // ---------------------------------------------------------------------------
+// SuiteModal — create / edit a mobile suite
+// ---------------------------------------------------------------------------
+function SuiteModal({ suite, testFiles, onClose, onSave }) {
+  const [name, setName]           = useState(suite?.name || '');
+  const [device, setDevice]       = useState(suite?.device_profile || 'iPhone 15');
+  const [description, setDescription] = useState(suite?.description || '');
+  const [selectedIds, setSelectedIds] = useState(new Set((suite?.files || []).map(f => f.test_file_id)));
+  const [saving, setSaving]       = useState(false);
+  const [search, setSearch]       = useState('');
+
+  const filteredFiles = testFiles.filter(f =>
+    !search || f.name.toLowerCase().includes(search.toLowerCase()) ||
+    (f.module_name || '').toLowerCase().includes(search.toLowerCase())
+  );
+  const grouped = filteredFiles.reduce((acc, f) => {
+    const k = f.module_name || 'Ungrouped';
+    (acc[k] = acc[k] || []).push(f);
+    return acc;
+  }, {});
+
+  const toggle = (id) => setSelectedIds(prev => {
+    const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s;
+  });
+
+  const handleSave = async () => {
+    if (!name.trim()) { alert('Suite name is required'); return; }
+    if (selectedIds.size === 0) { alert('Select at least one test file'); return; }
+    setSaving(true);
+    const files = testFiles
+      .filter(f => selectedIds.has(f.id))
+      .map(f => ({ test_file_id: f.id, test_file_name: f.name, module_name: f.module_name || '' }));
+    await onSave({ name: name.trim(), device_profile: device, description, files });
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+          <h2 className="text-white font-semibold text-lg">{suite ? 'Edit Suite' : 'New Mobile Suite'}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded transition-colors">
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-4 space-y-4">
+          <div>
+            <label className="block text-slate-300 text-sm font-medium mb-1">Suite Name *</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Smoke Tests on iPhone"
+              className="w-full bg-slate-700 border border-slate-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-300 text-sm font-medium mb-1">Device</label>
+              <DeviceSelect value={device} onChange={setDevice}/>
+            </div>
+            <div>
+              <label className="block text-slate-300 text-sm font-medium mb-1">Description</label>
+              <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional notes"
+                className="w-full bg-slate-700 border border-slate-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"/>
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-slate-300 text-sm font-medium">
+                Test Files *
+                <span className="ml-2 text-slate-500 font-normal">({selectedIds.size} selected)</span>
+              </label>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search files…"
+                className="bg-slate-700 border border-slate-600 text-white rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 w-40"/>
+            </div>
+            <div className="bg-slate-900/50 border border-slate-700 rounded-lg max-h-60 overflow-auto">
+              {Object.entries(grouped).length === 0 && (
+                <p className="text-slate-500 text-sm text-center py-8">No test files found</p>
+              )}
+              {Object.entries(grouped).map(([moduleName, files]) => (
+                <div key={moduleName}>
+                  <div className="px-3 py-1.5 bg-slate-800/80 border-b border-slate-700 flex items-center gap-2 sticky top-0">
+                    <div className="h-3 w-0.5 rounded bg-blue-500"/>
+                    <span className="text-slate-400 text-xs font-semibold tracking-wide">{moduleName}</span>
+                  </div>
+                  {files.map(f => (
+                    <label key={f.id} className="flex items-center gap-3 px-4 py-2 hover:bg-slate-700/50 cursor-pointer transition-colors border-b border-slate-800/60 last:border-0">
+                      <input type="checkbox" checked={selectedIds.has(f.id)} onChange={() => toggle(f.id)}
+                        className="rounded border-slate-500 bg-slate-700 text-blue-500 focus:ring-0"/>
+                      <span className="text-white text-sm">{f.name}</span>
+                    </label>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-700">
+          <button onClick={onClose} className="px-4 py-2 text-slate-400 hover:text-white text-sm transition-colors">Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            {saving ? (
+              <><svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>Saving…</>
+            ) : 'Save Suite'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SuiteRunModal — per-file results of a suite run
+// ---------------------------------------------------------------------------
+function SuiteRunModal({ run, onClose, onViewExec }) {
+  if (!run) return null;
+  const isRunning = run.status === 'running';
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+          <div className="flex items-center gap-3">
+            <span className="text-xl">📋</span>
+            <div>
+              <h2 className="text-white font-semibold text-lg leading-tight">{run.suite_name}</h2>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${deviceBadgeClass(run.device_profile)}`}>
+                  {deviceEmoji(run.device_profile)} {run.device_profile}
+                </span>
+                <span className="text-slate-500 text-xs">{formatDate(run.started_at)}</span>
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded transition-colors">
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Summary stats */}
+        <div className="grid grid-cols-4 border-b border-slate-700">
+          {[
+            { label: 'Status', content: <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${statusBadge(run.status) || ''}`}><StatusDot status={run.status}/></span> },
+            { label: 'Total',  content: <span className="text-white font-bold text-lg">{run.total_files}</span> },
+            { label: 'Passed', content: <span className="text-green-400 font-bold text-lg">{run.passed_files || 0}</span> },
+            { label: 'Failed', content: <span className="text-red-400 font-bold text-lg">{run.failed_files || 0}</span> },
+          ].map(({ label, content }) => (
+            <div key={label} className="p-3 text-center border-r border-slate-700 last:border-r-0">
+              <p className="text-slate-400 text-xs mb-1">{label}</p>
+              {content}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-auto p-4">
+          {isRunning && (!run.executions || run.executions.length === 0) && (
+            <div className="flex items-center justify-center gap-3 py-12 text-slate-400">
+              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              Suite is running…
+            </div>
+          )}
+          <div className="space-y-2">
+            {(run.executions || []).map((exec, idx) => (
+              <div key={exec.id} className="bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2.5 flex items-center gap-3">
+                <span className="text-slate-500 text-xs w-5 text-right flex-shrink-0">{idx + 1}.</span>
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  exec.status === 'running' ? 'bg-yellow-400 animate-pulse' :
+                  exec.status === 'passed'  ? 'bg-green-400' :
+                  (exec.status === 'failed' || exec.status === 'error') ? 'bg-red-400' : 'bg-slate-500'
+                }`}/>
+                <div className="flex-1 min-w-0">
+                  <span className="text-white text-sm">{exec.test_file_name}</span>
+                  {exec.module_name && <span className="text-slate-500 text-xs ml-2 bg-slate-700 px-1.5 py-0.5 rounded">{exec.module_name}</span>}
+                </div>
+                <span className="text-slate-400 text-xs flex-shrink-0">{formatDuration(exec.duration_ms)}</span>
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium w-20 justify-center flex-shrink-0 ${statusBadge(exec.status) || ''}`}>
+                  <StatusDot status={exec.status}/>
+                </span>
+                {exec.status !== 'running' && (
+                  <button onClick={() => onViewExec(exec)}
+                    className="text-slate-400 hover:text-blue-400 p-1 rounded hover:bg-slate-700 transition-colors flex-shrink-0"
+                    title="View logs">
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+                      <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
+                    </svg>
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // DeviceSelect — per-row device picker
 // ---------------------------------------------------------------------------
 function DeviceSelect({ value, onChange }) {
@@ -219,8 +423,22 @@ export default function MobileTests() {
   // --- result modal ---
   const [viewExec, setViewExec]           = useState(null);
 
+  // --- suites tab state ---
+  const [suites, setSuites]               = useState([]);
+  const [suitesLoading, setSuitesLoading] = useState(false);
+  const [suitesError, setSuitesError]     = useState('');
+  const [showSuiteModal, setShowSuiteModal] = useState(false);
+  const [editingSuite, setEditingSuite]   = useState(null); // null = create, obj = edit
+
+  // --- suite runs state ---
+  const [suiteRuns, setSuiteRuns]         = useState([]);
+  const [suiteRunsLoading, setSuiteRunsLoading] = useState(false);
+  const [viewSuiteRun, setViewSuiteRun]   = useState(null); // full run detail w/ executions
+  const [runningSuiteIds, setRunningSuiteIds] = useState(new Set());
+
   // polling refs
-  const pollTimers = useRef({}); // execId -> intervalId
+  const pollTimers = useRef({});         // execId -> intervalId (individual runs)
+  const suiteRunPollTimers = useRef({}); // suiteRunId -> intervalId
 
   // -----------------------------------------------------------------------
   // Fetch test files
@@ -264,10 +482,167 @@ export default function MobileTests() {
 
   useEffect(() => { fetchTestFiles(); }, [fetchTestFiles]);
   useEffect(() => { if (activeTab === 'runs') fetchExecutions(); }, [activeTab, fetchExecutions]);
+  // (suites tab fetch registered after fetchSuites/fetchSuiteRuns are declared below)
 
   // -----------------------------------------------------------------------
-  // Poll a running execution
+  // Fetch suites
   // -----------------------------------------------------------------------
+  const fetchSuites = useCallback(async () => {
+    setSuitesLoading(true); setSuitesError('');
+    try {
+      const r = await fetch(`${API_URL}/mobile-suites`, { headers: auth() });
+      if (!r.ok) throw new Error(await r.text());
+      setSuites(await r.json());
+    } catch (e) { setSuitesError(e.message || 'Failed to load suites'); }
+    finally { setSuitesLoading(false); }
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Fetch suite runs
+  // -----------------------------------------------------------------------
+  const fetchSuiteRuns = useCallback(async () => {
+    setSuiteRunsLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/mobile-suite-runs/all`, { headers: auth() });
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      setSuiteRuns(data);
+      // Resume polling for any still-running suite runs
+      data.filter(sr => sr.status === 'running').forEach(sr => pollSuiteRun(sr.id, sr.suite_id));
+    } catch (_) {}
+    finally { setSuiteRunsLoading(false); }
+  }, []);
+
+  // Trigger fetch when switching to suites tab (placed here after function declarations)
+  useEffect(() => { if (activeTab === 'suites') { fetchSuites(); fetchSuiteRuns(); } }, [activeTab, fetchSuites, fetchSuiteRuns]);
+
+  // -----------------------------------------------------------------------
+  // Poll a running suite run
+  // -----------------------------------------------------------------------
+  const pollSuiteRun = useCallback((suiteRunId, suiteId) => {
+    if (suiteRunPollTimers.current[suiteRunId]) return;
+    const tick = async () => {
+      try {
+        const r = await fetch(`${API_URL}/mobile-suite-runs/${suiteRunId}`, { headers: auth() });
+        if (!r.ok) return;
+        const data = await r.json();
+        setSuiteRuns(prev => prev.map(sr => sr.id === suiteRunId ? { ...data, executions: undefined } : sr));
+        setViewSuiteRun(prev => prev && prev.id === suiteRunId ? data : prev);
+        // Refresh suite list to update last_run_status
+        setSuites(prev => prev.map(s => s.id === suiteId ? { ...s, last_run_status: data.status, last_run_at: data.started_at } : s));
+        if (data.status !== 'running') {
+          clearInterval(suiteRunPollTimers.current[suiteRunId]);
+          delete suiteRunPollTimers.current[suiteRunId];
+          setRunningSuiteIds(prev => { const s = new Set(prev); s.delete(suiteId); return s; });
+          fetchSuites(); // refresh file_count + last_run_status
+        }
+      } catch { /* ignore */ }
+    };
+    suiteRunPollTimers.current[suiteRunId] = setInterval(tick, 3000);
+    tick();
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Save suite (create or update)
+  // -----------------------------------------------------------------------
+  const saveSuite = useCallback(async (form) => {
+    try {
+      const { files, ...suiteData } = form;
+      if (editingSuite) {
+        await fetch(`${API_URL}/mobile-suites/${editingSuite.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...auth() },
+          body: JSON.stringify({ ...suiteData, files }),
+        });
+      } else {
+        await fetch(`${API_URL}/mobile-suites`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...auth() },
+          body: JSON.stringify({ ...suiteData, files }),
+        });
+      }
+      setShowSuiteModal(false);
+      setEditingSuite(null);
+      fetchSuites();
+    } catch (e) { alert(`Save failed: ${e.message}`); }
+  }, [editingSuite, fetchSuites]);
+
+  // -----------------------------------------------------------------------
+  // Open edit modal (fetch suite with files)
+  // -----------------------------------------------------------------------
+  const openEditSuite = useCallback(async (suite) => {
+    try {
+      const r = await fetch(`${API_URL}/mobile-suites/${suite.id}`, { headers: auth() });
+      if (r.ok) setEditingSuite(await r.json());
+      else setEditingSuite(suite);
+    } catch { setEditingSuite(suite); }
+    setShowSuiteModal(true);
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Delete suite
+  // -----------------------------------------------------------------------
+  const deleteSuite = useCallback(async (suiteId) => {
+    if (!window.confirm('Delete this suite?')) return;
+    try {
+      await fetch(`${API_URL}/mobile-suites/${suiteId}`, { method: 'DELETE', headers: auth() });
+      setSuites(prev => prev.filter(s => s.id !== suiteId));
+    } catch (e) { alert(`Delete failed: ${e.message}`); }
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Run a suite
+  // -----------------------------------------------------------------------
+  const runSuite = useCallback(async (suite) => {
+    setRunningSuiteIds(prev => new Set(prev).add(suite.id));
+    try {
+      const r = await fetch(`${API_URL}/mobile-suites/${suite.id}/run`, {
+        method: 'POST', headers: auth(),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      const { suiteRunId } = await r.json();
+      const newRun = {
+        id: suiteRunId, suite_id: suite.id, suite_name: suite.name,
+        device_profile: suite.device_profile, status: 'running',
+        total_files: suite.file_count || 0, passed_files: 0, failed_files: 0,
+        started_at: new Date().toISOString(),
+      };
+      setSuiteRuns(prev => [newRun, ...prev]);
+      setSuites(prev => prev.map(s => s.id === suite.id ? { ...s, last_run_status: 'running', last_run_at: newRun.started_at } : s));
+      pollSuiteRun(suiteRunId, suite.id);
+    } catch (e) {
+      alert(`Failed to start suite run: ${e.message}`);
+      setRunningSuiteIds(prev => { const s = new Set(prev); s.delete(suite.id); return s; });
+    }
+  }, [pollSuiteRun]);
+
+  // -----------------------------------------------------------------------
+  // View suite run detail
+  // -----------------------------------------------------------------------
+  const viewSuiteRunDetail = useCallback(async (run) => {
+    setViewSuiteRun({ ...run, executions: [] });
+    try {
+      const r = await fetch(`${API_URL}/mobile-suite-runs/${run.id}`, { headers: auth() });
+      if (r.ok) setViewSuiteRun(await r.json());
+    } catch { /* show what we have */ }
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Delete suite run
+  // -----------------------------------------------------------------------
+  const deleteSuiteRun = useCallback(async (runId) => {
+    if (!window.confirm('Delete this suite run record?')) return;
+    try {
+      await fetch(`${API_URL}/mobile-suite-runs/${runId}`, { method: 'DELETE', headers: auth() });
+      setSuiteRuns(prev => prev.filter(sr => sr.id !== runId));
+    } catch (e) { alert(`Delete failed: ${e.message}`); }
+  }, []);
+
+  // Cleanup all poll timers on unmount
+  useEffect(() => () => {
+    Object.values(pollTimers.current).forEach(clearInterval);
+    Object.values(suiteRunPollTimers.current).forEach(clearInterval);
+  }, []);
   const pollExecution = useCallback((execId, testFileId) => {
     if (pollTimers.current[execId]) return;
     const tick = async () => {
@@ -288,7 +663,11 @@ export default function MobileTests() {
     tick();
   }, []);
 
-  useEffect(() => () => Object.values(pollTimers.current).forEach(clearInterval), []);
+  // Cleanup all poll timers on unmount
+  useEffect(() => () => {
+    Object.values(pollTimers.current).forEach(clearInterval);
+    Object.values(suiteRunPollTimers.current).forEach(clearInterval);
+  }, []);
 
   // -----------------------------------------------------------------------
   // Run test file on device
@@ -396,8 +775,9 @@ export default function MobileTests() {
         {/* Tabs */}
         <div className="flex gap-1 mt-4">
           {[
-            { id: 'files', label: 'Test Files', icon: '📄' },
-            { id: 'runs',  label: `Runs${executions.length > 0 ? ` (${executions.length})` : ''}`, icon: '▶️' },
+            { id: 'files',  label: 'Test Files', icon: '📄' },
+            { id: 'suites', label: `Suites${suites.length > 0 ? ` (${suites.length})` : ''}`, icon: '📋' },
+            { id: 'runs',   label: `Runs${executions.length > 0 ? ` (${executions.length})` : ''}`, icon: '▶️' },
           ].map(tab => (
             <button
               key={tab.id}
@@ -556,7 +936,129 @@ export default function MobileTests() {
           </div>
         )}
 
-        {/* ---- TAB: RUNS ---- */}
+        {/* ---- TAB: SUITES ---- */}
+        {activeTab === 'suites' && (
+          <div>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <p className="text-slate-400 text-sm">{suites.length} suite{suites.length !== 1 ? 's' : ''} defined</p>
+              <button
+                onClick={() => { setEditingSuite(null); setShowSuiteModal(true); }}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+              >+ New Suite</button>
+            </div>
+
+            {/* Suite cards */}
+            {suitesLoading ? (
+              <p className="text-slate-400 text-sm">Loading suites…</p>
+            ) : suitesError ? (
+              <p className="text-red-400 text-sm">{suitesError}</p>
+            ) : suites.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">
+                <p className="text-4xl mb-3">📋</p>
+                <p className="text-lg font-medium text-slate-400">No suites yet</p>
+                <p className="text-sm mt-1">Create a suite to group test files and run them together for CI.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {suites.map(suite => {
+                  const isRunning = runningSuiteIds.has(suite.id);
+                  const lastStatus = suite.last_run_status;
+                  const statusColor = lastStatus === 'passed'  ? 'text-green-400 bg-green-900/30'
+                                    : lastStatus === 'failed'  ? 'text-red-400 bg-red-900/30'
+                                    : lastStatus === 'partial' ? 'text-yellow-400 bg-yellow-900/30'
+                                    : 'text-slate-400 bg-slate-700';
+                  return (
+                    <div key={suite.id} className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-white">{suite.name}</span>
+                            <span className="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">{suite.device_profile}</span>
+                            <span className="text-xs text-slate-400">{suite.file_count ?? 0} file{suite.file_count !== 1 ? 's' : ''}</span>
+                            {lastStatus && (
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor}`}>{lastStatus}</span>
+                            )}
+                          </div>
+                          {suite.description && (
+                            <p className="text-slate-400 text-sm mt-1 truncate">{suite.description}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => runSuite(suite)}
+                            disabled={isRunning}
+                            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            {isRunning ? (
+                              <><span className="animate-spin inline-block">⟳</span> Running…</>
+                            ) : <>▶ Run</>}
+                          </button>
+                          <button
+                            onClick={() => openEditSuite(suite)}
+                            className="text-slate-400 hover:text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 hover:border-slate-400 transition-colors"
+                          >Edit</button>
+                          <button
+                            onClick={() => deleteSuite(suite.id)}
+                            className="text-red-400 hover:text-red-300 text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 hover:border-red-800 transition-colors"
+                          >Delete</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Suite Runs History */}
+            <div className="mt-8">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-white font-semibold">Suite Run History</h3>
+                <button
+                  onClick={fetchSuiteRuns}
+                  className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                  title="Refresh"
+                >↺</button>
+              </div>
+              {suiteRunsLoading ? (
+                <p className="text-slate-400 text-sm">Loading…</p>
+              ) : suiteRuns.length === 0 ? (
+                <p className="text-slate-500 text-sm">No suite runs yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {suiteRuns.map(run => {
+                    const isRunning = run.status === 'running';
+                    const statusColor = run.status === 'passed'  ? 'text-green-400 bg-green-900/30'
+                                     : run.status === 'failed'  ? 'text-red-400 bg-red-900/30'
+                                     : run.status === 'partial' ? 'text-yellow-400 bg-yellow-900/30'
+                                     : 'text-blue-400 bg-blue-900/30';
+                    return (
+                      <div key={run.id} className="flex items-center gap-4 bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-sm">
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusColor}`}>
+                          {isRunning ? '⟳ running' : run.status}
+                        </span>
+                        <span className="text-white flex-1 font-medium truncate">{run.suite_name}</span>
+                        <span className="text-slate-400 text-xs">{run.device_profile}</span>
+                        <span className="text-slate-400 text-xs">{run.passed_files}/{run.total_files} passed</span>
+                        <span className="text-slate-500 text-xs">{new Date(run.started_at).toLocaleString()}</span>
+                        <button
+                          onClick={() => viewSuiteRunDetail(run.id)}
+                          className="text-blue-400 hover:text-blue-300 text-xs px-2.5 py-1 rounded border border-slate-600 hover:border-blue-600 transition-colors"
+                        >View</button>
+                        <button
+                          onClick={() => deleteSuiteRun(run.id)}
+                          className="text-slate-400 hover:text-red-400 text-xs px-2.5 py-1 rounded border border-slate-700 hover:border-red-800 transition-colors"
+                        >✕</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ---- TAB: RUNS ---- */
         {activeTab === 'runs' && (
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -674,6 +1176,25 @@ export default function MobileTests() {
         <ResultModal
           execution={viewExec}
           onClose={() => setViewExec(null)}
+        />
+      )}
+
+      {/* Suite create/edit modal */}
+      {showSuiteModal && (
+        <SuiteModal
+          suite={editingSuite}
+          testFiles={testFiles}
+          onClose={() => { setShowSuiteModal(false); setEditingSuite(null); }}
+          onSave={saveSuite}
+        />
+      )}
+
+      {/* Suite run detail modal */}
+      {viewSuiteRun && (
+        <SuiteRunModal
+          run={viewSuiteRun}
+          onClose={() => setViewSuiteRun(null)}
+          onViewExec={(exec) => setViewExec(exec)}
         />
       )}
     </div>
