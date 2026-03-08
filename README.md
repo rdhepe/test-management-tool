@@ -1,19 +1,52 @@
 # TestStudio.Cloud
 
-A modern SaaS web application layout built with React and Tailwind CSS.
+A full-featured SaaS test management and automation platform built with React, Tailwind CSS, and Node.js/Express.
 
 ## Features
 
+### Core Platform
 - **Dark Theme UI**: Clean and minimal dark interface
-- **Fixed Sidebar**: 250px wide navigation with menu items
-- **Top Navbar**: 60px height header with app branding and user avatar
+- **Collapsible Sidebar**: Section headers collapse/expand; icon-only mode; preferences persisted to localStorage
+- **Top Navbar**: App branding, org context, and user avatar
 - **Responsive Layout**: Flexible main content area
 - **Tailwind CSS**: Utility-first styling
-- **Monaco Editor**: Full-featured code editor with TypeScript support
-- **Module Management**: Create and organize test modules
-- **Test File Editor**: Write Playwright tests with syntax highlighting
-- **Execution Panel**: Mock test execution with pass/fail results
-- **Backend Server**: Express server for running Playwright tests
+
+### Test Management
+- **Features & Requirements**: Define product features, attach requirements, build traceability matrix
+- **Test Cases**: Manual test scenarios with steps, expected results, execution history, and Excel export
+- **Sprints**: Plan iterations, track progress, and generate Sprint Detail PDFs
+- **Taskboard**: Kanban board for non-testing work items linked to requirements
+- **Defects**: Log, track, and close bugs with severity and sprint scoping
+
+### Automation (Playwright)
+- **Module Management**: Organise test files into project modules
+- **Test File Editor**: Monaco editor with TypeScript syntax highlighting
+- **Single Runs & Suite Runs**: Execute individual files or batched test suites
+- **HTML Reports**: Full Playwright trace/screenshot reports per execution
+
+### Performance Testing (k6)
+- **Test Types**: Smoke, Load, Stress, Spike, Soak — each with sensible VU/duration defaults
+- **Folders**: Organise tests by feature area
+- **Suite Runs**: Execute multiple k6 tests in one batch with aggregate results
+- **AI Insights** *(AI Healing plan required)*:
+  - Threshold Recommendations — suggests p95/p99 thresholds from run history
+  - Regression Compare — flags metric regressions vs a baseline run
+  - Anomaly Detection — detects unusual latency/error patterns
+  - Script Generator — natural-language → ready-to-run k6 script
+  - Root Cause Analysis — explains why a test failed or regressed
+  - Smart Suite Builder — recommends an optimal subset of tests for a suite
+
+### Accessibility Testing (axe-core + Playwright)
+- **WCAG Audits**: Automated scans via Playwright + axe-core on any URL
+- **Extra Pages**: Audit multiple paths in a single test run
+- **Violation Grouping**: Results categorised by impact — Critical / Serious / Moderate / Minor
+- **Run History**: Per-test audit history with violation counts and full detail
+- **AI Fix Suggestions** *(AI Healing plan required)*: Code-level fix recommendations for each violation
+
+### Reports & Dashboard
+- **Dashboard Widgets**: Pass rate trends, requirement coverage, open defects, recent executions
+- **Sprint PDF Export**: Full sprint report for stakeholder sign-off
+- **Excel Export**: Test case execution records for compliance audits
 
 ## Getting Started
 
@@ -70,60 +103,45 @@ npm run build
 ## Project Structure
 
 ```
-├── server/                 # Backend Express server
-│   ├── server.js          # Main server file
-│   ├── package.json       # Server dependencies
-│   └── README.md          # Server documentation
+├── server/                      # Backend Express server
+│   ├── server.js               # API routes (Playwright, k6, axe-core, AI)
+│   ├── db.js                   # PostgreSQL operations
+│   ├── package.json            # Server dependencies
+│   └── README.md               # Server documentation
 ├── src/
 │   ├── components/
-│   │   ├── Navbar.jsx              # Top navigation bar
-│   │   ├── Sidebar.jsx             # Left sidebar navigation
-│   │   ├── ModuleList.jsx          # Module cards grid
-│   │   ├── ModuleDetailView.jsx    # Individual module view
-│   │   ├── TestFileEditor.jsx      # Monaco editor for test files
-│   │   ├── ExecutionPanel.jsx      # Bottom execution output panel
-│   │   ├── CreateModuleModal.jsx   # Module creation modal
-│   │   └── CreateTestFileModal.jsx # Test file creation modal
-│   ├── App.jsx             # Main application component
+│   │   ├── Navbar.jsx                  # Top navigation bar
+│   │   ├── Sidebar.jsx                 # Collapsible sidebar with section headers
+│   │   ├── ModuleList.jsx              # Playwright module cards
+│   │   ├── ModuleDetailView.jsx        # Individual module view
+│   │   ├── TestFileEditor.jsx          # Monaco editor for test files
+│   │   ├── PerformanceTests.jsx        # k6 performance testing module
+│   │   ├── AccessibilityTests.jsx      # axe-core/Playwright accessibility audits
+│   │   ├── Tutorial.jsx                # In-app guide (this file)
+│   │   └── ...                         # Other feature components
+│   ├── App.jsx             # Main application with keep-alive view mounting
 │   ├── main.jsx            # React entry point
 │   └── index.css           # Tailwind imports
-├── index.html              # HTML template
+├── index.html              # HTML template (Vite shell)
 ├── tailwind.config.js      # Tailwind configuration
 ├── vite.config.js          # Vite configuration
-└── package.json            # Dependencies
+└── package.json            # Frontend dependencies
 ```
-
-## Features
-
-### Module Management
-- Create modules with name, description, base URL
-- TypeScript as default language
-- Module cards showing metadata
-
-### Test File Editor
-- Monaco Editor integration
-- TypeScript syntax highlighting
-- Auto-save on change
-- Save/Unsaved status indicators
-
-### Execution
-- Run button in navbar
-- Execution panel at bottom
-- Mock test execution with spinner
-- Pass/Fail results with logs
-
-### Backend API
-- **POST /run-test**: Execute Playwright tests
-- Temp file management
-- Test wrapping and execution
-- stdout/stderr capture
 
 ## Technologies Used
 
+**Frontend**
 - React 18
 - Tailwind CSS 3
 - Vite 5
 - Monaco Editor
+
+**Backend**
 - Express.js
-- Playwright
+- PostgreSQL
+- Playwright (automation + accessibility auditing)
+- axe-core (WCAG violation scanning)
+- k6 (performance/load testing)
+- OpenAI API (AI Insights & fix suggestions — optional)
 - CORS
+

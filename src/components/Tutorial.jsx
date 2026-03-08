@@ -113,6 +113,9 @@ const CHAPTERS = [
         <Step number="4" title="Create Test Cases">Go to <strong>Test Cases</strong> → link each test case to a requirement. Add steps, expected results, and priority.</Step>
         <Step number="5" title="Create a Module">Go to <strong>Modules</strong> → create a folder for your automation project and add test files.</Step>
         <Step number="6" title="Run a Test">Select a test file → click <strong>Execute</strong>. View results in <strong>Single Runs</strong>.</Step>
+        <Step number="7" title="Run a Performance Test">Go to <strong>Performance</strong> → create a k6 test, pick a type (load, stress, spike, soak, or smoke), configure VUs and duration, then click <strong>Run</strong>. Results include p95/p99 latency, throughput, and error rate.</Step>
+        <Step number="8" title="Run an Accessibility Audit">Go to <strong>Accessibility</strong> → create a test with your app's URL and click <strong>Run Audit</strong>. Violations are grouped by impact level (critical → minor) with WCAG rule references.</Step>
+        <Callout type="info">The sidebar has <strong>collapsible sections</strong> (Testing, Performance, Accessibility, etc.). Click any section header to expand or collapse it — your preference is saved across sessions. Use the toggle at the bottom to switch to icon-only mode.</Callout>
         <Callout type="tip">Use the <strong>Taskboard</strong> alongside sprints to track non-testing work items (setup, infrastructure, reviews) and link them to requirements.</Callout>
       </div>
     )
@@ -321,6 +324,156 @@ const CHAPTERS = [
           <Step number="3" title="Save screenshots on failure">Enable <code className="text-orange-300 bg-slate-800 px-1 rounded text-xs">screenshot: 'only-on-failure'</code> for faster diagnosis.</Step>
         </Accordion>
         <Callout type="best">Link each Test File to the corresponding manual Test Cases via requirements. This way the Sprint Report shows both manual execution status and automation coverage for each requirement.</Callout>
+      </div>
+    )
+  },
+  {
+    id: 'performance',
+    title: 'Performance Testing',
+    icon: '📈',
+    color: 'text-cyan-400',
+    dot: 'bg-cyan-400',
+    summary: 'k6 load, stress, spike & soak tests',
+    content: () => (
+      <div>
+        <p className="text-slate-300 mb-4 leading-relaxed">
+          The <strong className="text-white">Performance</strong> module lets you create and execute <strong className="text-white">k6 load tests</strong> directly from the browser — no local k6 installation needed. Tests are organised in folders, and multiple tests can be combined into suite runs.
+        </p>
+        <Accordion title="Test Types & Defaults" badge="Start here">
+          <p className="text-sm text-slate-300 mb-3">Choose a test type when creating a test. Each has a sensible default configuration you can override:</p>
+          <div className="space-y-2">
+            {[
+              ['Smoke',  'sky',    '1 VU · 30 s',   'Sanity check — verify the endpoint works at minimal load'],
+              ['Load',   'indigo', '10 VUs · 30 s',  'Simulate normal expected traffic'],
+              ['Stress', 'amber',  '50 VUs · 120 s', 'Push beyond normal load to find breaking points'],
+              ['Spike',  'rose',   '100 VUs · 60 s', 'Sudden burst of traffic to test elasticity'],
+              ['Soak',   'purple', '5 VUs · 3 600 s',  'Long-running test to detect memory leaks and degradation'],
+            ].map(([type, color, defaults, desc]) => (
+              <div key={type} className="bg-slate-800 border border-slate-700 rounded px-3 py-2">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <Badge color={color}>{type}</Badge>
+                  <span className="text-xs text-slate-400 font-mono">{defaults}</span>
+                </div>
+                <p className="text-xs text-slate-400">{desc}</p>
+              </div>
+            ))}
+          </div>
+          <Callout type="tip">Default values are pre-filled when you select a test type. Adjust VUs, duration, and thresholds to match your specific SLA targets.</Callout>
+        </Accordion>
+        <Accordion title="Folders">
+          <p className="text-sm text-slate-300 mb-2">Organise your tests into <strong>Folders</strong> (e.g. Auth, Checkout, API, Dashboard) to keep large suites manageable.</p>
+          <Step number="1">Click <strong>New Folder</strong> in the Performance sidebar panel.</Step>
+          <Step number="2">Select a folder before creating a test to place it there automatically.</Step>
+          <Step number="3">Collapse/expand folders in the panel to keep focus on the area you're testing.</Step>
+          <Callout type="best">Mirror your application's feature structure in your folder hierarchy — this makes it obvious which area a failing test belongs to.</Callout>
+        </Accordion>
+        <Accordion title="Running Tests">
+          <Step number="1">Open a test and click <strong>Run</strong>. The test is queued and executed server-side.</Step>
+          <Step number="2">Status polls automatically — watch it move from <Badge color="sky">Running</Badge> to <Badge color="emerald">Passed</Badge> or <Badge color="rose">Failed</Badge>.</Step>
+          <Step number="3">View the result: p50/p95/p99 latency, throughput (req/s), error rate, and VU ramp-up chart.</Step>
+          <Callout type="info">A test <em>fails</em> only if a configured threshold is breached (e.g. p95 &gt; 500 ms). Green metrics with no threshold still show as Passed.</Callout>
+        </Accordion>
+        <Accordion title="Suite Runs">
+          <p className="text-sm text-slate-300 mb-2">A <strong>Suite Run</strong> executes multiple tests in one batch and aggregates results into a single report.</p>
+          <Step number="1">Go to <strong>Suite Runs</strong> tab → click <strong>New Suite Run</strong>.</Step>
+          <Step number="2">Select the tests you want to include (across any folder).</Step>
+          <Step number="3">Start the run — tests execute sequentially. View per-test results and the overall pass/fail summary.</Step>
+          <Callout type="best">Run a suite before every release. A failing smoke or load test against your staging environment is a clear gate to block the deploy.</Callout>
+        </Accordion>
+        <Accordion title="AI Insights" badge="AI Healing plan">
+          <p className="text-sm text-slate-300 mb-3">Six AI-powered features are available when <strong>AI Healing</strong> is enabled on your organisation:</p>
+          <div className="space-y-2">
+            {[
+              ['🎯', 'Threshold Recommendations', 'Analyses your test history and suggests p95/p99 threshold values that make statistical sense for your workload.'],
+              ['📊', 'Regression Compare',         'Compares the latest run to a baseline run and flags metrics that have regressed — even if they technically stayed under threshold.'],
+              ['🔍', 'Anomaly Detection',          'Detects unusual patterns in latency or error rate that don\'t match the historical norm for that test.'],
+              ['✍️', 'Script Generator',           'Describe your load test goal in plain English and receive a ready-to-run k6 script. Paste it into any test file.'],
+              ['🩺', 'Root Cause Analysis',        'When a run fails or regresses, AI explains the probable cause and suggests which part of your stack to investigate.'],
+              ['🧠', 'Smart Suite Builder',        'Reviews all your tests and recommends a subset that gives the best coverage while keeping suite run time manageable.'],
+            ].map(([icon, name, desc]) => (
+              <div key={name} className="flex gap-3 bg-slate-800/60 border border-slate-700 rounded px-3 py-2">
+                <span className="text-lg shrink-0 mt-0.5">{icon}</span>
+                <div>
+                  <p className="text-xs font-semibold text-white mb-0.5">{name}</p>
+                  <p className="text-xs text-slate-400">{desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <Callout type="warn">AI Insights features are only visible when your organisation has AI Healing enabled. Contact your admin if you don't see them.</Callout>
+        </Accordion>
+        <Callout type="best">Start with a smoke test for every new endpoint before escalating to stress or soak tests. It's cheaper to find a 500 error with 1 VU than with 100.</Callout>
+      </div>
+    )
+  },
+  {
+    id: 'accessibility',
+    title: 'Accessibility Testing',
+    icon: '♿',
+    color: 'text-violet-400',
+    dot: 'bg-violet-400',
+    summary: 'WCAG audits with axe-core & AI fixes',
+    content: () => (
+      <div>
+        <p className="text-slate-300 mb-4 leading-relaxed">
+          The <strong className="text-white">Accessibility</strong> module runs automated WCAG audits using <strong className="text-white">Playwright + axe-core</strong>. Each audit scans your pages for accessibility violations and groups them by impact level so you can prioritise fixes effectively.
+        </p>
+        <Accordion title="Creating a Test" badge="Start here">
+          <Step number="1">Go to <strong>Accessibility</strong> in the sidebar → click <strong>New Test</strong>.</Step>
+          <Step number="2">Enter a <strong>Name</strong> and the <strong>Target URL</strong> (the primary page to audit).</Step>
+          <Step number="3">Optionally add <strong>Extra Pages</strong> — additional paths on the same site (e.g. <code className="text-orange-300 bg-slate-800 px-1 rounded text-xs">/login</code>, <code className="text-orange-300 bg-slate-800 px-1 rounded text-xs">/dashboard</code>) to include in the same audit run.</Step>
+          <Callout type="tip">Audit your most-visited pages first. Login, home, and checkout flows have the highest user impact.</Callout>
+        </Accordion>
+        <Accordion title="Running an Audit">
+          <p className="text-sm text-slate-300 mb-2">Click <strong>Run Audit</strong> on any test. The audit runs server-side (Playwright navigates each URL, axe-core injects and scans) and results are available within seconds.</p>
+          <ul className="text-sm text-slate-300 space-y-1 list-disc list-inside mb-3">
+            <li>Status polls automatically — no page refresh needed</li>
+            <li>Each URL in the test is audited independently</li>
+            <li>Results persist in <strong>Run History</strong> for trend tracking</li>
+          </ul>
+          <Callout type="info">axe-core covers a large subset of WCAG 2.1 A/AA rules. It won't catch every accessibility issue (e.g. logical reading order) but it catches the most common structural violations automatically.</Callout>
+        </Accordion>
+        <Accordion title="Understanding Violations" badge="WCAG levels">
+          <p className="text-sm text-slate-300 mb-3">Each violation is categorised by <strong>impact level</strong>:</p>
+          <div className="space-y-2">
+            {[
+              ['Critical', 'rose',    'Completely blocks access for users with disabilities. Must fix immediately.'],
+              ['Serious',  'amber',   'Significantly degrades experience. Should fix as high priority.'],
+              ['Moderate', 'sky',     'Causes some difficulty but a workaround may exist. Fix in next sprint.'],
+              ['Minor',    'emerald', 'Best-practice deviations. Low impact, but fix over time.'],
+            ].map(([level, color, desc]) => (
+              <div key={level} className="flex gap-3 items-start">
+                <Badge color={color}>{level}</Badge>
+                <p className="text-xs text-slate-300">{desc}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-sm text-slate-300 mt-3 mb-1">Each violation also shows:</p>
+          <ul className="text-sm text-slate-300 space-y-1 list-disc list-inside">
+            <li><strong>WCAG rule ID</strong> (e.g. <code className="text-orange-300 bg-slate-800 px-1 rounded text-xs">color-contrast</code>, <code className="text-orange-300 bg-slate-800 px-1 rounded text-xs">button-name</code>)</li>
+            <li><strong>Affected HTML element</strong> — inspect-ready target selector</li>
+            <li><strong>Help link</strong> — links to the axe-core rule documentation</li>
+          </ul>
+        </Accordion>
+        <Accordion title="Run History">
+          <p className="text-sm text-slate-300 mb-2">The <strong>Audit Runs</strong> tab shows all executions across all tests, including:</p>
+          <ul className="text-sm text-slate-300 space-y-1 list-disc list-inside">
+            <li>Timestamp and tested URL</li>
+            <li>Violation counts per impact level</li>
+            <li>Expandable violation detail panel per run</li>
+          </ul>
+          <Callout type="best">Run audits on each release. A rising critical count across releases is a quality regression just like a rising defect count.</Callout>
+        </Accordion>
+        <Accordion title="AI Fix Suggestions" badge="AI Healing plan">
+          <p className="text-sm text-slate-300 mb-2">When <strong>AI Healing</strong> is enabled, a <strong>Get AI Fix</strong> button appears on each violation. Click it to receive:</p>
+          <ul className="text-sm text-slate-300 space-y-1 list-disc list-inside mb-3">
+            <li>A plain-English explanation of why this is a violation</li>
+            <li>A concrete code snippet showing the corrected HTML/ARIA attributes</li>
+            <li>The WCAG success criterion being violated</li>
+          </ul>
+          <Callout type="warn">AI suggestions are a starting point — always review generated code in context. Some fixes (e.g. adding <code className="text-orange-300 bg-slate-800 px-1 rounded text-xs">aria-label</code>) require meaningful text that only you can write.</Callout>
+        </Accordion>
+        <Callout type="best">Aim for zero Critical and Serious violations before each release. Address Moderate and Minor violations iteratively — don't let them accumulate across sprints.</Callout>
       </div>
     )
   },
