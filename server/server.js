@@ -5873,6 +5873,7 @@ app.delete('/perf-suite-executions/:id', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 async function getPerfAIKey(orgId) {
   const org = await organizationOperations.getById(orgId);
+  if (!org?.ai_healing_enabled) throw new Error('AI features are not enabled for this organisation.');
   return org?.openai_api_key || process.env.OPENAI_API_KEY || '';
 }
 async function callPerfOpenAI(apiKey, messages, maxTokens = 800) {
@@ -5891,6 +5892,8 @@ app.get('/perf-ai/threshold-recommendations/:testId', requireAuth, async (req, r
   try {
     const { testId } = req.params;
     const orgId = req.session.orgId;
+    const org = await organizationOperations.getById(orgId);
+    if (!org?.ai_healing_enabled) return res.status(403).json({ error: 'AI features are not enabled for this organisation.' });
     const r = await pool.query(
       `SELECT summary_json FROM performance_executions
        WHERE perf_test_id=$1 AND org_id=$2 AND status IN ('passed','thresholds_failed','failed')

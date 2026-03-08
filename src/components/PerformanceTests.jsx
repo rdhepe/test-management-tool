@@ -75,7 +75,7 @@ function Sparkline({ data, valueKey, color = '#818cf8', height = 40, width = 120
 // ─────────────────────────────────────────────────────────────────────────────
 // Threshold row editor
 // ─────────────────────────────────────────────────────────────────────────────
-function ThresholdEditor({ thresholds, onChange, testId }) {
+function ThresholdEditor({ thresholds, onChange, testId, aiEnabled }) {
   const [suggesting, setSuggesting] = useState(false);
   const [suggestions, setSuggestions] = useState(null);
 
@@ -104,7 +104,7 @@ function ThresholdEditor({ thresholds, onChange, testId }) {
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Thresholds</span>
         <div className="flex items-center gap-3">
-          {testId && (
+          {testId && aiEnabled && (
             <button type="button" onClick={fetchSuggestions} disabled={suggesting}
               className="text-xs text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-1 disabled:opacity-50">
               {suggesting ? 'Loading…' : (
@@ -165,7 +165,7 @@ function ThresholdEditor({ thresholds, onChange, testId }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Create / Edit modal (with folder picker)
 // ─────────────────────────────────────────────────────────────────────────────
-function TestModal({ test, onClose, onSave, plan, folders }) {
+function TestModal({ test, onClose, onSave, plan, folders, aiEnabled }) {
   const isEnterprise = plan === 'enterprise';
   const [form, setForm] = useState({
     name: test?.name || '',
@@ -309,7 +309,7 @@ function TestModal({ test, onClose, onSave, plan, folders }) {
 
           {/* Thresholds */}
           <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-4">
-            <ThresholdEditor thresholds={form.thresholds_json} onChange={val => set('thresholds_json', val)} testId={test?.id} />
+            <ThresholdEditor thresholds={form.thresholds_json} onChange={val => set('thresholds_json', val)} testId={test?.id} aiEnabled={aiEnabled} />
           </div>
 
           {err && <p className="text-red-400 text-sm">{err}</p>}
@@ -333,7 +333,7 @@ function TestModal({ test, onClose, onSave, plan, folders }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Execution Detail panel
 // ─────────────────────────────────────────────────────────────────────────────
-function ExecutionDetail({ executionId, onClose }) {
+function ExecutionDetail({ executionId, onClose, aiEnabled }) {
   const [exec, setExec] = useState(null);
   const [metrics, setMetrics] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -549,7 +549,7 @@ function ExecutionDetail({ executionId, onClose }) {
           )}
 
           {/* Root Cause Analysis */}
-          {['failed', 'thresholds_failed'].includes(exec.status) && (
+          {aiEnabled && ['failed', 'thresholds_failed'].includes(exec.status) && (
             <div className="border border-purple-500/20 rounded-xl overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 bg-purple-500/5">
                 <div className="flex items-center gap-2">
@@ -1023,6 +1023,7 @@ function GenerateScriptModal({ onClose }) {
 export default function PerformanceTests({ orgInfo, currentUser }) {
   const plan = orgInfo?.plan || 'free';
   const canRun = ['pro', 'premium', 'enterprise'].includes(plan);
+  const aiEnabled = !!orgInfo?.ai_healing_enabled;
 
   const [tab, setTab] = useState('tests');          // 'tests' | 'suites' | 'runs'
   const [tests, setTests] = useState([]);
@@ -1291,7 +1292,7 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
             New Suite
           </button>
         )}
-        {tab === 'ai' && (
+        {tab === 'ai' && aiEnabled && (
           <button onClick={() => setGenerateScriptOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-purple-600/30">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
@@ -1325,7 +1326,7 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
           { key: 'tests',  label: `Tests (${tests.length})` },
           { key: 'suites', label: `Suites (${suites.length})` },
           { key: 'runs',   label: `Runs (${runs.length})` },
-          { key: 'ai',     label: '\u2728 AI Insights' },
+          ...(aiEnabled ? [{ key: 'ai', label: '\u2728 AI Insights' }] : []),
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 ${tab === t.key ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}>
@@ -1832,7 +1833,7 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
       {showModal && (
-        <TestModal test={editTest} plan={plan} folders={folders}
+        <TestModal test={editTest} plan={plan} folders={folders} aiEnabled={aiEnabled}
           onClose={() => { setShowModal(false); setEditTest(null); }}
           onSave={(saved) => {
             if (editTest) {
@@ -1845,7 +1846,7 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
       )}
 
       {selectedExecId && (
-        <ExecutionDetail executionId={selectedExecId} onClose={() => { setSelectedExecId(null); loadData(); }} />
+        <ExecutionDetail executionId={selectedExecId} aiEnabled={aiEnabled} onClose={() => { setSelectedExecId(null); loadData(); }} />
       )}
 
       {generateScriptOpen && (
@@ -1922,6 +1923,7 @@ export default function PerformanceTests({ orgInfo, currentUser }) {
       {viewingTestRunFromSuite && (
         <ExecutionDetail
           executionId={viewingTestRunFromSuite}
+          aiEnabled={aiEnabled}
           onClose={() => setViewingTestRunFromSuite(null)}
         />
       )}
