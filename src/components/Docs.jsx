@@ -721,6 +721,201 @@ Content-Type: application/json
     ),
   },
 
+  // ── Mobile Testing ──────────────────────────────────────
+  'mob-overview': {
+    title: 'Mobile Testing Overview',
+    content: (
+      <>
+        <p>Mobile Testing lets you run your existing Playwright test files against emulated mobile devices — without leaving the browser UI. Device profiles set the viewport, user agent, and touch capabilities automatically.</p>
+        <h2>How it works</h2>
+        <ol>
+          <li>Go to <strong>Mobile Tests</strong> in the sidebar.</li>
+          <li>Create a test by selecting a device profile and pointing it at a test URL.</li>
+          <li>Click <strong>▶ Run</strong> — Playwright launches with the device emulation applied.</li>
+          <li>Results are stored in the <strong>History</strong> tab with per-run pass/fail status.</li>
+        </ol>
+        <h2>What is emulated</h2>
+        <ul>
+          <li><strong>Viewport</strong> — exact pixel dimensions for the chosen device</li>
+          <li><strong>User Agent</strong> — the browser string the device would send</li>
+          <li><strong>Touch events</strong> — <code>hasTouch: true</code> for mobile devices</li>
+          <li><strong>Device Scale Factor</strong> — retina/2x screens for Apple devices</li>
+        </ul>
+        <div className="callout-tip">Mobile tests run the same Playwright spec files as desktop tests — no code changes needed. The device context is injected automatically.</div>
+      </>
+    ),
+  },
+  'mob-devices': {
+    title: 'Device Profiles',
+    content: (
+      <>
+        <p>TestStudio includes 30+ pre-configured device profiles based on Playwright's built-in device descriptors.</p>
+        <h2>Categories</h2>
+        <table>
+          <thead><tr><th>Category</th><th>Examples</th></tr></thead>
+          <tbody>
+            <tr><td>iPhone</td><td>iPhone SE, iPhone 13, iPhone 14 Pro, iPhone 15 Pro</td></tr>
+            <tr><td>Android phone</td><td>Pixel 5, Pixel 8, Galaxy S8, Galaxy S24</td></tr>
+            <tr><td>iPad</td><td>iPad Mini, iPad Air, iPad Pro 11", iPad Pro 12.9"</td></tr>
+            <tr><td>Android tablet</td><td>Galaxy Tab S8, Nexus 10</td></tr>
+            <tr><td>Desktop</td><td>1280×720 and 1920×1080 reference sizes</td></tr>
+          </tbody>
+        </table>
+        <h2>Custom viewport</h2>
+        <p>If a specific device isn't listed, use the <strong>Custom</strong> option and enter width, height, and user agent manually.</p>
+        <div className="callout-best">Always test at least one iPhone (WebKit) and one Android (Chromium) device to cover both major browser engines.</div>
+      </>
+    ),
+  },
+  'mob-run': {
+    title: 'Running Mobile Tests',
+    content: (
+      <>
+        <h2>Single run</h2>
+        <ol>
+          <li>Open a mobile test from the <strong>Scans</strong> list.</li>
+          <li>Click <strong>▶ Run</strong>.</li>
+          <li>Results appear in <strong>History</strong> with pass/fail, duration, and run time.</li>
+        </ol>
+        <h2>Interpreting results</h2>
+        <ul>
+          <li><strong>PASS</strong> — all Playwright assertions succeeded on the target device</li>
+          <li><strong>FAIL</strong> — one or more assertions failed; logs visible in the run detail</li>
+        </ul>
+        <div className="callout-warn">Mobile emulation is not the same as a real device. Network throttling and GPU rendering differences may not be fully reproduced. For critical pixel-perfect visual testing, supplement with a real device lab.</div>
+      </>
+    ),
+  },
+
+  // ── Security Testing ──────────────────────────────────────
+  'sec-overview': {
+    title: 'Security Testing Overview',
+    content: (
+      <>
+        <p>Security Testing lets you run automated security scans against any HTTP/HTTPS URL. Each scan checks eight categories and produces a 0–100 score with a letter grade (A–F).</p>
+        <h2>Scan categories</h2>
+        <table>
+          <thead><tr><th>Category</th><th>What is checked</th></tr></thead>
+          <tbody>
+            <tr><td>Security Headers</td><td>Content-Security-Policy, Strict-Transport-Security, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy</td></tr>
+            <tr><td>Information Disclosure</td><td>Server header, X-Powered-By header revealing technology stack</td></tr>
+            <tr><td>CORS</td><td>Wildcard <code>Access-Control-Allow-Origin: *</code></td></tr>
+            <tr><td>Cookies</td><td>Secure, HttpOnly, and SameSite flags per Set-Cookie header</td></tr>
+            <tr><td>SSL / TLS</td><td>Certificate validity, days until expiry, untrusted CA, TLS version</td></tr>
+            <tr><td>HTTP → HTTPS</td><td>Plain-HTTP requests redirected to HTTPS</td></tr>
+            <tr><td>Active Scan</td><td>SQLi and XSS reflection tested on up to 5 query parameters (active mode only)</td></tr>
+          </tbody>
+        </table>
+        <h2>Scoring</h2>
+        <p>The scan starts at 100 and deducts points per finding severity:</p>
+        <ul>
+          <li>Critical — −25 points</li>
+          <li>High — −15 points</li>
+          <li>Medium — −8 points</li>
+          <li>Low — −3 points</li>
+        </ul>
+        <table>
+          <thead><tr><th>Grade</th><th>Score range</th></tr></thead>
+          <tbody>
+            <tr><td><strong>A</strong></td><td>90 – 100</td></tr>
+            <tr><td><strong>B</strong></td><td>80 – 89</td></tr>
+            <tr><td><strong>C</strong></td><td>70 – 79</td></tr>
+            <tr><td><strong>D</strong></td><td>55 – 69</td></tr>
+            <tr><td><strong>F</strong></td><td>0 – 54</td></tr>
+          </tbody>
+        </table>
+        <div className="callout-tip">Security Testing is passive by default. Enable <strong>Active Scan</strong> to also probe query parameters for SQLi and XSS reflection — only do this on environments you own or have permission to test.</div>
+      </>
+    ),
+  },
+  'sec-create': {
+    title: 'Creating a Scan',
+    content: (
+      <>
+        <h2>Steps</h2>
+        <ol>
+          <li>Go to <strong>Security Testing</strong> in the sidebar.</li>
+          <li>Click <strong>+ New Scan</strong>.</li>
+          <li>Fill in the scan config:</li>
+        </ol>
+        <table>
+          <thead><tr><th>Field</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Name</strong></td><td>A friendly label for this scan (e.g. "Production Homepage")</td></tr>
+            <tr><td><strong>Target URL</strong></td><td>Full URL to scan, including scheme (e.g. <code>https://app.example.com</code>)</td></tr>
+            <tr><td><strong>Description</strong></td><td>Optional notes about the scan</td></tr>
+            <tr><td><strong>Custom Headers</strong></td><td>Key-value pairs sent with every request — use for <code>Authorization</code>, <code>Cookie</code>, or any auth token</td></tr>
+            <tr><td><strong>Active Scan</strong></td><td>Toggle on to also test query parameters for SQLi/XSS reflection</td></tr>
+            <tr><td><strong>Schedule</strong></td><td>Optional 5-part cron expression (e.g. <code>0 8 * * 1</code> = every Monday at 08:00)</td></tr>
+          </tbody>
+        </table>
+        <ol start={4}>
+          <li>Click <strong>Save</strong>.</li>
+          <li>Click <strong>▶ Run Scan</strong> to trigger an immediate scan.</li>
+        </ol>
+        <h2>Custom Headers example</h2>
+        <pre>{`Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\nX-Org-ID: acmecorp`}</pre>
+        <div className="callout-warn">Never store production admin credentials in scan configs. Use a dedicated read-only test account for authenticated scans.</div>
+      </>
+    ),
+  },
+  'sec-results': {
+    title: 'Scan Results & Scoring',
+    content: (
+      <>
+        <p>Each scan run produces a detailed result with a score, grade, and a list of findings grouped by category.</p>
+        <h2>Reading a result</h2>
+        <ul>
+          <li><strong>Grade</strong> — letter A–F at a glance</li>
+          <li><strong>Score</strong> — 0–100 numeric score</li>
+          <li><strong>Issues</strong> — number of failing checks</li>
+          <li><strong>Passes</strong> — number of passing checks</li>
+        </ul>
+        <h2>Finding severity levels</h2>
+        <table>
+          <thead><tr><th>Severity</th><th>Score deduction</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td>Critical</td><td>−25</td><td>CORS wildcard, reflected XSS</td></tr>
+            <tr><td>High</td><td>−15</td><td>Missing HSTS, missing CSP</td></tr>
+            <tr><td>Medium</td><td>−8</td><td>Cookie missing Secure flag, Server header exposed</td></tr>
+            <tr><td>Low</td><td>−3</td><td>Missing Referrer-Policy, certificate expiring in &lt;30 days</td></tr>
+          </tbody>
+        </table>
+        <h2>Fix recommendations</h2>
+        <p>Every failing finding includes a plain-English fix recommendation — such as the exact HTTP response header to add — so developers know exactly what to change.</p>
+        <h2>History</h2>
+        <p>All past runs are available in the <strong>History</strong> tab. You can track score changes over time as fixes are deployed.</p>
+        <div className="callout-best">Aim for a grade of <strong>B or above</strong> before deploying to production. Any Critical finding should be resolved immediately.</div>
+      </>
+    ),
+  },
+  'sec-schedule': {
+    title: 'Scheduling Scans',
+    content: (
+      <>
+        <p>Any scan can be configured with a cron-style schedule so it runs automatically without manual intervention.</p>
+        <h2>Cron format</h2>
+        <p>TestStudio uses a standard 5-part cron expression:</p>
+        <pre>{`┌─────────────── minute (0 - 59)\n│ ┌─────────────hour (0 - 23)\n│ │ ┌───────── day of month (1 - 31)\n│ │ │ ┌─────── month (1 - 12)\n│ │ │ │ ┌───── day of week (0 = Sun, 6 = Sat)\n* * * * *`}</pre>
+        <h2>Common schedules</h2>
+        <table>
+          <thead><tr><th>Expression</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>0 8 * * *</code></td><td>Every day at 08:00</td></tr>
+            <tr><td><code>0 8 * * 1</code></td><td>Every Monday at 08:00</td></tr>
+            <tr><td><code>0 0 1 * *</code></td><td>First of every month at midnight</td></tr>
+            <tr><td><code>*/30 * * * *</code></td><td>Every 30 minutes</td></tr>
+            <tr><td><code>0 9,17 * * 1-5</code></td><td>09:00 and 17:00, Mon–Fri</td></tr>
+          </tbody>
+        </table>
+        <h2>How scheduling works</h2>
+        <p>The server checks all scan schedules every 60 seconds. When a scan's expression matches the current time, a new run is triggered automatically.</p>
+        <div className="callout-tip">Leave the <strong>Schedule</strong> field blank to disable automatic scheduling. You can re-enable it later from the scan's Edit menu.</div>
+        <div className="callout-best">Schedule security scans nightly or pre-release to catch configuration drift before it reaches users.</div>
+      </>
+    ),
+  },
+
   // ── FAQ ──────────────────────────────────────────────────
   'faq-general': {
     title: 'General Questions',
