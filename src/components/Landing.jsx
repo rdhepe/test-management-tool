@@ -759,7 +759,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ──────────── HOW IT WORKS ──────────── */}}
+      {/* ──────────── HOW IT WORKS ──────────── */}
       <section id="how" className="py-20 px-6 bg-slate-900/40 border-y border-slate-800">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-14">

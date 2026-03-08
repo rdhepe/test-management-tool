@@ -1058,7 +1058,7 @@ export default function MobileTests() {
           </div>
         )}
 
-        {/* ---- TAB: RUNS ---- */
+        {/* ---- TAB: RUNS ---- */}
         {activeTab === 'runs' && (
           <div>
             <div className="flex items-center justify-between mb-4">
